@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""
+hat-task-detect — 扫描 .tasks/ 目录，检测所有任务及其状态。
+
+用法:
+    hat-task-detect [base_path] [--archive-old [DAYS]]
+
+    base_path       默认 .tasks
+    --archive-old   将 done/canceled/deferred 中超过 DAYS 天（默认 14）的任务
+                    移动到 archive/<status>/ 下。按任务文件夹名前缀 YYYY-MM-DD 判断。
+
+输出 (JSON):
+    {
+      "open":     [ { "name": "...", "path": "...", ... } ],
+      "done":     [ "task-name-1", ... ],
+      "canceled": [ "task-name-2", ... ],
+      "deferred": [ "task-name-3", ... ],
+      "archive":  { "done": [...], "canceled": [...], "deferred": [...] },
+      "archived": { "done": [...], ... }   # 仅在 --archive-old 时出现，列出本次归档的任务
+    }
+
+Exit codes:
+    0 = 成功
+    1 = 出错
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+
+
+TASK_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+ARCHIVE_STATUSES = ("done", "canceled", "deferred")
+
+
+def parse_plan_progress(plan_path):
+    try:
+        with open(plan_path, encoding="utf-8") as f:
+            content = f.read()
+        checked = len(re.findall(r"^[ \t]*- \[x\]", content, re.MULTILINE))
+        unchecked = len(re.findall(r"^[ \t]*- \[ \]", content, re.MULTILINE))
+        total = checked + unchecked
+        if total == 0:
+            return None
+        return {"total": total, "checked": checked, "unchecked": unchecked}
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def read_linear_json(task_dir):
+    path = os.path.join(task_dir, "linear.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        print(f"Warning: malformed linear.json in {task_dir}", file=sys.stderr)
+        return None
+
+
+def scan_open(base_path):
+    open_dir = os.path.join(base_path, "open")
+    if not os.path.isdir(open_dir):
+        return []
+
+    tasks = []
+    for name in sorted(os.listdir(open_dir)):
+        task_dir = os.path.join(open_dir, name)
+        if not os.path.isdir(task_dir):
+            continue
+
+        plan_path = os.path.join(task_dir, "plan.md")
+        task = {
+            "name": name,
+            "path": os.path.join(base_path, "open", name),
+            "hasDesign": os.path.isfile(os.path.join(task_dir, "design.md")),
+            "hasPlan": os.path.isfile(plan_path),
+            "hasFinal": os.path.isfile(os.path.join(task_dir, "final.md")),
+            "planProgress": parse_plan_progress(plan_path) if os.path.isfile(plan_path) else None,
+            "linear": read_linear_json(task_dir),
+        }
+        tasks.append(task)
+    return tasks
+
+
+def scan_names(directory):
+    if not os.path.isdir(directory):
+        return []
+    return sorted(
+        name for name in os.listdir(directory)
+        if os.path.isdir(os.path.join(directory, name))
+    )
+
+
+def task_age_days(name, today):
+    """从任务文件夹名前缀 YYYY-MM-DD 计算年龄（天数）。无法解析时返回 None。"""
+    m = TASK_DATE_RE.match(name)
+    if not m:
+        return None
+    try:
+        d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+    return (today - d).days
+
+
+def archive_old_tasks(base_path, days):
+    """
+    将 done/canceled/deferred 中按文件夹名日期计算超过 days 天的任务，
+    移动到 archive/<status>/<name>/。返回本次归档的任务名称字典。
+    """
+    today = datetime.date.today()
+    archived = {status: [] for status in ARCHIVE_STATUSES}
+
+    for status in ARCHIVE_STATUSES:
+        src_dir = os.path.join(base_path, status)
+        if not os.path.isdir(src_dir):
+            continue
+        dest_dir = os.path.join(base_path, "archive", status)
+
+        for name in sorted(os.listdir(src_dir)):
+            src = os.path.join(src_dir, name)
+            if not os.path.isdir(src):
+                continue
+            age = task_age_days(name, today)
+            if age is None or age < days:
+                continue
+
+            os.makedirs(dest_dir, exist_ok=True)
+            dest = os.path.join(dest_dir, name)
+            if os.path.exists(dest):
+                print(f"Warning: archive target exists, skipping: {dest}", file=sys.stderr)
+                continue
+            try:
+                os.rename(src, dest)
+                archived[status].append(name)
+            except OSError as e:
+                print(f"Warning: failed to archive {src}: {e}", file=sys.stderr)
+
+    return archived
+
+
+def scan_archive(base_path):
+    """扫描 .tasks/archive/<status>/ 下的任务名称。"""
+    archive_dir = os.path.join(base_path, "archive")
+    return {
+        status: scan_names(os.path.join(archive_dir, status))
+        for status in ARCHIVE_STATUSES
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("base_path", nargs="?", default=".tasks")
+    parser.add_argument(
+        "--archive-old",
+        nargs="?",
+        const=14,
+        type=int,
+        default=None,
+        metavar="DAYS",
+        help="Archive tasks older than DAYS (default 14) into archive/<status>/",
+    )
+    args = parser.parse_args()
+
+    base_path = args.base_path
+
+    archived = None
+    if args.archive_old is not None:
+        archived = archive_old_tasks(base_path, args.archive_old)
+
+    result = {
+        "open": scan_open(base_path),
+        "done": scan_names(os.path.join(base_path, "done")),
+        "canceled": scan_names(os.path.join(base_path, "canceled")),
+        "deferred": scan_names(os.path.join(base_path, "deferred")),
+        "archive": scan_archive(base_path),
+    }
+    if archived is not None:
+        result["archived"] = archived
+
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

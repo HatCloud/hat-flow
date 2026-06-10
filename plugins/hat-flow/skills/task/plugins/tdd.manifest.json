@@ -1,0 +1,25 @@
+{
+  "name": "tdd",
+  "description": "TDD 方法论：Full/Lite TDD 循环指令注入、RED 异常检测",
+  "recommend_disable_when": [
+    "纯文档/配置/SKILL.md 修改，无代码变更",
+    "项目无测试框架（无 test runner 配置文件）",
+    "单文件小修改（拼写、格式等）"
+  ],
+  "recommend_enable_when": [
+    "涉及核心业务逻辑变更",
+    "修改已有测试覆盖的模块"
+  ],
+  "hooks": {
+    "P4.per-task-pre": {
+      "priority": 60,
+      "section": "## P4.per-task-pre",
+      "on_error": "blocking"
+    },
+    "P4.per-task-post": {
+      "priority": 20,
+      "section": "## P4.per-task-post",
+      "on_error": "blocking"
+    }
+  }
+}

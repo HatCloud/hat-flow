@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""
+hat-task-scaffold — 创建任务文件夹，可选写入 linear.json。
+
+用法:
+    hat-task-scaffold <task_dir_path> [选项]
+
+选项:
+    --linear '<json>'     通过命令行参数传入 Linear issue 的 JSON 数据
+    --linear-stdin        从 stdin 读取 Linear issue 的 JSON 数据
+
+示例:
+    # 只创建文件夹
+    hat-task-scaffold .tasks/open/2026-03-02-avatar-system
+
+    # 创建文件夹并写入 linear.json（通过命令行参数）
+    hat-task-scaffold .tasks/open/2026-03-02-avatar-system --linear '{"issueUuid":"xxx"}'
+
+    # 创建文件夹并写入 linear.json（通过 stdin，适合内容较长时）
+    echo '{"issueUuid":"xxx"}' | hat-task-scaffold .tasks/open/2026-03-02-avatar-system --linear-stdin
+
+输出 (JSON):
+    {
+      "path": ".tasks/open/2026-03-02-avatar-system",
+      "created": true,           # true=新创建, false=目录已存在
+      "linearWritten": true      # 是否写入了 linear.json
+    }
+
+Exit codes:
+    0 = 成功
+    1 = 出错（如 JSON 格式错误）
+"""
+
+import json
+import os
+import sys
+
+
+def die(msg):
+    """输出错误信息到 stderr 并以 exit code 1 退出。"""
+    print(json.dumps({"error": msg}), file=sys.stderr)
+    sys.exit(1)
+
+
+def main():
+    if len(sys.argv) < 2:
+        die("Usage: hat-task-scaffold <task_dir_path> [--linear '<json>'] [--linear-stdin]")
+
+    task_dir = sys.argv[1]   # 要创建的任务目录路径
+    if not task_dir or not task_dir.strip():
+        die("task_dir_path cannot be empty")
+    linear_json = None       # 待写入的 Linear JSON 数据
+    use_stdin = False         # 是否从 stdin 读取 JSON
+
+    # ---- 解析命令行参数 ----
+
+    i = 2
+    while i < len(sys.argv):
+        if sys.argv[i] == "--linear" and i + 1 < len(sys.argv):
+            # 直接从命令行参数解析 JSON
+            try:
+                linear_json = json.loads(sys.argv[i + 1])
+            except json.JSONDecodeError as e:
+                die(f"Invalid JSON for --linear: {e}")
+            i += 2
+        elif sys.argv[i] == "--linear-stdin":
+            # 标记为从 stdin 读取（稍后处理）
+            use_stdin = True
+            i += 1
+        else:
+            i += 1
+
+    # 如果指定了 --linear-stdin 且没有通过 --linear 提供数据，则从 stdin 读取
+    if use_stdin and linear_json is None:
+        try:
+            linear_json = json.load(sys.stdin)
+        except json.JSONDecodeError as e:
+            die(f"Invalid JSON from stdin: {e}")
+
+    # ---- 创建目录 ----
+
+    created = not os.path.isdir(task_dir)  # 记录目录是否为新创建的
+    os.makedirs(task_dir, exist_ok=True)   # exist_ok=True: 目录已存在时不报错
+
+    # ---- 写入 linear.json（如果提供了 JSON 数据） ----
+
+    linear_written = False
+    if linear_json is not None:
+        path = os.path.join(task_dir, "linear.json")
+        with open(path, "w", encoding="utf-8") as f:
+            # indent=2 使输出格式化（易读），ensure_ascii=False 保留中文
+            json.dump(linear_json, f, ensure_ascii=False, indent=2)
+            f.write("\n")  # 文件末尾换行（符合 POSIX 规范）
+        linear_written = True
+
+    # ---- 输出结果 ----
+
+    result = {
+        "path": task_dir,
+        "created": created,
+        "linearWritten": linear_written,
+    }
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

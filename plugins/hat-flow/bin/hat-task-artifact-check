@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: hat-task-artifact-check <task-folder-path> <phase-number> [--config <task-config.json>]" >&2
+  exit 1
+}
+
+if [[ $# -lt 2 ]]; then
+  usage
+fi
+
+TASK_DIR="$1"
+PHASE="$2"
+shift 2
+
+CONFIG_FILE="$TASK_DIR/task-config.json"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config) CONFIG_FILE="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+if [[ ! -d "$TASK_DIR" ]]; then
+  echo "Error: task folder not found: $TASK_DIR" >&2
+  exit 1
+fi
+
+if ! [[ "$PHASE" =~ ^[1-6]$ ]]; then
+  echo "Error: phase-number must be between 1 and 6" >&2
+  exit 1
+fi
+
+plugin_enabled() {
+  local name="$1"
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    return 1
+  fi
+  local val
+  val=$(jq -r --arg n "$name" '.plugins[$n].enabled // false' "$CONFIG_FILE" 2>/dev/null)
+  [[ "$val" == "true" ]]
+}
+
+# observability is a top-level CORE key (HAT-444: de-pluginized), no longer under plugins.*.
+# Default ENABLED when present-but-unset; only an explicit `false` disables it.
+# No config file → fail-open (treated as disabled → timing gate skipped), preserving the
+# prior configless behavior. NB: cannot use jq `.observability.enabled // true` — jq's `//`
+# would coerce an explicit `false` to the `true` default; compare to false directly.
+obs_enabled() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    return 1
+  fi
+  local val
+  val=$(jq -r 'if .observability.enabled == false then "false" else "true" end' "$CONFIG_FILE" 2>/dev/null)
+  [[ "$val" != "false" ]]
+}
+
+MISSING=0
+
+check_file() {
+  local filename="$1"
+  local filepath="$TASK_DIR/$filename"
+  if [[ -f "$filepath" ]]; then
+    echo "✅ $filename"
+  else
+    echo "❌ $filename (missing)"
+    (( MISSING++ )) || true
+  fi
+}
+
+# WS-D Layer 2: structural detection of "executed from memory" (no hook → no timing event).
+has_timing_event() {
+  # $1=timing-file  $2=event  $3=phase-key (e.g. P5); match a line carrying both fields
+  # (field order independent, tolerant of optional whitespace around colons).
+  grep -E "\"phase\"[[:space:]]*:[[:space:]]*\"$3\"" "$1" 2>/dev/null \
+    | grep -Eq "\"event\"[[:space:]]*:[[:space:]]*\"$2\""
+}
+
+check_timing() {
+  local n="$1"
+  local pkey="P${n}"
+  local timing="$TASK_DIR/timing.jsonl"
+
+  # Fail-open when observability is disabled — no false positives.
+  if ! obs_enabled; then
+    return 0
+  fi
+
+  if [[ ! -f "$timing" ]]; then
+    echo "❌ timing trace: timing.jsonl missing (observability enabled)"
+    (( MISSING++ )) || true
+    return 0
+  fi
+
+  if ! has_timing_event "$timing" "phase_start" "$pkey"; then
+    echo "❌ timing trace: no phase_start for $pkey (phase hook not executed?)"
+    (( MISSING++ )) || true
+    return 0
+  fi
+
+  if has_timing_event "$timing" "phase_end" "$pkey"; then
+    echo "✅ timing trace: $pkey phase_start+phase_end"
+    return 0
+  fi
+
+  # phase_start present, phase_end missing: acceptable only if this is the current
+  # in-progress phase (no later phase has started yet — e.g. the pre-archive terminal
+  # gate checking P6). Otherwise the phase completed without an end trace → flag.
+  local later p
+  later=0
+  for (( p = n + 1; p <= 6; p++ )); do
+    if has_timing_event "$timing" "phase_start" "P${p}"; then
+      later=1
+      break
+    fi
+  done
+
+  if [[ "$later" -eq 1 ]]; then
+    # Mark, do NOT block. Mid-flow phase-end hooks are not reliably emitted on every
+    # transition, so a missing phase_end on an already-completed phase is a soft signal,
+    # not the meta-bug. The real meta-bug — a phase whose hooks never ran at all — shows
+    # up as a missing phase_start, which IS blocked above. Blocking here would falsely
+    # deadlock the archive of any task with a skipped mid-flow phase-end hook.
+    echo "⚠️  timing trace: $pkey has phase_start but no phase_end (a later phase started) — phase-end hook may have been skipped; warning only, not blocking"
+  else
+    echo "✅ timing trace: $pkey in progress (phase_start present, phase_end not yet expected)"
+  fi
+}
+
+case "$PHASE" in
+  1)
+    # Core
+    check_file "prompt.md"
+    check_file "phases.md"
+    # Plugin: linear
+    if plugin_enabled "linear"; then
+      check_file "linear.json"
+    fi
+    ;;
+  2)
+    # Core
+    check_file "design.md"
+    ;;
+  3)
+    # Core
+    check_file "plan.md"
+    ;;
+  4)
+    ;;
+  5)
+    # Core
+    check_file "acceptance-checklist.md"
+    ;;
+  6)
+    # Core
+    check_file "final.md"
+    check_file "conversation.md"
+    check_file "consumption-report.md"
+    # Core: observability (top-level switch, HAT-444)
+    if obs_enabled; then
+      check_file "timing.jsonl"
+    fi
+    ;;
+esac
+
+check_timing "$PHASE"
+
+if [[ "$MISSING" -eq 0 ]]; then
+  echo "PASS"
+  exit 0
+else
+  echo "FAIL: $MISSING file(s) missing"
+  exit 1
+fi

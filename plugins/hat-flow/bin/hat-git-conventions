@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""
+hat-git-conventions — 检测项目的 git commit 规范和代码格式化工具。
+
+从多个来源查找 commit message 的格式要求:
+1. CLAUDE.md 中的 git 规范段落
+2. commitlint 配置文件
+3. husky 的 commit-msg hook
+4. CONTRIBUTING.md 中的提交格式说明
+5. 最近 20 条 commit 的隐含模式
+
+同时检测项目中的代码格式化工具:
+- git hooks 是否已自动处理格式化（husky+lint-staged、lefthook、pre-commit 框架）
+- 独立的格式化工具配置（prettier、biome、dprint 等）
+- package.json 中的 format 脚本
+- CLAUDE.md 中的格式化说明
+
+用法:
+    hat-git-conventions [project_root]   # 默认为当前目录 "."
+
+输出 (JSON):
+    {
+      "found": true,                                    # 是否找到了显式的格式定义
+      "source": "CLAUDE.md",                            # 规范来源文件
+      "format": "<type>(<scope>): <description>",       # 提取到的格式模板（可能为 null）
+      "claudeMdSection": "## Git 规范\n...",             # CLAUDE.md 中的相关段落全文
+      "implicitPatterns": ["feat:", "fix:"],             # 从历史 commit 推断的前缀
+      "recentCommits": ["feat(audio): add BGM"],        # 最近 5 条 commit 示例
+      "hasCommitlint": false,                           # 是否安装了 commitlint
+      "hasHusky": false,                                # 是否配置了 husky commit-msg hook
+      "formatting": {                                   # 代码格式化工具检测结果
+        "hookManaged": false,                           #   git hook 是否已自动处理格式化
+        "hookTool": null,                               #   hook 工具名称（如 "husky + lint-staged"）
+        "hookFiles": [],                                #   相关 hook 配置文件
+        "formatter": "prettier",                        #   检测到的格式化工具名称
+        "formatCommand": "yarn format",                 #   格式化命令
+        "configFiles": [".prettierrc.json"],             #   格式化工具配置文件
+        "source": "package.json scripts.format"          #   命令来源
+      }
+    }
+
+Exit codes:
+    0 = 始终成功（即使没找到规范也返回 found: false）
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+
+def find_claude_md_section(project_root):
+    """
+    在 CLAUDE.md 中查找 git 规范相关的段落。
+
+    查找方式: 匹配二级标题（##）中包含 "git 规范"、"commit convention" 等关键词的段落，
+    然后提取从该标题到下一个同级标题之间的所有内容。
+
+    返回: 段落文本，或 None（未找到时）
+    """
+    path = os.path.join(project_root, "CLAUDE.md")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    # 匹配可能的标题名称（中英文都考虑）
+    patterns = [
+        r"(?i)##\s+(git\s*规范|commit\s*convention|git\s*conventions?|提交规范|commit\s*format)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, content)
+        if not m:
+            continue
+
+        # 提取从匹配的 ## 标题开始，到下一个 ## 标题（或文件末尾）的内容
+        start = m.start()
+        rest = content[start:]
+        end_match = re.search(r"\n##\s+", rest[3:])  # 跳过当前 ## 本身（前 3 个字符）
+        section = rest[: end_match.start() + 3] if end_match else rest
+
+        # 进一步验证: 段落中是否真的包含格式规则（而不只是分支策略等）
+        if re.search(r"(format|格式|<type>|conventional|prefix|前缀)", section, re.IGNORECASE):
+            return section.strip()
+
+    return None
+
+
+def check_commitlint(project_root):
+    """
+    检查项目根目录是否存在 commitlint 配置文件。
+
+    commitlint 是一个强制 commit message 格式的工具。
+    它的配置文件可能是 .commitlintrc、commitlint.config.js 等多种形式。
+
+    返回: 配置文件名（如果找到），或 None
+    """
+    names = [
+        ".commitlintrc", ".commitlintrc.js", ".commitlintrc.json",
+        ".commitlintrc.yaml", ".commitlintrc.yml",
+        "commitlint.config.js", "commitlint.config.ts",
+    ]
+    for name in names:
+        if os.path.isfile(os.path.join(project_root, name)):
+            return name
+    return None
+
+
+def check_husky(project_root):
+    """
+    检查是否配置了 husky 的 commit-msg hook。
+
+    husky 是一个 git hook 管理工具，commit-msg hook 会在每次 commit 时
+    自动验证 commit message 格式。如果存在，说明项目强制执行 commit 规范。
+    """
+    path = os.path.join(project_root, ".husky", "commit-msg")
+    return os.path.isfile(path)
+
+
+def check_contributing(project_root):
+    """
+    检查 CONTRIBUTING.md 中是否提到了 commit 格式规则。
+
+    CONTRIBUTING.md 通常是项目的贡献指南，可能包含 commit message 格式要求。
+    """
+    path = os.path.join(project_root, "CONTRIBUTING.md")
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            content = f.read().lower()
+        return any(kw in content for kw in ["commit message", "commit format", "conventional commit", "提交格式"])
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def analyze_git_log(project_root):
+    """
+    分析最近 20 条 git commit，推断隐含的 commit 前缀模式。
+
+    例如，如果历史中有多条以 "feat:" 和 "fix:" 开头的 commit，
+    说明项目可能遵循 Conventional Commits 规范。
+
+    返回: (隐含前缀列表, 最近 5 条 commit 消息)
+           隐含前缀只包含出现 2 次以上的（避免偶然出现的前缀）
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", project_root, "log", "--oneline", "-20"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return [], []
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return [], []
+
+    lines = [l.strip() for l in result.stdout.strip().splitlines() if l.strip()]
+    commits = []
+    prefix_counts = {}  # 统计每个前缀出现的次数
+
+    for line in lines:
+        # git log --oneline 格式: "<hash> <message>"，先去掉 hash 部分
+        parts = line.split(" ", 1)
+        if len(parts) < 2:
+            continue
+        msg = parts[1]
+        commits.append(msg)
+
+        # 用正则匹配 Conventional Commit 格式的前缀: "type(scope):" 或 "type:"
+        m = re.match(r"^(\w+)(?:\([^)]*\))?:", msg)
+        if m:
+            prefix = m.group(1).lower()
+            prefix_counts[prefix] = prefix_counts.get(prefix, 0) + 1
+
+    # 只保留出现 2 次以上的前缀（按出现频率降序排列）
+    implicit = sorted(
+        [f"{p}:" for p, c in prefix_counts.items() if c >= 2],
+        key=lambda x: -prefix_counts.get(x.rstrip(":"), 0),
+    )
+    return implicit, commits[:5]  # 返回前 5 条 commit 作为示例
+
+
+def detect_format_from_section(section):
+    """
+    从规范段落中提取格式模板（如 "<type>(<scope>): <description>"）。
+
+    先尝试匹配裸文本中的 <type>... 模式，再尝试匹配反引号包裹的模式。
+    """
+    # 匹配类似 <type>(<scope>): <description> 的模式
+    m = re.search(r"(<type>.*?<\w+>)", section)
+    if m:
+        return m.group(1)
+
+    # 匹配反引号中包含 <type> 的模式（如 `<type>(<scope>): <desc>`）
+    m = re.search(r"`([^`]*<type>[^`]*)`", section)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+def detect_pkg_manager(project_root):
+    """
+    根据 lock 文件推断项目使用的包管理器。
+
+    检测顺序: yarn → pnpm → bun → npm（默认）。
+    返回适合拼接 script 命令的前缀（如 "yarn"、"pnpm"、"bun run"、"npm run"）。
+    """
+    if os.path.isfile(os.path.join(project_root, "yarn.lock")):
+        return "yarn"
+    if os.path.isfile(os.path.join(project_root, "pnpm-lock.yaml")):
+        return "pnpm"
+    if (os.path.isfile(os.path.join(project_root, "bun.lockb"))
+            or os.path.isfile(os.path.join(project_root, "bun.lock"))):
+        return "bun run"
+    return "npm run"
+
+
+def detect_formatting(project_root):
+    """
+    检测项目中的代码格式化工具和 git hooks。
+
+    分两部分检测:
+    1. git hooks（husky+lint-staged、lefthook、pre-commit 框架）是否已自动处理格式化
+       — 如果 hook 已覆盖，提交前不需要手动格式化
+    2. 格式化工具配置和命令（prettier、biome、dprint 等）
+       — 如果有工具但没 hook，需要提交前手动运行
+
+    返回: dict，包含 hookManaged / formatter / formatCommand 等信息
+    """
+    hook_files = []
+    hook_tool = None
+    config_files = []
+    formatter = None
+    format_command = None
+    source = None
+
+    # ========== 第一部分: 检测 git hooks ==========
+
+    # --- husky pre-commit hook ---
+    # husky 是最常见的 git hook 管理工具，pre-commit hook 在每次 commit 前执行
+    husky_pre = os.path.join(project_root, ".husky", "pre-commit")
+    husky_runs_fmt = False
+    if os.path.isfile(husky_pre):
+        try:
+            with open(husky_pre, encoding="utf-8") as f:
+                content = f.read().lower()
+            # 检查 hook 内容是否包含格式化相关工具的调用
+            if any(kw in content for kw in [
+                "lint-staged", "prettier", "biome format", "dprint",
+            ]):
+                husky_runs_fmt = True
+                hook_files.append(".husky/pre-commit")
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    # --- lint-staged 配置 ---
+    # lint-staged 配合 husky 使用，对暂存文件运行格式化/lint
+    lint_staged_names = [
+        ".lintstagedrc", ".lintstagedrc.js", ".lintstagedrc.json",
+        ".lintstagedrc.yaml", ".lintstagedrc.yml", ".lintstagedrc.mjs",
+        ".lintstagedrc.cjs",
+        "lint-staged.config.js", "lint-staged.config.mjs", "lint-staged.config.cjs",
+    ]
+    has_lint_staged_file = False
+    for name in lint_staged_names:
+        if os.path.isfile(os.path.join(project_root, name)):
+            has_lint_staged_file = True
+            hook_files.append(name)
+            break  # 只需要找到一个
+
+    # 也检查 package.json 中的 lint-staged 字段
+    pkg_path = os.path.join(project_root, "package.json")
+    pkg_data = None
+    has_lint_staged_pkg = False
+    if os.path.isfile(pkg_path):
+        try:
+            with open(pkg_path, encoding="utf-8") as f:
+                pkg_data = json.load(f)
+            if "lint-staged" in pkg_data:
+                has_lint_staged_pkg = True
+                if not has_lint_staged_file:
+                    hook_files.append("package.json (lint-staged)")
+        except (OSError, json.JSONDecodeError):
+            pkg_data = None
+
+    has_lint_staged = has_lint_staged_file or has_lint_staged_pkg
+
+    # 判断 husky + lint-staged 组合
+    if husky_runs_fmt and has_lint_staged:
+        hook_tool = "husky + lint-staged"
+    elif has_lint_staged and husky_runs_fmt:
+        hook_tool = "lint-staged"
+
+    # --- lefthook ---
+    # lefthook 是另一个 git hook 管理工具，配置文件为 YAML 格式
+    for name in ["lefthook.yml", ".lefthook.yml", "lefthook.yaml", ".lefthook.yaml"]:
+        path = os.path.join(project_root, name)
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    content = f.read().lower()
+                if any(kw in content for kw in [
+                    "prettier", "format", "biome", "dprint",
+                ]):
+                    hook_files.append(name)
+                    hook_tool = "lefthook"
+            except (OSError, UnicodeDecodeError):
+                pass
+            break
+
+    # --- pre-commit 框架（Python 生态常用）---
+    pre_commit_path = os.path.join(project_root, ".pre-commit-config.yaml")
+    if os.path.isfile(pre_commit_path):
+        try:
+            with open(pre_commit_path, encoding="utf-8") as f:
+                content = f.read().lower()
+            if any(kw in content for kw in [
+                "prettier", "black", "autopep8", "ruff-format",
+                "ruff format", "yapf", "biome",
+            ]):
+                hook_files.append(".pre-commit-config.yaml")
+                hook_tool = "pre-commit"
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    hook_managed = hook_tool is not None
+
+    # ========== 第二部分: 检测格式化工具配置 ==========
+
+    # --- Prettier（JS/TS 生态最常用的代码格式化器）---
+    prettier_configs = [
+        ".prettierrc", ".prettierrc.js", ".prettierrc.json",
+        ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.mjs",
+        ".prettierrc.cjs", ".prettierrc.toml",
+        "prettier.config.js", "prettier.config.mjs", "prettier.config.cjs",
+    ]
+    for name in prettier_configs:
+        if os.path.isfile(os.path.join(project_root, name)):
+            config_files.append(name)
+            if not formatter:
+                formatter = "prettier"
+            break
+
+    # 也检查 package.json 中的 prettier 字段
+    if pkg_data and "prettier" in pkg_data and not formatter:
+        formatter = "prettier"
+        config_files.append("package.json (prettier)")
+
+    # --- Biome（Prettier + ESLint 的高性能替代品）---
+    for name in ["biome.json", "biome.jsonc"]:
+        if os.path.isfile(os.path.join(project_root, name)):
+            config_files.append(name)
+            if not formatter:
+                formatter = "biome"
+            break
+
+    # --- dprint（高性能可插拔格式化器）---
+    for name in ["dprint.json", ".dprint.json"]:
+        if os.path.isfile(os.path.join(project_root, name)):
+            config_files.append(name)
+            if not formatter:
+                formatter = "dprint"
+            break
+
+    # --- SwiftFormat（Swift 项目）---
+    if os.path.isfile(os.path.join(project_root, ".swiftformat")):
+        config_files.append(".swiftformat")
+        if not formatter:
+            formatter = "swiftformat"
+
+    # --- package.json scripts 中的格式化命令 ---
+    if pkg_data:
+        scripts = pkg_data.get("scripts", {})
+        # 按优先级查找格式化相关的 script 名称
+        for key in ["format", "fmt", "format:fix", "format:write", "prettier"]:
+            if key in scripts:
+                pkg_mgr = detect_pkg_manager(project_root)
+                format_command = f"{pkg_mgr} {key}"
+                source = f"package.json scripts.{key}"
+                break
+
+    # 如果找到了 formatter 配置但没有对应的 script 命令，提供默认命令
+    if formatter and not format_command:
+        defaults = {
+            "prettier": "npx prettier --write .",
+            "biome": "npx biome format --write .",
+            "dprint": "npx dprint fmt",
+            "swiftformat": "swiftformat .",
+        }
+        if formatter in defaults:
+            format_command = defaults[formatter]
+            source = f"default ({formatter} config found)"
+
+    # --- CLAUDE.md 中的格式化说明 ---
+    # 如果 CLAUDE.md 中有专门的格式化段落，可能包含自定义命令
+    claude_md_path = os.path.join(project_root, "CLAUDE.md")
+    if os.path.isfile(claude_md_path):
+        try:
+            with open(claude_md_path, encoding="utf-8") as f:
+                content = f.read()
+            m = re.search(
+                r"(?i)##\s+(格式化|formatting|code\s*format)", content,
+            )
+            if m:
+                start = m.start()
+                rest = content[start:]
+                end_match = re.search(r"\n##\s+", rest[3:])
+                section = rest[: end_match.start() + 3] if end_match else rest
+                # 从段落中提取反引号包裹的命令
+                cmd_match = re.search(
+                    r"`([^`]*(?:format|prettier|biome|dprint|swiftformat)[^`]*)`",
+                    section,
+                )
+                if cmd_match:
+                    format_command = cmd_match.group(1)
+                    source = "CLAUDE.md"
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    return {
+        "hookManaged": hook_managed,
+        "hookTool": hook_tool,
+        "hookFiles": hook_files,
+        "formatter": formatter,
+        "formatCommand": format_command,
+        "configFiles": config_files,
+        "source": source,
+    }
+
+
+def main():
+    # 第一个参数为项目根目录，默认当前目录
+    project_root = sys.argv[1] if len(sys.argv) > 1 else "."
+
+    # ---- 从各个来源收集信息 ----
+
+    claude_section = find_claude_md_section(project_root)   # CLAUDE.md 中的规范段落
+    commitlint_file = check_commitlint(project_root)        # commitlint 配置文件
+    has_husky = check_husky(project_root)                   # husky commit-msg hook
+    has_contributing = check_contributing(project_root)       # CONTRIBUTING.md 中的规范
+    implicit_patterns, recent_commits = analyze_git_log(project_root)  # 历史 commit 分析
+
+    # ---- 判断是否找到了显式规范 ----
+    # 优先级: CLAUDE.md > commitlint > CONTRIBUTING.md
+
+    found = False
+    source = None
+    fmt = None
+
+    if claude_section:
+        found = True
+        source = "CLAUDE.md"
+        fmt = detect_format_from_section(claude_section)
+    elif commitlint_file:
+        found = True
+        source = commitlint_file
+    elif has_contributing:
+        found = True
+        source = "CONTRIBUTING.md"
+    elif implicit_patterns:
+        # 没有显式规范，但从 git 历史中检测到了隐含模式
+        found = True
+        source = "implicit (git log)"
+        fmt = implicit_patterns[0] if implicit_patterns else None
+
+    # ---- 检测代码格式化工具 ----
+
+    formatting = detect_formatting(project_root)
+
+    # ---- 输出结果 ----
+
+    result = {
+        "found": found,                          # 是否找到显式格式定义
+        "source": source,                         # 规范来源文件名
+        "format": fmt,                            # 格式模板字符串
+        "claudeMdSection": claude_section,        # CLAUDE.md 段落全文
+        "implicitPatterns": implicit_patterns,    # 从历史推断的前缀
+        "recentCommits": recent_commits,          # 最近 5 条 commit 示例
+        "hasCommitlint": commitlint_file is not None,
+        "hasHusky": has_husky,
+        "formatting": formatting,                # 代码格式化工具检测结果
+    }
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,33 @@
+# Task Skill 规范 (spec-task-skill)
+
+Task workflow 系列 skill 的专用编写规范，继承 `spec-skill` 的所有通用规则。
+
+## 适用范围
+
+- `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）
+- `${CLAUDE_PLUGIN_ROOT}/skills/task-init/SKILL.md` ~ `${CLAUDE_PLUGIN_ROOT}/skills/task-end/SKILL.md`（6 个阶段 skill）
+- `${CLAUDE_PLUGIN_ROOT}/skills/task-cancel/SKILL.md`、`${CLAUDE_PLUGIN_ROOT}/skills/task-revise/SKILL.md`
+
+## 核心约定
+
+### Core / Plugin Separation
+Task 流程分 core（phase skill + 编排器 + 门控脚本）和 plugin（plugins/*.md + manifest）两层，只通过 hook 边界连接。插件逻辑绝不写进 core——目标是任一插件翻 `enabled:false` 即可干净拔除，无需改动 core 文件。需要跨阶段产物（一个阶段产出、另一个阶段消费）的能力难以做成干净插件，其生命周期逻辑容易溢出到 phase skill。
+
+### Phase Transition Protocol
+阶段 skill 完成后必须返回编排器 Step 3，不得自行发出过渡指示（如"请调用 /task-end"）。唯一例外是 Test→End 的硬停。
+
+### Phase 语义命名
+过渡描述使用 Init/Design/Plan/Execute/Test/End 语义名，避免硬编码序号（phase_merge 会改变序号）。
+
+### Hook Artifact Verification
+hook 委托后必须验证预期产物，缺失时执行 fallback 而非跳过。
+
+### Revise Confirmation
+Revise 流程的 RN-design 和 RN-plan 必须包含确认循环。
+
+### Interactive / Unattended Duality
+改 task skill 的任何步骤都要同时设计正常（Interactive）和无人值守（Unattended）两条路径。每个停顿点（AskUserQuestion / 纯文本确认 / 等待用户测试 / 硬阻断）必须有 `[Unattended]` 分支，保证无人值守不被阻塞——自动按默认决定、或通知后 auto-cancel。
+
+## 使用方式
+
+创建或修改 task 系列 skill 时加载此 spec：`/spec-task-skill`。它会自动预注入 spec-skill 内容。

@@ -1,0 +1,104 @@
+# Severity Escalation Rules
+#
+# 结构化的 severity 升级规则，供 code review 在 Critical/Important/Minor 三级
+# 之间做判定时参考（配合 CODE_REVIEW.md ## Severity Classification）。
+#
+# 每条 rule：
+#   id       — 稳定标识（snake_case），便于引用与去重
+#   pattern  — 触发该升级的代码/测试形态（泛化描述，不绑定具体文件）
+#   example  — 泛化示例（禁止含具体文件名 / 行号 / 项目专有名词）
+#   effect   — 命中后应判定的 severity（Critical / Important / Minor）
+#
+# 扩展：retrospective 插件 Part B 可向 rules 追加 case（无人值守仅提案、写入
+# final.md，不直接改本文件——见 plugins/retrospective.md）。
+
+rules:
+  - id: core_logic_untested
+    pattern: 纯逻辑代码（解析 / 算法 / 状态机 / 数据转换）的核心路径或 happy-path 完全无测试
+    example: "新增的输入解析函数有正常输入分支，但测试套件不含任何针对它的用例"
+    effect: Critical
+
+  - id: null_or_bounds_access
+    pattern: 可证伪的运行期错误——空 / undefined 访问、数组越界、未初始化引用
+    example: "在未先判断集合是否为空的情况下访问其第一个元素"
+    effect: Critical
+
+  - id: data_loss_or_corruption
+    pattern: 可能造成数据丢失 / 覆盖 / 不可逆破坏的写操作，无幂等或回滚保护
+    example: "归档流程在校验完成前就移动了源目录，校验失败后无法恢复"
+    effect: Critical
+
+  - id: security_exposure
+    pattern: 敏感数据暴露（硬编码密钥、日志含凭证 / PII）、未授权操作、用户输入未校验
+    example: "把外部传入的字符串直接拼进 shell 命令执行"
+    effect: Critical
+
+  - id: severity_downgrade_to_bypass_gate
+    pattern: 把本应 Critical 的问题判为 Important，使自动流程将其视为可跳过
+    example: "一个会导致核心功能失效的缺陷被标为 Important，无人值守流程据此放行"
+    effect: Critical
+
+  - id: gate_logic_declared_but_unwired
+    pattern: 质量门 / 校验 / HARD-GATE 的正文逻辑已写入，但因声明 / 接线 / 注册缺失从未被触发或 emit——门看似存在、实际从不运行，造成静默失效（比错误判定更危险：没有任何信号提示门没跑）
+    example: "阻断性收敛逻辑写在某段落内，但该段落未被其调度清单声明；提取机制只按清单工作，故该段永不被注入执行，门形同虚设"
+    effect: Critical
+
+  - id: side_effect_silently_dropped_on_common_path
+    pattern: 预期的副作用（外部同步 / 写 / 状态更新 / 通知）因路由 / 配置 / 接线缺口在常见运行路径上静默不执行——既不报错也无降级，调用方以为已完成。比"调用失败无处理"更隐蔽（根本没发起调用），且常见路径意味着高频触发
+    example: "某 hook 在默认配置下被过滤出执行、又无 fallback 接线，导致常见路径（如恢复运行）下外部状态同步从未发生，且无任何告警"
+    effect: Critical
+
+  - id: external_call_no_error_handling
+    pattern: 外部调用（API / 文件 I/O / 数据库 / 子进程）无错误处理，或 catch 后吞掉错误
+    example: "网络请求失败时既不重试也不上报，静默返回空结果"
+    effect: Important
+
+  - id: plan_deviation_unflagged
+    pattern: 实现明确偏离 plan（缺步骤 / 缺文件 / 超范围）且未标注说明
+    example: "plan 要求新增某配置项，但 diff 中既无该项也无任何说明"
+    effect: Important
+
+  - id: error_path_untested
+    pattern: 边界 / 错误处理逻辑存在，但异常路径无测试
+    example: "函数对非法输入会抛错，但没有测试覆盖抛错分支"
+    effect: Important
+
+  - id: ui_critical_interaction_untested
+    pattern: 界面代码的关键交互（提交 / 删除 / 支付等）无测试（渲染快照不算）
+    example: "表单提交按钮的点击处理逻辑没有任何交互测试"
+    effect: Important
+
+  - id: stateless_worker_state_ownership_unspecified
+    pattern: 控制逻辑依赖跨"无状态 worker 重派"保留的计数 / 上下文（如重试上限、卡点累计），却未交代该状态由调度方承载——worker 每次重派是新实例、不记得上一轮，导致控制（如"重试 N 次后升级"）静默失效
+    example: "升级阶梯规定同一卡点累计 3 次后升级，但派发的 worker 无状态、文档未说明计数由调度方维护，实际可能无限重派或首次即升级"
+    effect: Important
+
+  - id: ssot_list_omits_self_referential_file
+    pattern: 单一事实源清单（用于判定某类操作是否适用）遗漏了承载它所治理逻辑的文件类型本身，造成自指盲点——对该清单 / 规则本身的改动反而不被其规则覆盖
+    example: "判定'是否结构性文件'的清单只列声明式配置，漏掉承载实际派发 / 状态机逻辑的指令文件，导致对这些逻辑文件的结构性改动不被判为结构型"
+    effect: Important
+
+  - id: style_or_speculative
+    pattern: 风格偏好、命名建议、优化机会、无法从代码直接确认的推测性顾虑
+    example: "函数名偏泛化，建议改得更具描述性"
+    effect: Minor
+
+# UI 覆盖率阈值——界面代码用独立（更低）阈值，因 UI 自动化测试成本高、
+# 单位收益低于逻辑代码；但关键交互仍需测试。
+coverage_thresholds:
+  - code_type: pure_logic
+    description: 解析 / 算法 / 状态机 / 数据转换
+    low_coverage_when: 核心路径或 happy-path 无测试
+    effect: Critical
+  - code_type: error_handling
+    description: 边界 / 异常处理逻辑
+    low_coverage_when: 异常路径无测试
+    effect: Important
+  - code_type: ui
+    description: UI 组件 / 视图
+    low_coverage_when: 关键交互无测试（渲染快照不算）
+    effect: Important
+  - code_type: boilerplate
+    description: 样板 / 配置 / 类型定义
+    low_coverage_when: 不适用
+    effect: none

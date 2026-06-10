@@ -1,0 +1,43 @@
+{
+  "name": "linear",
+  "description": "Linear 集成：issue 创建/更新、描述同步、文档上传、状态管理",
+  "subagents": {
+    "linear-sync": {
+      "model": "haiku",
+      "subagent_type": "general-purpose",
+      "context_section": "## Subagent Context"
+    }
+  },
+  "recommend_disable_when": [
+    "项目 CLAUDE.md 无 ## Linear 配置（无 Team/Project id）且无 linear.json"
+  ],
+  "recommend_enable_when": [
+    "项目 CLAUDE.md 含 ## Linear 配置 或 Linear MCP 可用"
+  ],
+  "hooks": {
+    "P1.phase-end": {
+      "priority": 30,
+      "section": "## P1.phase-end",
+      "on_error": "graceful",
+      "execution": "inline"
+    },
+    "P3.phase-end": {
+      "priority": 30,
+      "section": "## P3.phase-end",
+      "on_error": "graceful",
+      "execution": "subagent:linear-sync"
+    },
+    "P5.post-acceptance": {
+      "priority": 30,
+      "section": "## P5.post-acceptance",
+      "on_error": "graceful",
+      "execution": "subagent:linear-sync"
+    },
+    "P6.pre-archive": {
+      "priority": 30,
+      "section": "## P6.pre-archive",
+      "on_error": "graceful",
+      "execution": "subagent:linear-sync"
+    }
+  }
+}

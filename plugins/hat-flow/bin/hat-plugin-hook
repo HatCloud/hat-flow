@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# A 类（插件内部资源）：相对脚本自身定位，不依赖固定 $HOME 路径。
+# bin/ 与 skills/ 同父平级（~/.claude 与打包后 plugin 根布局同构），故 dirname/.. 解析到仓库根。
+SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins"
+
+usage() {
+  echo "Usage: hat-plugin-hook <task-folder> <hook-point> [--no-filter]"
+  echo ""
+  echo "Resolves enabled plugins for a task, collects handlers registered"
+  echo "at <hook-point>, sorts by priority + after constraints, and outputs"
+  echo "the concatenated instruction text from each plugin's .md file."
+  echo ""
+  echo "By default, handlers whose execution mode is not 'inline'"
+  echo "(e.g. subagent:NAME) do not emit their instruction body; instead a"
+  echo "machine-readable '<!-- DISPATCH ... -->' directive is written to stdout"
+  echo "so the orchestrator can dispatch a one-shot background subagent. Pass"
+  echo "--no-filter to force all handlers' instruction bodies inline instead."
+  echo ""
+  echo "Exit 0 with empty stdout when no handlers are registered."
+  exit "${1:-0}"
+}
+
+[[ $# -lt 2 ]] && usage 1
+
+task_folder="$1"
+hook_point="$2"
+
+no_filter=false
+for arg in "$@"; do
+  [[ "$arg" == "--no-filter" ]] && no_filter=true
+done
+
+if [[ ! -d "$task_folder" ]]; then
+  echo "Error: task folder not found: $task_folder" >&2
+  exit 1
+fi
+
+config_file="$task_folder/task-config.json"
+if [[ ! -f "$config_file" ]]; then
+  echo "[WARN] task-config.json not found in $task_folder, skipping" >&2
+  exit 0
+fi
+
+enabled_plugins=$(jq -r '
+  .plugins // {} | to_entries[]
+  | select(.value.enabled == true or .value.enabled == "auto")
+  | .key
+' "$config_file" 2>/dev/null) || {
+  echo "Error: failed to parse $config_file" >&2
+  exit 1
+}
+
+[[ -z "$enabled_plugins" ]] && exit 0
+
+# Collect handlers: name, priority, section, on_error, after[]
+handlers_json="[]"
+
+while IFS= read -r plugin_name; do
+  manifest="$PLUGINS_DIR/${plugin_name}.manifest.json"
+  [[ -f "$manifest" ]] || continue
+
+  hook_value=$(jq -r --arg hp "$hook_point" '.hooks[$hp] // empty' "$manifest" 2>/dev/null) || continue
+  [[ -z "$hook_value" ]] && continue
+
+  hook_type=$(echo "$hook_value" | jq -r 'type' 2>/dev/null)
+
+  if [[ "$hook_type" == "array" ]]; then
+    count=$(echo "$hook_value" | jq 'length')
+    for ((i = 0; i < count; i++)); do
+      entry=$(echo "$hook_value" | jq --arg pn "$plugin_name" --argjson idx "$i" '
+        .[$idx] + {"plugin": $pn}
+      ')
+      handlers_json=$(echo "$handlers_json" | jq --argjson e "$entry" '. + [$e]')
+    done
+  elif [[ "$hook_type" == "object" ]]; then
+    entry=$(echo "$hook_value" | jq --arg pn "$plugin_name" '. + {"plugin": $pn}')
+    handlers_json=$(echo "$handlers_json" | jq --argjson e "$entry" '. + [$e]')
+  fi
+done <<< "$enabled_plugins"
+
+handler_count=$(echo "$handlers_json" | jq 'length')
+[[ "$handler_count" -eq 0 ]] && exit 0
+
+# Validate after dependencies
+registered_plugins=$(echo "$handlers_json" | jq -r '[.[].plugin] | unique | .[]')
+
+echo "$handlers_json" | jq -r '.[] | select(.after != null) | .after[] // empty' 2>/dev/null | sort -u | while IFS= read -r dep; do
+  [[ -z "$dep" ]] && continue
+  if ! echo "$registered_plugins" | grep -qx "$dep"; then
+    echo "[!] hat-plugin-hook: after dependency '$dep' not registered at hook '$hook_point' or plugin disabled" >&2
+  fi
+done
+
+# Sort by priority, then enforce after constraints by bumping position
+sorted_handlers=$(echo "$handlers_json" | jq '
+  sort_by(.priority)
+  | # Enforce after constraints: if handler A has after:[B], ensure A appears after B
+    # Iterate and move any handler that appears before its dependency to just after it
+    reduce range(length) as $i (.;
+      (if .[$i].after then .[$i].after else [] end) as $deps |
+      if ($deps | length) == 0 then .
+      else
+        # Find max index of all dependencies
+        . as $arr |
+        (reduce $deps[] as $dep (
+          -1;
+          ([ range($arr | length) ] | map(select(. as $j | $arr[$j].plugin == $dep)) | max // -1) as $dep_idx |
+          if $dep_idx > . then $dep_idx else . end
+        )) as $max_dep_idx |
+        if $max_dep_idx > $i then
+          # Move handler from $i to after $max_dep_idx
+          .[$i] as $h |
+          del(.[$i]) |
+          .[:$max_dep_idx] + [$h] + .[$max_dep_idx:]
+        else .
+        end
+      end
+    )
+')
+
+# Extract sections from .md files and output
+# Use process substitution to avoid pipe subshell scoping issues
+first=true
+while IFS= read -r handler; do
+  plugin_name=$(echo "$handler" | jq -r '.plugin')
+  section_title=$(echo "$handler" | jq -r '.section // empty')
+  on_error=$(echo "$handler" | jq -r '.on_error // "graceful"')
+  execution=$(echo "$handler" | jq -r '.execution // "inline"')
+
+  [[ -z "$section_title" ]] && continue
+
+  # Non-inline handlers (subagent:NAME) are not executed in the main thread.
+  # In default mode, emit a machine-readable DISPATCH directive to stdout so
+  # the orchestrator can dispatch a one-shot background subagent; the subagent
+  # reads its context_section + the per-hook section itself, then continues
+  # fire-and-forget. --no-filter forces the per-hook instruction inline instead
+  # (degraded / force-inline escape hatch). inline handlers always emit their
+  # instruction regardless of --no-filter.
+  if [[ "$no_filter" == false && "$execution" != "inline" ]]; then
+    sub_name="${execution#*:}"
+    sub_manifest="$PLUGINS_DIR/${plugin_name}.manifest.json"
+    sub_cfg=$(jq -c --arg n "$sub_name" '.subagents[$n] // {}' "$sub_manifest" 2>/dev/null || echo '{}')
+    sub_model=$(echo "$sub_cfg" | jq -r '.model // "haiku"')
+    sub_type=$(echo "$sub_cfg" | jq -r '.subagent_type // "general-purpose"')
+    sub_section=$(echo "$sub_cfg" | jq -r '.context_section // empty')
+    echo "[subagent] ${plugin_name}: ${hook_point} → ${sub_name} (dispatched async, not inline)" >&2
+    echo "<!-- DISPATCH plugin:${plugin_name} hook:${hook_point} name:${sub_name} model:${sub_model} subagent_type:${sub_type} section:${sub_section} -->"
+    continue
+  fi
+
+  md_file="$PLUGINS_DIR/${plugin_name}.md"
+  if [[ ! -f "$md_file" ]]; then
+    if [[ "$on_error" == "blocking" ]]; then
+      echo "[ERROR] ${plugin_name}: instruction file not found: $md_file" >&2
+      exit 1
+    fi
+    echo "[!] ${plugin_name}: instruction file not found, skipped" >&2
+    continue
+  fi
+
+  # Extract section content: from matching ## title to next ## or EOF
+  # Code-block aware: track ``` fences to avoid matching ## inside code blocks
+  section_content=$(awk -v pat="$section_title" '
+    BEGIN { found=0; printing=0; in_fence=0 }
+    /^```/ { in_fence = !in_fence }
+    !in_fence && $0 == pat { found=1; printing=1; next }
+    printing && !in_fence && /^## / { printing=0 }
+    printing { print }
+  ' "$md_file")
+
+  if [[ -z "$section_content" ]]; then
+    if [[ "$on_error" == "blocking" ]]; then
+      echo "[ERROR] ${plugin_name}: section '${section_title}' not found in $md_file" >&2
+      exit 1
+    fi
+    echo "[!] ${plugin_name}: section '${section_title}' not found, skipped" >&2
+    continue
+  fi
+
+  if [[ "$first" == true ]]; then
+    first=false
+  else
+    echo ""
+    echo "---"
+    echo ""
+  fi
+
+  echo "<!-- plugin:${plugin_name} hook:${hook_point} on_error:${on_error} execution:${execution} -->"
+  echo "$section_content"
+done < <(echo "$sorted_handlers" | jq -c '.[]')

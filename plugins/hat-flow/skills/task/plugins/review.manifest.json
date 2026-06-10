@@ -1,0 +1,55 @@
+{
+  "name": "review",
+  "description": "设计/计划/代码审查：自我 review、独立 review、per-task review、全量 code review、Revise 触发检测",
+  "recommend_disable_when": [
+    "纯格式调整（空格、换行、排版）"
+  ],
+  "recommend_enable_when": [
+    "涉及安全相关变更",
+    "修改公共 API 或接口"
+  ],
+  "hooks": {
+    "P2.post-design-draft": {
+      "priority": 50,
+      "section": "## P2.post-design-draft",
+      "on_error": "graceful"
+    },
+    "P2.post-design-approved": {
+      "priority": 50,
+      "section": "## P2.post-design-approved",
+      "on_error": "graceful"
+    },
+    "P3.post-plan": {
+      "priority": 50,
+      "section": "## P3.post-plan",
+      "on_error": "graceful"
+    },
+    "P4.per-task-post": {
+      "priority": 30,
+      "section": "## P4.per-task-post",
+      "on_error": "graceful"
+    },
+    "P4.post-execute": [
+      {
+        "priority": 40,
+        "section": "## P4.post-execute/full-review",
+        "on_error": "graceful"
+      },
+      {
+        "priority": 41,
+        "section": "## P4.post-execute/convergence",
+        "on_error": "graceful"
+      },
+      {
+        "priority": 42,
+        "section": "## P4.post-execute/revise-detection",
+        "on_error": "graceful"
+      }
+    ],
+    "P5.test-feedback": {
+      "priority": 50,
+      "section": "## P5.test-feedback",
+      "on_error": "graceful"
+    }
+  }
+}

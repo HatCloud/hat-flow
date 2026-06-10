@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# hat-timing-stamp — core timing helper (observability 去插件化后的单一写入收口点).
+#
+# Appends one compact JSONL line to {task-folder}/timing.jsonl.
+# Self-gates on the core top-level `observability.enabled` switch (default: enabled);
+# when disabled it is a no-op (no file, no write, exit 0). All timing writes — including
+# domain events like tdd_cycle — go through here, so the observability gate lives in
+# exactly one place.
+#
+# Usage: hat-timing-stamp <task-folder> <event> <phase> [key=value ...]
+#   event  any event name: phase_start | phase_end | task_start | task_end | tdd_cycle | ...
+#   phase  e.g. P1..P6
+#   key=value  extra JSON fields; true/false/null and numbers stay JSON literals,
+#              everything else is emitted as a quoted string.
+set -euo pipefail
+
+usage() {
+  echo "Usage: hat-timing-stamp <task-folder> <event> <phase> [key=value ...]" >&2
+  exit 1
+}
+
+if [[ $# -lt 3 ]]; then
+  usage
+fi
+
+TASK_DIR="$1"
+EVENT="$2"
+PHASE="$3"
+shift 3
+
+CONFIG_FILE="$TASK_DIR/task-config.json"
+
+# Core observability gate (single choke point). Default enabled when the key or the
+# config file is absent; disabled only when explicitly set to false.
+# NB: cannot use jq `.observability.enabled // true` — jq's `//` treats an explicit
+# `false` as empty and would coerce it to the `true` default. Compare to false directly.
+obs_enabled() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    return 0
+  fi
+  local val
+  val=$(jq -r 'if .observability.enabled == false then "false" else "true" end' "$CONFIG_FILE" 2>/dev/null)
+  [[ "$val" != "false" ]]
+}
+
+if ! obs_enabled; then
+  exit 0
+fi
+
+# Guard: task-folder must exist — a clearer error than a raw redirect failure.
+if [[ ! -d "$TASK_DIR" ]]; then
+  echo "hat-timing-stamp: task-folder not found: $TASK_DIR" >&2
+  exit 1
+fi
+
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # authoritative UTC timestamp
+WALL=$(date +%H:%M:%S)              # local wall-clock convenience (intentionally local, not UTC)
+
+# Construct the JSON line with jq so EVERY key and value is correctly escaped regardless
+# of content (control chars, quotes, backslashes) — guarantees one valid JSONL line.
+# Literal-typed values (true/false/null and plain numbers) go through --argjson to stay
+# JSON literals (e.g. preserving tdd_cycle's `"red_pass":false`); everything else is a
+# --arg string. jq -c emits a compact single line.
+NUM_RE='^-?[0-9]+([.][0-9]+)?$'
+jq_args=(-c -n
+  --arg event "$EVENT"
+  --arg phase "$PHASE"
+  --arg ts "$TS"
+  --arg wall "$WALL")
+# $event/$phase/$ts/$wall here are jq variables, not shell variables — keep them literal.
+# shellcheck disable=SC2016
+filter='{event:$event,phase:$phase,ts:$ts,wall_clock:$wall}'
+
+i=0
+for kv in "$@"; do
+  key="${kv%%=*}"
+  val="${kv#*=}"
+  case "$val" in
+    true|false|null)
+      jq_args+=(--argjson "v$i" "$val") ;;
+    *)
+      if [[ "$val" =~ $NUM_RE ]]; then
+        jq_args+=(--argjson "v$i" "$val")
+      else
+        jq_args+=(--arg "v$i" "$val")
+      fi ;;
+  esac
+  jq_args+=(--arg "k$i" "$key")
+  filter+=" + {(\$k$i): \$v$i}"
+  i=$((i + 1))
+done
+
+jq "${jq_args[@]}" "$filter" >> "$TASK_DIR/timing.jsonl"
