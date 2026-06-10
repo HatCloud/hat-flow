@@ -1,6 +1,7 @@
 ---
 name: hatflow-dispatching-parallel-agents
-description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
+description: "[hat-flow bundled dep — invoked explicitly by the task workflow, not auto-triggered] Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies"
+disable-model-invocation: true
 ---
 
 # Dispatching Parallel Agents
