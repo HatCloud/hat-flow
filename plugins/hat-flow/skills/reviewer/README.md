@@ -40,7 +40,7 @@ subagent 模式下使用路径 B（直接注入协议内容到 prompt），不�
 - **Format Compliance**（Guide 驱动）：从 Guide 的"审核检查项"段落提取检查条件
 - **Content Quality**（通用基础）：独立性、深度、可读性
 
-Guide 映射：SlipBox→SLIPBOX_GUIDE / Wiki→WIKI_GUIDE / Report→REPORT_GUIDE / YoYo→YOYO_POST_GUIDE
+Guide 映射：Cards→CARDS_GUIDE / Wiki→WIKI_GUIDE / Report→REPORT_GUIDE / Blog→BLOG_POST_GUIDE
 
 ### Skill Review
 

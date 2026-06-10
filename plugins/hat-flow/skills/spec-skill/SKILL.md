@@ -88,8 +88,8 @@ Overview 用用户配置语言描述，Announce 和 LANGUAGE RULE 用英文（�
 
 ```markdown
 <rule>
-Never write directly to SlipBox.
-Reason: cards must go through hatcloud's review before entering the knowledge base.
+Never write directly to Cards.
+Reason: cards must go through your team's review before entering the knowledge base.
 </rule>
 ```
 
@@ -124,9 +124,9 @@ Do NOT duplicate SKILL.md content. 只提炼核心信息，不是逐字翻译。
 
 ```markdown
 ## Permission Constraints
-- **Write-only** `_Inbox/distilled/` (新卡片)
-- **Read-only** SlipBox/ (查重、引用)
-- **Never write directly** to SlipBox/
+- **Write-only** `Inbox/distilled/` (新卡片)
+- **Read-only** Cards/ (查重、引用)
+- **Never write directly** to Cards/
 ```
 
 ---
@@ -139,7 +139,7 @@ Do NOT duplicate SKILL.md content. 只提炼核心信息，不是逐字翻译。
 
 | 内容类型 | 语言 | 示例 |
 |---------|------|------|
-| `<rule>` 铁律块 | 英文（Reason 可中可英） | `Never write directly to SlipBox.` |
+| `<rule>` 铁律块 | 英文（Reason 可中可英） | `Never write directly to Cards.` |
 | Red Flags 表格 | 全英文 | 两列都是约束 model 行为 |
 | LANGUAGE RULE 块 | 全英文 | 核心行为禁令 |
 | Check/Detect/If missing 模式 | 全英文 | 检查步骤本质是指令 |

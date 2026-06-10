@@ -11,8 +11,8 @@
 | Input | Description |
 |-------|-------------|
 | 待审文档全文 | 完整的文档内容（卡片/Wiki/报告/博文） |
-| Guide 文件全文 | 对应类型的 Guide（如 SLIPBOX_GUIDE.md）以及适用的 AUTHORSHIP_GUIDE / WRITING_VOICE_GUIDE / CONTENT_ROUTING_GUIDE |
-| 文档类型 | SlipBox / Wiki / Report / YoYo |
+| Guide 文件全文 | 对应类型的 Guide（如 CARDS_GUIDE.md）以及适用的 AUTHORSHIP_GUIDE / WRITING_VOICE_GUIDE / CONTENT_ROUTING_GUIDE |
+| 文档类型 | Cards / Wiki / Report / Blog |
 
 <rule>
 Check all required inputs before starting review. If any input is missing, output error listing missing items and terminate immediately.
@@ -23,12 +23,12 @@ Reason: reviewing with partial context produces false negatives that are worse t
 
 | 文档类型 | Guide 文件 | 路径 |
 |---------|-----------|------|
-| SlipBox 卡片 | SLIPBOX_GUIDE.md | ~/Knowledge_Base/docs/SLIPBOX_GUIDE.md |
+| Cards 卡片 | CARDS_GUIDE.md | ~/Knowledge_Base/docs/CARDS_GUIDE.md |
 | Wiki 页面 | WIKI_GUIDE.md | ~/Knowledge_Base/docs/WIKI_GUIDE.md |
 | 研究报告 | REPORT_GUIDE.md | ~/Knowledge_Base/docs/REPORT_GUIDE.md |
-| YoYo 博文 | YOYO_POST_GUIDE.md | ~/Knowledge_Base/docs/YOYO_POST_GUIDE.md |
+| Blog 博文 | BLOG_POST_GUIDE.md | ~/Knowledge_Base/docs/BLOG_POST_GUIDE.md |
 
-所有 AI 生成或 AI 显著改写内容，还必须读取 `~/Knowledge_Base/docs/AUTHORSHIP_GUIDE.md`；所有 Post / YoYo 内容还必须读取 `~/Knowledge_Base/docs/WRITING_VOICE_GUIDE.md` 和 `~/Knowledge_Base/docs/CONTENT_ROUTING_GUIDE.md`。
+所有 AI 生成或 AI 显著改写内容，还必须读取 `~/Knowledge_Base/docs/AUTHORSHIP_GUIDE.md`；所有 Post / Blog 内容还必须读取 `~/Knowledge_Base/docs/WRITING_VOICE_GUIDE.md` 和 `~/Knowledge_Base/docs/CONTENT_ROUTING_GUIDE.md`。
 
 ## 检查维度
 
@@ -40,7 +40,7 @@ Reason: reviewing with partial context produces false negatives that are worse t
 |---------|---------|---------|------------|
 | **硬事实** | API 返回值、版本号、命令参数、报错信息、数据指标 | 必须有可核查源（URL、文档链接、代码路径）；如果是 URL 则验证可达性 | **Critical** |
 | **软事实** | 设计哲学、原理、方法论、历史叙述 | 应有主流参考（书籍、论文、官方文档），不强制每条都有 URL | **Important** |
-| **观点/解读** | YoYo's Note、启示、比喻、类比、个人理解 | 不需要外部源，但必须明确标记为主观解读（不可伪装成客观事实） | **Suggestion** |
+| **观点/解读** | Blog's Note、启示、比喻、类比、个人理解 | 不需要外部源，但必须明确标记为主观解读（不可伪装成客观事实） | **Suggestion** |
 
 **检查流程**：
 1. 逐段扫描文档，标记每段的事实类型
