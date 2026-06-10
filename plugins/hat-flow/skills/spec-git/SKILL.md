@@ -53,14 +53,14 @@ Write "让我检查..." or "分析结果如下..." instead.
 
 如果关联了 Linear issue，在末尾追加 issue ID：
 ```
-feat(audio): add BGM support (HAT-106)
+feat(audio): add BGM support (ISSUE)
 ```
 
 ## Branch Naming
 
 ```
 main                              ← 主分支
-feature/<issue-id>-<description>  ← 功能分支 (feature/HAT-123-add-login)
+feature/<issue-id>-<description>  ← 功能分支 (feature/ISSUE-add-login)
 fix/<issue-id>-<description>      ← 修复分支
 hotfix/<description>              ← 热修复
 ```

@@ -191,7 +191,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 |---|---|
 | Dirty 文件 | 忽略，直接继续 |
 | 分支决策 | 留在当前分支 |
-| 新分支分叉告警（HAT-439） | 仅「创建新分支」路径触发——Unattended 分支决策默认「留在当前分支」故通常不触发；若触发则记录告警、不阻塞（NO_GIT/git 关闭亦跳过） |
+| 新分支分叉告警（ISSUE） | 仅「创建新分支」路径触发——Unattended 分支决策默认「留在当前分支」故通常不触发；若触发则记录告警、不阻塞（NO_GIT/git 关闭亦跳过） |
 
 #### task-design
 | 停止点 | 自动决策 |
@@ -226,7 +226,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 |---|---|
 | 验证失败 | 重试一次（Opus 修复），仍失败 → auto-cancel + Telegram |
 | CLAUDE.md 更新 | 读 `end_decisions.claude_md` |
-| 分支处理 keep（HAT-439） | 追加 `docs/unmerged-branches.md` 登记（不提示） |
+| 分支处理 keep（ISSUE） | 追加 `docs/unmerged-branches.md` 登记（不提示） |
 | 分支处理（4 选项菜单） | 读 `end_decisions.branch` 映射：`auto_merge`→Merge locally / `keep`→Keep as-is；**`PR` / `Discard` 永不自动触发（跳过）**；字段缺失或非法值 → 默认 keep |
 
 #### task-cancel

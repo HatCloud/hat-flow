@@ -32,7 +32,7 @@ Linear 集成用于把任务同步为 issue（状态流转 + 设计/计划/归�
      - **Project**: <name> (id: <uuid>)
      ```
    - 状态 UUID **不在此写死**——运行时由 linear 插件经 `mcp__linear__get_status_map` 按 name 动态解析（见 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/linear.md`）。
-3. 若 `mcp__linear__*` 工具不可用（Linear MCP 未配置）→ 提示用户先完成 Step 4（API key + MCP），或本次跳过 Linear。
+3. 若 `mcp__linear__*` 工具不可用（Linear MCP 未配置）→ 提示用户先完成 Step 2（API key + MCP），或本次跳过 Linear。
 
 ---
 

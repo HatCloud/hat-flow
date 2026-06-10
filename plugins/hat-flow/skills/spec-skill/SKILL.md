@@ -288,7 +288,7 @@ digraph when_flowchart {
 
 ## Proven Patterns
 
-经过 HAT-237/238 两轮 dogfooding 验证的设计模式。Skill 作者可根据需要采用。
+经过 ISSUE/238 两轮 dogfooding 验证的设计模式。Skill 作者可根据需要采用。
 
 ### Verification-Driven Development
 
@@ -340,7 +340,7 @@ Stage 1 must pass before Stage 2 begins. Do not review code quality on incorrect
 Reason: reviewing quality on wrong code wastes tokens and produces misleading feedback.
 </rule>
 
-使用 `<!-- STAGE-1-START/END -->` HTML 锚点在 checklist 文件中标记边界，避免硬编码 checklist 内容到多处（HAT-238 R2 发现的同步风险）。
+使用 `<!-- STAGE-1-START/END -->` HTML 锚点在 checklist 文件中标记边界，避免硬编码 checklist 内容到多处（ISSUE R2 发现的同步风险）。
 
 ### Implementer States
 
@@ -357,11 +357,11 @@ Reason: reviewing quality on wrong code wastes tokens and produces misleading fe
 
 ### Scope Freeze
 
-设计批准后，范围变更需要显式用户确认。来源：HAT-238 中范围从 8→13 组扩大了 62%。
+设计批准后，范围变更需要显式用户确认。来源：ISSUE 中范围从 8→13 组扩大了 62%。
 
 <rule>
 After design approval, any scope expansion must be confirmed via AskUserQuestion before proceeding.
-Reason: uncontrolled scope creep during execution leads to token waste and delayed delivery (HAT-238 lesson).
+Reason: uncontrolled scope creep during execution leads to token waste and delayed delivery (ISSUE lesson).
 </rule>
 
 如果执行中发现新需求，记入 `next-task-prompt.md` 而非当场处理。
@@ -502,7 +502,7 @@ ${CLAUDE_PLUGIN_ROOT}/skills/task/
 | 模式 | 效果 | 示例 |
 |------|------|------|
 | `run_in_background` + **阻塞 checkpoint** | ✅ 从未跳过 | `TaskOutput block:true` 在 Phase 1f |
-| `run_in_background` + 仅文字说明 | ❌ 系统性跳过 | Phase 3d 被跳过（HAT-239） |
+| `run_in_background` + 仅文字说明 | ❌ 系统性跳过 | Phase 3d 被跳过（ISSUE） |
 | `run_in_background` + **pre-gate before AskUserQuestion** | ✅ 保留效率 | Phase 3 Stop 前检查 3d 完成 |
 
 ### Process Review Loop

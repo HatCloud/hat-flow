@@ -189,7 +189,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 - 读取 `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 中对应 preset 的模板（preset 的键深合并覆盖顶层默认）
 - 应用裁剪覆盖（用户确认的禁用/启用调整）
 - 解析所有 `"auto"` 值为具体值（`linear.enabled: "auto"` → 检测 Linear MCP 可用性解析为 `true`/`false`；`git.enabled: "auto"` → 检测 git 仓库解析为 `true`/`false`）
-- **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——HAT-444 已将其下沉为核心能力）。默认 `{"enabled": true}`；**preset 顶层的 `observability` 覆盖默认**——如 `hotfix` 的顶层 `observability.enabled: false` 经合并应解析出 `false`（务必合并顶层 `observability` 键，勿只合并 `plugins.*`）。
+- **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——ISSUE 已将其下沉为核心能力）。默认 `{"enabled": true}`；**preset 顶层的 `observability` 覆盖默认**——如 `hotfix` 的顶层 `observability.enabled: false` 经合并应解析出 `false`（务必合并顶层 `observability` 键，勿只合并 `plugins.*`）。
 - 档位决策在内存确定；`task-config.json` 的实际写盘移到 1f（任务文件夹创建之后），此处不写文件。
 
 **6. 计算 phases.md 步骤列表（内存）：**
@@ -240,7 +240,7 @@ AskUserQuestion：**创建新分支** / **留在当前分支**
 
 执行所选选项：`git checkout -b` / 留在当前分支。git plugin 关闭时跳过分支创建。
 
-> **选「创建新分支」前的分叉告警（HAT-439，非阻塞）**：创建前比对 `git merge-base HEAD main` 与 `git rev-parse main`——若 `main` 有 HEAD 未含的 commit（当前 HEAD 落后 main、新分支 base 过旧）→ **非阻塞告警**：**[Interactive]** 纯提示「当前 HEAD 落后 main，新分支将基于较旧基线，建议先 rebase/merge main」后继续（**不加停止点、不阻塞**）；**[Unattended]** 记录该告警后继续。`NO_GIT` / git plugin 关闭时跳过本检查。
+> **选「创建新分支」前的分叉告警（ISSUE，非阻塞）**：创建前比对 `git merge-base HEAD main` 与 `git rev-parse main`——若 `main` 有 HEAD 未含的 commit（当前 HEAD 落后 main、新分支 base 过旧）→ **非阻塞告警**：**[Interactive]** 纯提示「当前 HEAD 落后 main，新分支将基于较旧基线，建议先 rebase/merge main」后继续（**不加停止点、不阻塞**）；**[Unattended]** 记录该告警后继续。`NO_GIT` / git plugin 关闭时跳过本检查。
 
 任务文件夹名格式：`YYYY-MM-DD-kebab-description`（10-20 字符的 kebab-case 描述）。存入内存——do NOT create directory yet.
 

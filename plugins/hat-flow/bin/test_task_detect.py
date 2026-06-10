@@ -87,7 +87,7 @@ def test_with_linear_json(tmp_path):
     task_dir = tmp_path / "open" / "2026-01-01-linear-task"
     task_dir.mkdir(parents=True)
     (task_dir / "plan.md").write_text("- [ ] do something\n")
-    linear_data = {"id": "HAT-42", "title": "Test issue"}
+    linear_data = {"id": "ISSUE", "title": "Test issue"}
     (task_dir / "linear.json").write_text(json.dumps(linear_data))
 
     result = run_detect(str(tmp_path))
@@ -97,4 +97,4 @@ def test_with_linear_json(tmp_path):
     assert len(data["open"]) > 0
     task_entry = next(t for t in data["open"] if t["name"] == "2026-01-01-linear-task")
     assert task_entry["linear"] is not None
-    assert task_entry["linear"]["id"] == "HAT-42"
+    assert task_entry["linear"]["id"] == "ISSUE"

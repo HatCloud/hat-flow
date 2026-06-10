@@ -55,7 +55,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
   3. **不含** `.tasks/` 下的变更（任务文件夹的提交统一由 P3 init commit 和 P6 closure commit 处理）
   4. **所有模式（含 Interactive）直接 commit**：按 plan checkpoint 的 message + 上述限定的文件范围自动 `git add <specific-files> && git commit`，**不弹确认**。安全职责由「仅 add 指定文件范围 + 排除 `.tasks/` 外无关变更」承接（不再依赖此前 P1 阶段的暂存支柱——Unattended dirty 已统一为忽略继续），非裸 `git add -A`。
 
-     > **残留风险（HAT-437）**：删暂存支柱后，「仅 add 指定文件范围」是唯一兜底——Unattended 下工作区可能留无关变更。故 **plan task 必须列具体文件**（非目录/glob），否则同一文件内混入的无关 hunk 仍会被 `git add <file>` 整体带入。
+     > **残留风险（ISSUE）**：删暂存支柱后，「仅 add 指定文件范围」是唯一兜底——Unattended 下工作区可能留无关变更。故 **plan task 必须列具体文件**（非目录/glob），否则同一文件内混入的无关 hunk 仍会被 `git add <file>` 整体带入。
   5. 提交节奏 / 是否需用户确认提交，**前置到 Design/Plan 一次性决定**（spec-task-skill 约定 9 Interaction Front-Loading：Execute 零阻塞交互）。
 - **无 Checkpoint**：跳过，继续下一 task
 
@@ -64,7 +64,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
 1. **Follow project conventions** — Conventional Commits、Angular style 等
 2. **Commit by logical unit, not by file** — 相关变更归为一个 commit
 3. **No fix commits within the same session** — amend 原始 commit，除非中间有其他 commit
-4. **Reference issue ID** — 如 `feat(audio): add BGM support (HAT-106)`
+4. **Reference issue ID** — 如 `feat(audio): add BGM support (ISSUE)`
 5. **Write meaningful messages** — 描述"为什么"和"做了什么"
 6. **Target 3-8 commits per task** — Phase 4 典型 3-5 个 commit
 7. **Confirm before committing during test phase** — 分析→修复→用户测试→确认→commit
@@ -99,7 +99,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
    - **[Interactive]** AskUserQuestion，4 选项：
      - **Merge locally** — `git checkout main && git merge --no-ff {branch} && git branch -d {branch}`
      - **Push + Create PR** — `git push -u origin {branch}` + `gh pr create`，**保留分支**（供 PR 反馈迭代）
-     - **Keep as-is** — 保留分支不动。**提示「该分支尚未并入 main」** + 追加一行到 `docs/unmerged-branches.md`（列：分支名 / task / 日期 / 备注；文件不存在则先建表头再追加），供日后对账合并（HAT-439）
+     - **Keep as-is** — 保留分支不动。**提示「该分支尚未并入 main」** + 追加一行到 `docs/unmerged-branches.md`（列：分支名 / task / 日期 / 备注；文件不存在则先建表头再追加），供日后对账合并（ISSUE）
      - **Discard** — 需用户 **typed 确认**（输入分支名）后 `git checkout main && git branch -D {branch}`（force 删，丢弃未合并工作）
    - **[Unattended]** 按 `unattended.json` 的 `end_decisions.branch` 映射：`auto_merge` → Merge locally；`keep` → Keep as-is（**仅追加 `docs/unmerged-branches.md` 登记、不提示**）；**`PR` / `Discard` 永不自动触发**（无人值守下跳过——不 push、不 force 删）；字段缺失或非法值 → 默认 **Keep as-is**（安全保守，同样登记）
 2. 清理 revise tag（如 `revise-r1-start` 等临时 tag）

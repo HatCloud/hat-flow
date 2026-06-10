@@ -50,7 +50,7 @@ Plugin-specific logic MUST NOT be written into any core file (a phase SKILL.md, 
 Reason: when plugin logic leaks into core, flipping enabled:false no longer removes the logic — disabling the plugin then requires surgically editing core files, and the pluggable promise silently breaks. When a stateful plugin's artifacts span phases, its lifecycle logic tends to spread across multiple phase skills and the gate script, turning a one-flag removal into multi-file surgery.
 </HARD-GATE>
 
-> **Carve-out — observability/timing 是核心能力（HAT-444 下沉，双向豁免）**：observability 已从 plugin 下沉为 task 工作流核心能力——timing 由各 phase SKILL 在 phase 边界**内联**经 `hat-timing-stamp` 写入，受顶层 `observability.enabled` 门控。两条豁免**不违反**上方 HARD-GATE：
+> **Carve-out — observability/timing 是核心能力（ISSUE 下沉，双向豁免）**：observability 已从 plugin 下沉为 task 工作流核心能力——timing 由各 phase SKILL 在 phase 边界**内联**经 `hat-timing-stamp` 写入，受顶层 `observability.enabled` 门控。两条豁免**不违反**上方 HARD-GATE：
 > - **(a) observability/timing 写入 core 文件不算「插件逻辑入 core」**——它本就不是 plugin，是横切「埋点/仪表」基础设施；core 内联 timing 是核心能力的正当落点（开关在顶层 `observability.enabled`，关闭时 helper no-op，能力干净消失，无需编辑 core）。
 > - **(b) plugin 消费 core observability 能力不构成 plugin→core 硬耦合**——如 tdd 经 `hat-timing-stamp` 写 `tdd_cycle`，helper 自带门控、plugin 不感知开关位置；翻 tdd 的 `enabled:false` 仍能干净拔除 tdd（不影响 timing helper 自身）。
 >

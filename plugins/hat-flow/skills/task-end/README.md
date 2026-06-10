@@ -31,5 +31,5 @@
 ## 依赖
 
 - 引用：PROCESS_REVIEW_TEMPLATE.md、task-config.json
-- Hook：P6.pre-archive/post-archive（P6 phase_start/phase_end 已下沉为 core timing 内联、非 hook——HAT-444）
+- Hook：P6.pre-archive/post-archive（P6 phase_start/phase_end 已下沉为 core timing 内联、非 hook——ISSUE）
 - 脚本：hat-task-detect、hat-task-archive、hat-plugin-hook、hat-conversation-export

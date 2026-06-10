@@ -124,9 +124,9 @@ def _run_hook_with_plugins_dir(task_folder, hook_point, plugins_dir):
     import os
 
     env = os.environ.copy()
-    # Read the script source to understand how to override PLUGINS_DIR
-    # The script hardcodes PLUGINS_DIR="${CLAUDE_PLUGIN_ROOT}/skills/task/plugins"
-    # We need to modify the script invocation — use env var or sed.
+    # Read the script source to understand how to override PLUGINS_DIR.
+    # The script self-locates: SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)",
+    # PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins". We override it for the test.
     # Simpler: create a wrapper that overrides PLUGINS_DIR.
     wrapper = task_folder.parent / "hook-wrapper.sh"
     wrapper.write_text(

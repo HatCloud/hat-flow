@@ -42,7 +42,7 @@ plugin_enabled() {
   [[ "$val" == "true" ]]
 }
 
-# observability is a top-level CORE key (HAT-444: de-pluginized), no longer under plugins.*.
+# observability is a top-level CORE key (ISSUE: de-pluginized), no longer under plugins.*.
 # Default ENABLED when present-but-unset; only an explicit `false` disables it.
 # No config file → fail-open (treated as disabled → timing gate skipped), preserving the
 # prior configless behavior. NB: cannot use jq `.observability.enabled // true` — jq's `//`
@@ -157,7 +157,7 @@ case "$PHASE" in
     check_file "final.md"
     check_file "conversation.md"
     check_file "consumption-report.md"
-    # Core: observability (top-level switch, HAT-444)
+    # Core: observability (top-level switch, ISSUE)
     if obs_enabled; then
       check_file "timing.jsonl"
     fi

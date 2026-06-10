@@ -75,7 +75,7 @@ def test_missing_task_dir():
 # Timing trace checks (WS-D Layer 2)
 # ---------------------------------------------------------------------------
 def _write_config(tmp_path, observability=True):
-    # observability is a top-level core key (HAT-444: de-pluginized), no longer under plugins.*
+    # observability is a top-level core key (ISSUE: de-pluginized), no longer under plugins.*
     config = {
         "observability": {"enabled": observability},
     }

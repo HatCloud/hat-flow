@@ -38,7 +38,7 @@
   },
 
   "observability": { "enabled": true },
-  "_observability_note": "核心能力（非 plugin，HAT-444 下沉）：timing 由各 phase SKILL 在 phase 边界内联经 hat-timing-stamp 写入，受此顶层开关门控。与 todo_sync/phase_merge 同级；preset 可覆盖（hotfix 设 false）。",
+  "_observability_note": "核心能力（非 plugin，ISSUE 下沉）：timing 由各 phase SKILL 在 phase 边界内联经 hat-timing-stamp 写入，受此顶层开关门控。与 todo_sync/phase_merge 同级；preset 可覆盖（hotfix 设 false）。",
 
   "todo_sync": true,
   "phase_merge": [],

@@ -200,7 +200,7 @@ Review scope 限定为当前 task 变更的文件。
 
 4b 收敛是**带显式 join 的跨回合异步循环**：Round 1 后台派发 reviewer（见 full-review「收敛场景派发」），主线程结束回合等 completion notification；Round≥2 用 `SendMessage` **复活已结束的同一 reviewer**——它从自身 transcript 完整恢复跨轮上下文，主线程每轮只发一句极短消息，不再重灌上轮 findings / 修复 diff / plan 正文（消除主线程收敛轮 output token，这是本机制的收益核心）。
 
-> **派发原语 vs 等待语义**：复用 HAT-439 的派发原语（`run_in_background=true` Agent + completion notification），但**不是** fire-and-forget。linear-sync 可静默丢失、由下个 phase 兜底；4b 收敛是**强 join 门控**——必须收齐全部 reviewer 结论才能判 C/I，下游 P5 无兜底，带病推进即漏审。故在派发原语之上叠加下方 JOIN 协议。
+> **派发原语 vs 等待语义**：复用 ISSUE 的派发原语（`run_in_background=true` Agent + completion notification），但**不是** fire-and-forget。linear-sync 可静默丢失、由下个 phase 兜底；4b 收敛是**强 join 门控**——必须收齐全部 reviewer 结论才能判 C/I，下游 P5 无兜底，带病推进即漏审。故在派发原语之上叠加下方 JOIN 协议。
 
 全量 code review 返回后，按 severity 统计 findings（依据 CODE_REVIEW.md 的三级 severity + severity-escalation.yaml）。轮次计数从 1 起，上限取 `task-config.json` 的 `plugins.review.max_rounds`（默认 3）。
 
