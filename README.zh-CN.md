@@ -39,6 +39,12 @@
 /plugin install hat-flow@hat-flow
 ```
 
+> **没配 GitHub SSH key？** `owner/repo` 简写走 SSH 克隆，没配 SSH key 会报
+> `Permission denied (publickey)`。本仓库是 public 的——改用显式 HTTPS URL：
+> `/plugin marketplace add https://github.com/HatCloud/hat-flow.git`
+> （若仍报 SSH 错，说明你的 git 配了 HTTPS→SSH 的 `insteadOf` 重写，需配 SSH
+> key 或移除该重写。）
+
 随后运行 `/task-setup` 配置 Linear 身份、可选 Telegram 通知、启用哪些插件、
 输出语言。
 

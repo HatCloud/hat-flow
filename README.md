@@ -43,6 +43,13 @@ Running `/task-setup` performs a preflight check and reports anything missing.
 /plugin install hat-flow@hat-flow
 ```
 
+> **No GitHub SSH key?** The `owner/repo` shorthand clones over SSH and fails
+> with `Permission denied (publickey)` if you have no SSH key configured. This
+> repo is public — use the explicit HTTPS URL instead:
+> `/plugin marketplace add https://github.com/HatCloud/hat-flow.git`
+> (If that still hits an SSH error, your git has an `insteadOf` rule rewriting
+> GitHub HTTPS→SSH; configure an SSH key or remove that rewrite.)
+
 Then run `/task-setup` to configure Linear identity, optional Telegram
 notifications, enabled plugins, and output language.
 
