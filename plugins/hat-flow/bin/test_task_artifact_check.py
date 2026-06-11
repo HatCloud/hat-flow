@@ -4,6 +4,8 @@ Characterization tests for bin/hat-task-artifact-check.
 Run with:  python3 -m pytest bin/test_task_artifact_check.py -x -q
 """
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,6 +19,36 @@ def run_check(*args):
         capture_output=True,
         text=True,
     )
+
+
+def _path_without_jq(tmp_path):
+    """Build a PATH dir holding the pre-guard externals (env/bash/dirname) but no jq.
+
+    Locks the dependency declaration: a clean environment lacking jq must fail
+    loudly, not silently degrade. Regression for the clean-env packaging defect
+    where jq was an undeclared hard dependency.
+    """
+    bindir = tmp_path / "nojq-bin"
+    bindir.mkdir()
+    for cmd in ("env", "bash", "dirname", "pwd"):
+        p = shutil.which(cmd)
+        if p:
+            os.symlink(p, bindir / cmd)
+    return {"PATH": str(bindir)}
+
+
+def test_missing_jq_fails_loudly(tmp_path):
+    """jq absent → exit 1 with an actionable error (not a silent timing misfire)."""
+    (tmp_path / "prompt.md").write_text("# Prompt\n")
+    (tmp_path / "phases.md").write_text("# Phases\n")
+    result = subprocess.run(
+        [str(SCRIPT), str(tmp_path), "1"],
+        capture_output=True,
+        text=True,
+        env=_path_without_jq(tmp_path),
+    )
+    assert result.returncode == 1, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    assert "jq" in result.stderr.lower()
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,15 @@ if [[ ! -f "$config_file" ]]; then
   exit 0
 fi
 
+# 依赖预检：本脚本的 hook 路由引擎依赖 jq 解析 manifest/config。缺失则全部 hook
+# 静默失效（review/linear/git/timing 等插件不注入），故此处响亮报错而非静默退出。
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: 'jq' is required but not installed. The plugin hook system cannot" >&2
+  echo "       route handlers without it (all task-workflow plugins would silently" >&2
+  echo "       fail to fire). Install jq: brew install jq / apt-get install jq" >&2
+  exit 1
+fi
+
 enabled_plugins=$(jq -r '
   .plugins // {} | to_entries[]
   | select(.value.enabled == true or .value.enabled == "auto")

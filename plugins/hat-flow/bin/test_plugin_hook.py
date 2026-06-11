@@ -2,6 +2,8 @@
 TDD tests for bin/hat-plugin-hook robustness fixes.
 Run: python3 -m pytest bin/test_plugin_hook.py -x -q
 """
+import os
+import shutil
 import subprocess
 import json
 from pathlib import Path
@@ -16,6 +18,31 @@ def run_hook(*args, **kwargs):
         capture_output=True,
         text=True,
     )
+
+
+def test_missing_jq_fails_loudly(tmp_path):
+    """jq absent → exit 1 with an actionable error, not silent hook loss.
+
+    Regression for the clean-env packaging defect: jq was an undeclared hard
+    dependency, so a fresh environment lost every plugin hook silently.
+    """
+    task_folder = tmp_path / "task"
+    task_folder.mkdir()
+    (task_folder / "task-config.json").write_text("{}\n")
+    bindir = tmp_path / "nojq-bin"
+    bindir.mkdir()
+    for cmd in ("env", "bash", "dirname", "pwd"):
+        p = shutil.which(cmd)
+        if p:
+            os.symlink(p, bindir / cmd)
+    result = subprocess.run(
+        [str(HOOK_BIN), str(task_folder), "P1.phase-start"],
+        capture_output=True,
+        text=True,
+        env={"PATH": str(bindir)},
+    )
+    assert result.returncode == 1, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    assert "jq" in result.stderr.lower()
 
 
 def test_insufficient_args():

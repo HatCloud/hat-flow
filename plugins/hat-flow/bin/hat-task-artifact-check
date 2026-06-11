@@ -32,6 +32,14 @@ if ! [[ "$PHASE" =~ ^[1-6]$ ]]; then
   exit 1
 fi
 
+# 依赖预检：config / observability 解析依赖 jq。缺失时 enabled 判定会退化（observability
+# 误判为开启 → timing 门控误报）。响亮报错而非静默退化。
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: 'jq' is required but not installed (used to read task-config.json)." >&2
+  echo "       Install jq: brew install jq / apt-get install jq" >&2
+  exit 1
+fi
+
 plugin_enabled() {
   local name="$1"
   if [[ ! -f "$CONFIG_FILE" ]]; then

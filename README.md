@@ -5,6 +5,20 @@ Spec-driven task workflow for Claude Code — a 6-phase lifecycle
 independent code/design/plan review, optional Linear and Telegram integration,
 and TDD discipline.
 
+## Requirements
+
+These tools must be on your `PATH` before installing:
+
+- **`jq`** — required. The plugin hook engine parses manifests/config with it;
+  without `jq` all task-workflow plugins (review/linear/git/timing) silently
+  fail to fire. Install: `brew install jq` / `apt-get install jq`.
+- **`python3`** (3.8+) — required. Several workflow helpers and bin scripts run
+  on it.
+- **`node`** (with `npx`) — only needed for the optional Linear integration
+  (`@hatcloud/linear-mcp` is launched via `npx`).
+
+Running `/task-setup` performs a preflight check and reports anything missing.
+
 ## Install
 
 ```

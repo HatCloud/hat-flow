@@ -16,6 +16,23 @@ Write every message you show to the user in the user's configured language (the 
 
 ---
 
+## Step 0: 依赖预检
+
+任务流的 hook 引擎与若干 bin 脚本依赖外部命令。**先跑预检**，缺失则提示安装后再继续：
+
+```bash
+for c in jq python3; do command -v "$c" >/dev/null 2>&1 && echo "✓ $c" || echo "✗ $c (必需)"; done
+command -v node >/dev/null 2>&1 && echo "✓ node (Linear 集成需要)" || echo "○ node 缺失 (仅启用 Linear 时需要)"
+```
+
+- **`jq`（必需）**：hook 路由引擎靠它解析 manifest/config；缺失则 review/linear/git/timing 等**所有插件 hook 静默失效**，流程照跑但产物全缺。缺则提示 `brew install jq` / `apt-get install jq`，装好再继续。
+- **`python3`（必需，3.8+）**：部分 bin 脚本与流程辅助逻辑运行其上。
+- **`node`（可选）**：仅 Linear 集成需要（`@hatcloud/linear-mcp` 经 `npx` 拉起）。未启用 Linear 可忽略。
+
+`jq` 或 `python3` 缺失时**不要继续**——先让用户安装。
+
+---
+
 ## Step 1: Linear 身份（可选）
 
 Linear 集成用于把任务同步为 issue（状态流转 + 设计/计划/归档评论）。**不配置则 linear 插件优雅关闭**，任务流照常运行。
