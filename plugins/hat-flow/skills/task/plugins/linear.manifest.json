@@ -25,19 +25,19 @@
       "priority": 30,
       "section": "## P3.phase-end",
       "on_error": "graceful",
-      "execution": "subagent:linear-sync"
+      "execution": "inline"
     },
     "P5.post-acceptance": {
       "priority": 30,
       "section": "## P5.post-acceptance",
       "on_error": "graceful",
-      "execution": "subagent:linear-sync"
+      "execution": "inline"
     },
     "P6.pre-archive": {
       "priority": 30,
       "section": "## P6.pre-archive",
       "on_error": "graceful",
-      "execution": "subagent:linear-sync"
+      "execution": "inline"
     }
   }
 }
