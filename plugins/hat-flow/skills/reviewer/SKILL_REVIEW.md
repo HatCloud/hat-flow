@@ -48,7 +48,7 @@ Reason: reviewing with partial context produces false negatives that are worse t
 
 ### 3. 兼容性
 
-**CC 特有语法黑名单**（以下语法不得出现在需要兼容 OpenClaw 的 skill 中）：
+**CC 特有语法黑名单**（以下语法不得出现在需要兼容 an alternate runtime 的 skill 中）：
 
 - `${CLAUDE_POSITIONAL_ARGS}`
 - `${CLAUDE_SKILL_DIR}`

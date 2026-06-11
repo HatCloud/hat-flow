@@ -10,11 +10,7 @@ description: "Use when committing code, creating branches, writing commit messag
 **Announce at start:** "Using spec-git for commit/branch conventions."
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
-Every message you show to the user MUST be written in Chinese (中文).
-This includes status updates, analysis results, questions, error reports, and summaries.
-Technical terms and code identifiers stay in English.
-Do NOT write English sentences like "Let me check..." or "Based on my analysis...".
-Write "让我检查..." or "分析结果如下..." instead.
+Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
 
 ## Commit Format
 

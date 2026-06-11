@@ -10,11 +10,7 @@ description: "Use when the user confirms a task is done and testing has passed. 
 **Announce at start:** "Using task-end to close this task."
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
-Every message you show to the user MUST be written in Chinese (中文).
-This includes status updates, analysis results, questions, error reports, and summaries.
-Technical terms (e.g., CSS, Tailwind, scoped CSS) and code identifiers stay in English.
-Do NOT write English sentences like "Let me check..." or "Light verification passed...".
-Write "让我检查..." or "轻量验证通过..." instead.
+Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
 
 ## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
 

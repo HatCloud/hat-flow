@@ -12,11 +12,7 @@ Skill 不是操作手册，而是**行为约束系统**——不仅定义"做什
 **Announce at start:** "Using spec-skill to [write/modify/review] the skill."
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
-Every message you show to the user MUST be written in Chinese (中文).
-This includes status updates, analysis results, questions, error reports, and summaries.
-Technical terms (e.g., CSS, Tailwind, scoped CSS) and code identifiers stay in English.
-Do NOT write English sentences like "Let me check..." or "Based on my analysis...".
-Write "让我检查..." or "分析结果如下..." instead.
+Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
 
 ## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
 
@@ -68,10 +64,7 @@ description: Use when executing implementation plans with independent tasks
 **Announce at start:** "Using [skill-name] to [purpose]."
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
-Every message you show to the user MUST be written in Chinese (中文).
-Technical terms and code identifiers stay in English.
-Do NOT write English sentences like "Let me check...".
-Write "让我检查..." instead.
+Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
 ```
 
 Overview 用用户配置语言描述，Announce 和 LANGUAGE RULE 用英文（它们是约束 model 行为的指令）。
