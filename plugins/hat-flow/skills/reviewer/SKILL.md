@@ -1,5 +1,6 @@
 ---
 name: reviewer
+user-invocable: false
 description: "Use when dispatched by task skill to review design, plan, or code. Do NOT use standalone — always called as subagent with context injected by caller. 触发词: \"review 设计\", \"review 计划\", \"review 代码\", \"审查设计\", \"审查计划\""
 ---
 
@@ -30,6 +31,7 @@ Write every message you show to the user in the user's configured language (the 
 | "Confidence is hard to estimate, just use 90" | Confidence must reflect actual certainty. Default-high masks uncertainty. |
 | "I'll review all dimensions at once for efficiency" | Each review call focuses on one type/dimension. Mixing dilutes attention. |
 | "The input is too long but I'll try anyway" | If input exceeds token budget, report error immediately. Partial review is worse than no review. |
+| "This deserves a big multi-agent adversarial sweep" | Default to ONE focused review pass. A Workflow / multi-agent fan-out spends many times the tokens — launch it only after the user explicitly consents. |
 
 ## Iron Laws
 
@@ -49,8 +51,13 @@ Reason: partial context leads to false negatives, which are worse than no review
 </rule>
 
 <rule>
-If input size exceeds token budget, terminate with error reporting actual size and limit. Do not attempt partial review.
-Reason: truncated input causes blind spots that undermine the entire review.
+Default to a single focused review pass. Do NOT default to a high-spec multi-agent review.
+Reason: a normal review is one reviewer reading the artifact and reporting issues. That is the right default for almost every call — it is cheap, fast, and sufficient. Escalating to broader/deeper coverage is the exception, not the baseline.
+</rule>
+
+<rule>
+Never launch a Workflow / multi-agent fan-out (parallel finders, adversarial verifiers, convergence loops) without explicit user consent. Ask first, stating the rough scale.
+Reason: a multi-agent sweep spends many times the tokens of a normal review (a single SKILL review fanned out to ~27 agents before being cut short). The user must opt in to that cost — phrases like "用对抗/收敛" describe a method but are not standing authorization to spin up dozens of agents. When a review would genuinely benefit from fan-out, briefly say so and ask, rather than doing it by default.
 </rule>
 
 ## Dynamic Routing
@@ -69,7 +76,7 @@ Reason: truncated input causes blind spots that undermine the entire review.
 
 DESIGN / CODE / DOCUMENT / SKILL 类型共享下方统一输出格式。Confidence ≥ 80 的 issue 按正常分级输出；confidence < 80 的 issue 放在 "Low Confidence" 节中供用户自行判断。
 
-> **PLAN 类型例外**：plan review 用二元 `Verdict: Approved | Issues` + `## Advisory Recommendations` 桶，格式定义见 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md ## Output Format`，**不套用下方统一模板**（无 Round / 无 Suggestion / 无 Low Confidence 节）。下游 `plugins/review.md` P3 按二元 Verdict 解析。
+> **PLAN 类型例外**：plan review 用二元 `Verdict: Approved | Issues` + `## Advisory Recommendations` 桶，格式定义见 `${CLAUDE_SKILL_DIR}/PLAN_REVIEW.md ## Output Format`，**不套用下方统一模板**（无 Round / 无 Suggestion / 无 Low Confidence 节）。下游 `plugins/review.md` P3 按二元 Verdict 解析。
 
 其余类型输出必须严格遵循以下模板：
 
@@ -113,6 +120,6 @@ Each severity section that has no items should be omitted entirely. At least one
 
 ## Dependencies
 
-- 预注入: `${CLAUDE_POSITIONAL_ARGS}_REVIEW.md`（通过 Dynamic Routing 按需加载）
-- 调用方: task skill（Phase 2 design review, Phase 3 plan review, Phase 4 code review）
-- 引用: spec-skill（skill 格式规范）
+- 预注入: `${CLAUDE_SKILL_DIR}/${CLAUDE_POSITIONAL_ARGS}_REVIEW.md`（通过 Dynamic Routing 按需加载）
+- 调用方: task skill（Phase 2 design review, Phase 3 plan review, Phase 4 code review）、distill / research / card-refine（DOCUMENT review）
+- 引用: spec-skill（skill 格式规范）、Knowledge_Base Guide 文件（DOCUMENT review 动态注入）

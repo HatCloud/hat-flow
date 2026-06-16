@@ -1,5 +1,6 @@
 ---
 name: task-test
+user-invocable: false
 description: "Use when executing Phase 5 (Test) of a task. Runs full verification, updates Linear status, and shows acceptance checklist. Can be called standalone or via /task orchestrator. 触发词: \"测试阶段\", \"task test\", \"验收\", \"验证阶段\""
 ---
 
@@ -269,7 +270,7 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（linear: 状
 
 更新 phases.md，将 `5c. 验收清单` 标记为 `[x]`，Phase 5 `**Status**: DONE`。
 
-**硬停**：告知用户 "所有测试已完成，请调用 `/task-end` 关闭任务。" **不得自动推进到 Phase 6**，即使全部验收项均为自动化测试且全部通过。
+验收完成后是硬停，不自动推进 Phase 6（权威规则见「Test 完成 → 过渡」）。
 
 **[Unattended]** 若无人值守模式激活：
 - `task_type == "self_test"` → 跳过手动测试区域，仅评估**可机判**的自动化验收项：
@@ -344,7 +345,7 @@ Every step completion MUST update phases.md: mark step [x], update Updated time,
 Reason: phases.md is the cross-session state record. Missing updates mean the next session cannot correctly resume.
 </rule>
 
-**Phase 5 完成时**（所有测试完成后）：将 Phase 5 的 `**Status**: PENDING` 改为 `**Status**: DONE`，更新 `**Updated**` 时间。不自动推进到 Phase 6。
+**Phase 5 完成时**（所有测试完成后）：将 Phase 5 的 `**Status**: PENDING` 改为 `**Status**: DONE`，更新 `**Updated**` 时间。
 
 ---
 
@@ -387,5 +388,6 @@ Reason: the user needs a deliberate decision point before closing a task — aut
 - **Reads**: `{task-folder}/design.md`, `{task-folder}/task-config.json`
 - **Writes**: `{task-folder}/phases.md`, `{task-folder}/.last-verified`, `{task-folder}/acceptance-checklist.md`
 - **Hooks**: `P5.post-acceptance`（linear）, `P5.test-feedback`（review: Revise 检测）
+- **Subagent（异步派发）**: `P5.post-acceptance` 的 linear 为 `subagent:linear-sync` hook —— `hat-plugin-hook` 输出 DISPATCH 指令，编排器据此派一次性后台 subagent 异步执行 Linear 状态更新（In Review）。交接契约见 task/SKILL.md「Subagent Async Dispatch」。
 - **Core timing**（内联，非 hook）: phase_start P5（阶段开始）/ phase_end P5（阶段完成）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
 - **Scripts**: hat-plugin-hook, hat-timing-stamp

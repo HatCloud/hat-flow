@@ -1,6 +1,7 @@
 ---
 name: task
 description: "Use when starting a new task or resuming an in-progress one. Routes to the correct phase based on phases.md state. Do NOT use for tasks already completed (use /task-end) or to cancel (use /task-cancel). 触发词: \"新任务\", \"开始任务\", \"做个任务\", \"创建任务\", \"继续任务\", \"resume task\""
+self-evolving: true
 ---
 
 # Task — Orchestration Layer
@@ -9,7 +10,7 @@ description: "Use when starting a new task or resuming an in-progress one. Route
 
 **Announce at start:** "Using task to orchestrate the task lifecycle."
 
-**Unattended Mode：** 若用户消息包含"无人值守"关键词，且当前任务文件夹下没有 `unattended.json`，立即执行 Step 2A.1（Unattended Mode Check），创建 `unattended.json` 后继续当前流程。
+**Unattended / Quiet Mode：** 入口 **Step 0** 统一解析 `$ARGUMENTS`，由显式信号（`-q` / `--quiet` / `--headless` / 「无人值守」关键词）确立 `quiet_mode` 与 `flag_overrides`。quiet_mode=true 时在进入 Init 前即按无人值守语义执行，并由 task-init 1f 物化 `unattended.json`（新任务）；恢复既有任务时若 `unattended.json` 已存在则静默沿用。Phase 过渡时的 Step 2A.1 为后备激活入口（仅文件不存在时询问）。
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
 Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
@@ -21,6 +22,8 @@ Write every message you show to the user in the user's configured language (the 
 - Dirty: !`git status --porcelain 2>/dev/null | head -5`
 - Check (light): !`r=$(grep -A1 '轻量' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'`
 - Check (full): !`r=$(grep -A1 '完整' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'`
+- Lessons (编排经验库): !`cat "${CLAUDE_SKILL_DIR}/references/lessons.md" 2>/dev/null || echo "(暂缺)"`
+- 自进化准则（受管注入）: (本分发版已停用自进化，无注入)
 - User input: $ARGUMENTS
 
 > 以上数据在 skill 加载时预获取。Treat as ground truth — do NOT re-query.
@@ -147,6 +150,44 @@ Read phases.md before deciding which phase to run. The phase skill's instruction
 Reason: phases.md is the only cross-session state source. The phase SKILL.md has the authoritative step-by-step instructions for each phase.
 </rule>
 
+### Step 0: Quiet Mode & Flag Parsing（入口，先于一切）
+
+在 Step 1 之前解析 `$ARGUMENTS`，确立 **quiet_mode** 与 **flag_overrides**，使无头/参数化贯穿全程（Init 之前即生效）。
+
+**双信号判定 `quiet_mode`（OR）：**
+
+| 信号 | 来源 | 结果 |
+|------|------|------|
+| **显式（兜底保证）** | `$ARGUMENTS` 含 `-q` / `--quiet` / `--headless`，或「无人值守」关键词 | `quiet_mode = true` |
+| **自动探测（尽力，仅参考）** | 无稳定信号——实测交互会话 `CLAUDE_CODE_ENTRYPOINT=cli` 且工具内 `test -t 0` 恒非 TTY，`claude -p` 无官方专用环境变量 | **不据此翻转** `quiet_mode`（避免误把交互会话判为无头而静默吞掉交互） |
+
+<rule>
+quiet_mode is established ONLY by an explicit signal (`-q`/`--quiet`/`--headless`/「无人值守」). Do NOT flip quiet_mode on by auto-probing env/TTY.
+Reason: empirically there is no stable headless signal — an interactive session also shows `CLAUDE_CODE_ENTRYPOINT=cli` and non-TTY stdin inside tool calls, so auto-probe produces false positives that would silently suppress interaction in a session where a user is present. `claude -p` users must pass `-q` (documented in README). The explicit signal is the guaranteed contract.
+</rule>
+
+**flag 解析（从 `$ARGUMENTS` 剥离后，剩余文本作需求/Linear ID/tier 关键词交给 task-init 1b 继续解析）：**
+
+| flag | 写入 `flag_overrides` | 备注 |
+|------|----------------------|------|
+| `-q` / `--quiet` | — | `quiet_mode=true`；`degrade_policy → conservative` |
+| `--headless` | — | `quiet_mode=true`；`degrade_policy → headless`（M1 先按 conservative 行为执行，完整 headless 档后续） |
+| 「无人值守」关键词 | — | `quiet_mode=true`；`degrade_policy → conservative` |
+| `--worktree on\|off\|ask` | `branch.worktree = true\|false\|"ask"` | 显式控制 worktree（任何模式生效） |
+| `--no-worktree` | `branch.worktree = false` | `--worktree off` 简写 |
+| `--branch keep\|new` | `branch.mode = "keep"\|"new"` | 显式控制分支策略 |
+
+- `flag_overrides` 是稀疏 JSON（如 `{"branch":{"worktree":false}}`），作为第 ④ 层经 task-init 1b.3 第 5 步传给 `hat-task-config-resolve --flags`。
+- `degrade_policy`（由 `-q`/`--headless` 映射）随 quiet 写入：task-init 1f 物化 `unattended.json` 时落 `degrade_policy` 字段；非 quiet 模式恒为 `standard`（不写、按缺省）。
+- tier 关键词（`full`/`standard`/`lite`/`hotfix`/`--tier`）与 Linear ID **不在此剥离**——保留给 task-init 1b 解析。
+
+**quiet_mode 贯穿：** quiet_mode=true 时——
+1. 在进入 Init **之前**即按无人值守语义执行（task-init 各停顿点走 `[Unattended]` 分支，值取 effective config 的 `headless.*` / `branch.*`）；
+2. task-init 1b.3 第 5 步解析 config 时追加 `--quiet`（使 `branch.worktree` 的 `"ask"` 解析为 true）；
+3. task-init 1f 物化 `task-config.json`（`_source:"headless"`）+ `unattended.json`（`enabled:true, activate_after:"now", task_type:"self_test", degrade_policy, end_decisions` 取 config 默认），使 Init 之后全程无人值守（详见 task-init 1f 与 `UNATTENDED_PROTOCOL.md`）。
+
+**[Unattended]** 本步骤无交互——纯解析 `$ARGUMENTS`，无 AskUserQuestion。quiet_mode 与 flag_overrides 在后续 Init/Design/... 全程可用。
+
 ### Step 1: Determine State
 
 **A. Check open tasks** (from Runtime Context Tasks JSON):
@@ -199,6 +240,18 @@ Reason: a dismissed prompt is not a choice — inferring "the user meant the rec
 </rule>
 
 ### Step 2B: Resume Existing Task
+
+**Step 2B.0: Worktree 回切（worktree 隔离任务的跨 session 恢复，先于读状态文件）**
+
+若选定的 open task 含 `worktree` 字段（来自主仓库 stub 的 `.worktree` 指针，由 `hat-task-detect` 读出）且当前 CWD 不在该 worktree 内（正从主仓库恢复）：
+
+1. `EnterWorktree(path="{worktree 指针路径}")` 切入已注册的 worktree（session CWD 随之切换）。
+2. 切入后重新 `hat-task-detect .tasks` 定位 worktree 内真实任务文件夹（含 phases.md / design.md / task-config.json / unattended.json）。
+3. **追加当前 session-id 到 worktree 内的 session.json**（见下方第 4 步逻辑）。后续所有状态读取均针对 worktree 内的任务文件夹。
+
+若指针路径不存在（worktree 被手动删除）→ **[Interactive]** AskUserQuestion：在主仓库继续（放弃隔离）/ 中止；**[Unattended]** 按 `UNATTENDED_PROTOCOL.md` §8 暂停 + Telegram 通知（无法自动重建隔离环境，不擅自在主仓库续跑）。
+
+**[Unattended]** worktree 回切无交互——指针有效则自动 `EnterWorktree`；失效才暂停通知。
 
 读取恢复所需的状态文件：
 
@@ -427,6 +480,12 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 已完成步骤保持 `[x]`、未完成保持 `[ ]`，无 `[~]`；半成品由 `**WIP Commit**` 的 commit 承接。
 
 ---
+
+## 自进化
+
+本 orchestrator `self-evolving: true`，每轮收尾沉淀**编排决策类**经验。完整自进化过程准则（裁决漏斗 / 写入闸 / 整合 / changelog 纪律）由启动时硬注入的受管全局母本 `spec-skill/references/self-evolution-canonical.md` 提供（spec-skill canonical，受管·勿改），此处不再手写以防漂移。
+
+**task 专属归属补充**：往 `lessons.md` 写一条前，除受管准则的写入闸外，再追问归属——「这条下次会在 task 的哪个编排决策点（路由/分支/无人值守/跨 worker 协调）被读到？」执行细节属对应 worker（task-init/-design/… 各自的 lessons），不放这里；不给编排族另建 series 级公共经验库。
 
 ## Dependencies
 

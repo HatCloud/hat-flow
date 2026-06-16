@@ -15,7 +15,7 @@
 3. **移回 open** — `git mv` 到 `.tasks/open/`
 4. **重置 phases.md** — 目标 Phase 及之后的步骤重置为未完成
 5. **清除 unattended.json** — 重开后需用户重新决定是否启用无人值守
-6. **更新 Linear** — 将 issue 状态改回 In Progress（通过 MCP）
+6. **更新 Linear** — 将 issue 状态改回 In Progress（`state` 取 `linear.json.statusMap["In Progress"]`，经 `get_status_map` 解析，无硬编码 UUID）
 7. **提交 + 通知** — 独立 commit，提示用户调用 `/task` 继续
 
 ## 关键规则
@@ -26,6 +26,6 @@
 
 ## 依赖
 
-- MCP: mcp__linear__update_issue（Linear 状态更新）
-- 读取: `{task-folder}/linear.json`（若存在）
+- 引用：`plugins/linear.md`（Linear 状态更新规范，通过 task-config.json 条件化）
+- 读取: `{task-folder}/task-config.json`、`{task-folder}/linear.json`（若存在）
 - 写入: `{task-folder}/phases.md`（重置步骤状态）

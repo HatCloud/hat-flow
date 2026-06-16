@@ -1,5 +1,6 @@
 ---
 name: task-plan
+user-invocable: false
 description: "Use when executing Phase 3 (Plan + Commit) of a task. Writes plan.md, runs review rounds, commits task documents, syncs Linear. Can be called standalone or via /task orchestrator. 触发词: \"开始规划\", \"task plan\", \"规划阶段\", \"写 plan\", \"生成计划\""
 ---
 
@@ -115,7 +116,7 @@ hook 完成后：在终端输出可视化任务清单：
 
 完成后：更新 phases.md，将 `3a. 生成 plan` 标记为 `[x]`。
 
-### 3b. Plan 忠实度评估
+### 3b. Plan Fidelity Review
 
 > **review 派发由上方 `P3.post-plan` hook 委托 review plugin 执行**（单个 `plan-reviewer` subagent，注入 plan.md + design.md，跑一次 single-pass review）。本节是 hook 返回后的**编排循环薄层**：读 Verdict、收敛、确认。review plugin 关闭时跳过本节，直接标记 `3b` 为 `[x]`。
 
@@ -123,11 +124,15 @@ hook 完成后：在终端输出可视化任务清单：
 
 **判断逻辑（收敛循环）：**
 
-- **Verdict == Approved**（Issues 桶为空）→ 进入确认循环。Advisory 桶（如有）仅供参考，不阻断。
+- **[Unattended] 前置分支**：
+   - `Verdict == Approved`（Issues 桶为空）→ **跳过确认循环**，直接推进到 3c。
+   - `Verdict == Issues` → 修复后重跑一次，仍 Issues → Telegram 通知暂停。
+- **[Interactive] Verdict == Approved**（Issues 桶为空）→ 进入确认循环。Advisory 桶（如有）仅供参考，不阻断。
 - **Verdict == Issues** → 主 agent 批判性评估 Issues 桶每条 Critical / Important 发现（Accept/Reject 附理由），修复接受的问题后重跑 hook 评估。循环直到 Verdict == Approved 或达 `max_rounds`。
-- max_rounds 退出时 → AskUserQuestion：**接受当前状态推进** / **重新生成 plan** / **手动修改**
-
-**[Unattended]** Verdict == Approved → 自动推进；Issues → 修复后重跑一次，仍 Issues → Telegram 通知暂停。
+- max_rounds 退出时：
+   - **[Interactive]** AskUserQuestion：**接受当前状态推进** / **重新生成 plan** / **手动修改**
+   - **[Unattended · `degrade_policy` standard 或缺省]** 不询问，发送 Telegram 通知后暂停（任务保留，等待 `/task` 恢复人工决策）
+   - **[Unattended · `degrade_policy` conservative / headless]** 走 `UNATTENDED_PROTOCOL.md` §9 **A4 accept-with-findings**：剩余未解决 Issues 原文写入 plan.md 的 `## Unresolved Review Findings` 段 + `unattended-decisions.md` 的 `## Headless Degraded Decisions`，续跑推进；**同点至多一次**——本 phase 已 A4 续跑过则第二次退回 standard（暂停 + Telegram）。兜底：P4 review + P5 验收双网。
 
 **确认循环（Plan review 收敛后）：**
 
@@ -139,13 +144,13 @@ hook 完成后：在终端输出可视化任务清单：
    - 仅描述文字调整 → 可跳过
    - 若重跑：展示新一轮差异 → 回到步骤 2
 
-**变更差异显示规则**：每轮重置，只展示从上次确认点到现在的改动。
+**[Unattended]** 跳过整个确认循环（步骤 1-4）。当 `Verdict == Approved` 时不询问“是否有补充/继续”，直接推进到 3c；当 `Verdict == Issues` 时按上文无人值守分支（修复后重跑一次，仍 Issues 则 Telegram 通知暂停）。
 
-**[Unattended]** Verdict == Approved 自动推进；Issues 重新生成一次，仍 Issues → Telegram 通知暂停。
+**变更差异显示规则**：每轮重置，只展示从上次确认点到现在的改动。
 
 完成后：更新 phases.md，将 `3b. Plan 忠实度评估` 标记为 `[x]`。
 
-### 3c + 3d: P3.phase-end（时间戳 + 提交 + Linear 同步）
+### 3c + 3d: P3.phase-end (Timestamp + Commit + Linear Sync)
 
 先内联记录 P3 phase_end 时间戳（core timing，须在 hook 之前），再由 `P3.phase-end` hook 统一处理 git 提交 + Linear 同步：
 
@@ -207,8 +212,12 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 
 | Step | When | What to Ask |
 |------|------|-------------|
-| 3b | plan review 收敛（Verdict==Approved）后 | 展示本轮 review 差异 + 纯文本确认是否有补充 |
-| 3d | Linear 操作失败 | 重试 / 跳过 |
+| 3b | plan review 收敛（Verdict==Approved）后（仅 Interactive） | 展示本轮 review 差异 + 纯文本确认是否有补充 |
+| 3d | Linear 操作失败（仅 Interactive） | 重试 / 跳过 |
+
+**[Unattended]** 上表两个停顿点均不询问：
+- 3b：`Verdict == Approved` 直接推进；`Verdict == Issues` 按无人值守分支执行。
+- 3d：按协议做一次重试，仍失败则 Telegram 告警并暂停（不等待用户应答）。
 
 ## Dependencies
 

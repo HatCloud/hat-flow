@@ -1,5 +1,6 @@
 ---
 name: task-design
+user-invocable: false
 description: "Use when executing Phase 2 (Design) of a task. Explores code, proposes solutions, writes design.md. Can be called standalone or via /task orchestrator. 触发词: \"开始设计\", \"task design\", \"设计阶段\", \"进入设计\""
 ---
 
@@ -113,6 +114,8 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 **Step 2e.2: 偏离判断（轻量化条件触发）**
 
+**[Quiet] headless 短路（最先判断）**：读取 `{task-folder}/task-config.json` 的 `_source` 字段。若 `_source == "headless"`（由无头入口在 1f 物化）→ **永不弹面板**，静默沿用现有 task-config.json，复杂度评估仍照常跑（结果写入下面 2e.3 的 design.md 策略段），直接进入 2e.3。无头流程不在此引入交互。
+
 将评估出的复杂度与 P1 Step 1b.3 已选 preset 对应的复杂度对比：
 
 - **一致 / 仅小幅偏离** → 静默沿用现有 task-config.json，不弹面板，直接进入 2e.3 写 design.md 策略段。
@@ -146,7 +149,7 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 在 Step 2e（及下方过渡处）询问无人值守激活时机。
 
-**守卫（先判，与"已激活时跳过"并列）**：读取 `{task-folder}/unattended.json`。若文件存在且 `declined == true`（用户此前已拒绝无人值守）→ 跳过激活时机询问，静默继续、不进激活分支（declined 短路优先于 activate_after，见 `UNATTENDED_PROTOCOL.md` §5）。若已 `enabled:true`（已激活）→ 同样跳过询问。
+**守卫（先判，与"已激活时跳过"并列）**：读取 `{task-folder}/unattended.json`。若文件存在且 `declined == true`（用户此前已拒绝无人值守）→ 跳过激活时机询问，静默继续、不进激活分支（declined 短路优先于 activate_after，见 `UNATTENDED_PROTOCOL.md` §5）。若已 `enabled:true`（已激活，**含 quiet 入口在 1f 物化的 headless 状态**）→ 同样跳过询问。
 
 否则用 AskUserQuestion 提供四个选项：
 
@@ -204,7 +207,10 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
    - 两者都有 → 下轮并行重跑两者
 5. **下轮 prompt** 注入上轮 findings + 修复/反驳清单（防止已反驳问题反复出现）。
 6. 循环直到收敛或达 `max_rounds`。
-7. **max_rounds 退出**时：展示剩余 findings + AskUserQuestion 确认是否接受当前状态推进。
+7. **max_rounds 退出**时：
+   - **[Interactive]** 展示剩余 findings + AskUserQuestion 确认是否接受当前状态推进。
+   - **[Unattended · `degrade_policy` standard 或缺省]** 不询问，发送 Telegram 通知后暂停（任务保留，等待 `/task` 恢复人工决策）。
+   - **[Unattended · `degrade_policy` conservative / headless]** 走 §9 **A4 accept-with-findings**：把剩余未解决 findings 原文写入 design.md 的 `## Unresolved Review Findings` 段 + `unattended-decisions.md` 的 `## Headless Degraded Decisions`，续跑推进；**同点同 phase 至多一次**——若本 phase 已因 A4 续跑过一次（unattended-decisions.md 已有该记录），第二次退回 standard（暂停 + Telegram）。兜底：P4 code review + P5 验收双网。
 
 轮次数量由 `review.design_rounds` 决定（auto 按复杂度：Low:0, Medium:1, High:2），`max_rounds` 上限兜底。`design_rounds: 0` 时跳过本步骤。
 
@@ -218,6 +224,11 @@ hat-plugin-hook {task-folder} P2.post-design-approved
 
 ### Step 8 — User Review 确认循环
 
+**[Unattended] 前置分支（不依赖是否执行 Step 7）**：
+- 若存在 reviewer 结果且 `Critical = 0` 且 `Important = 0` → 自动批准并推进。
+- 若无 reviewer 轮次（Low 复杂度跳过 Step 7）→ 直接自动批准并推进。
+- 上述两种情况均**不输出**“是否有补充/回复继续”的纯文本确认。
+
 1. Step 7 reviewer 收敛后（无 Critical/Important），展示**本轮 review 修改的变更差异**（仅本轮修改，非累积差异）
 2. 纯文本询问用户是否有补充："以上是本轮 review 的修改内容，是否有补充？回复「继续」推进到 Plan 阶段。"
 3. 用户说"继续" → 推进（须满足 DESIGN_PROTOCOL 顶部 HARD-GATE）
@@ -229,11 +240,11 @@ hat-plugin-hook {task-folder} P2.post-design-approved
 
 **轮次计数**：跨确认循环累积不重置。若已达 max_rounds 则跳过 reviewer 直接进入确认。
 
-**无 review 轮次时（Low 复杂度跳过 Step 7）**：直接询问："设计各节已确认，是否有补充？回复「继续」推进到 Plan 阶段。"
+**无 review 轮次时（Low 复杂度跳过 Step 7，仅 Interactive）**：直接询问："设计各节已确认，是否有补充？回复「继续」推进到 Plan 阶段。"
 
 **变更差异显示规则**：每轮重置，只展示从上次确认点到现在的改动。
 
-**[Unattended]** reviewer 通过（Critical = 0 且 Important = 0）后自动批准。
+**[Unattended]** 已在本节前置分支短路：不进入本确认循环。
 
 ---
 
@@ -290,7 +301,9 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 | 4 | 每节设计展示后 | 这部分看起来对吗？ |
 | 2e | 复杂度与 preset 明显偏离时 | 配置面板修正 + activate_after 时机 |
 | 6.5 | 自我 review 完成后 | Review 轮数、code review 策略、reviewer 模型 |
-| 8 | 所有 review 完成后 | 等待用户明确批准 design.md（HARD-GATE） |
+| 8 | 所有 review 完成后（仅 Interactive） | 等待用户明确批准 design.md（HARD-GATE） |
+
+**[Unattended]** Step 8 不询问：有 reviewer 时按 C/I 门槛自动批准；无 reviewer 轮次（Low）时直接自动批准。
 
 ## Dependencies
 

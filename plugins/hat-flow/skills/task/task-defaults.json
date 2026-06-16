@@ -2,7 +2,37 @@
   "_schema_version": "2.0",
   "_comment": "任务流程全局默认配置。顶层 plugins 定义全局默认值，presets 定义档位覆盖，overrides 用于用户自定义覆盖。",
   "preset": "standard",
-
+  "branch": {
+    "mode": "keep",
+    "_mode_values": "keep | new",
+    "_mode_note": "keep = 留在当前分支（缺省，支持同目录多 task 协作）；new = 创建任务专用新分支。交互模式 1d 仍弹询问；无头/quiet 模式按此值自动决定。",
+    "worktree": "ask",
+    "_worktree_values": "true | false | \"ask\"",
+    "_worktree_note": "显式 true/false 任何模式都生效；\"ask\"（默认模板值）= 交互模式在 1d 弹询问（默认 false、保持现状），无头/quiet 模式解析为 true（自动隔离、并发安全）。同目录多 task 协作的项目可在项目本地配置设 false。",
+    "name": null,
+    "_name_note": "null = 自动按任务文件夹名生成分支名；字符串 = 指定分支名。"
+  },
+  "headless": {
+    "_comment": "无头/quiet 模式下各 init 交互点的自动决策来源（仅 quiet_mode 时生效；交互模式不读此段）。",
+    "existing_task": "continue",
+    "_existing_task_values": "continue | new",
+    "git_conventions": "default",
+    "_git_conventions_values": "default | implicit | skip",
+    "dirty_policy": "ignore",
+    "_dirty_policy_values": "ignore | stash",
+    "degrade_policy": "conservative",
+    "_degrade_policy_values": "standard | conservative | headless",
+    "_degrade_policy_note": "撞卡点分级处理档位：standard = 现状（暂停等人工）；conservative = 可逆点 accept-with-findings 续跑 + 留痕（同点至多一次）；headless = 同 conservative + 全局 degrade_budget（后续）。非无头模式恒按 standard。",
+    "linear_on_fail": "skip",
+    "_linear_on_fail_values": "skip | retry"
+  },
+  "end_decisions": {
+    "_comment": "End 阶段（Phase 6）自动决策默认值。无人值守 self_test 在创建 unattended.json 时可覆盖；worktree merge-back 读 branch 字段。",
+    "branch": "keep",
+    "_branch_values": "keep | auto_merge",
+    "claude_md": "auto_update",
+    "_claude_md_values": "auto_update | skip"
+  },
   "execution": {
     "mode": "inline",
     "_mode_values": "auto | inline | parallel-agents",
@@ -12,7 +42,6 @@
     "_engine_note": "仅作用于被派发的 task。auto = 模型 f(难度, TDD mode, 复杂度)：基线 easy/medium→Sonnet, hard→Opus；TDD 加权 full+hard+无架构→降 Sonnet；架构 override（触 3+ 文件或含架构关键词）→Opus，优先级最高。engine=sonnet/opus 仅控制派发 subagent 的模型；inline task 固定跑主 agent 当前模型，不受此 engine 设置影响、不做 per-task 选型。",
     "_cost_note": "执行大头走 Sonnet（≈Opus 1/5 价）；parallel-agents 只省墙钟不减 token 总量；前提是 plan 任务已切细自足。"
   },
-
   "plugins": {
     "review": {
       "enabled": true,
@@ -46,59 +75,110 @@
       "_mode_note": "mode != none 时自动设置 enabled = true"
     },
     "retrospective": {
-      "enabled": true
+      "enabled": false
     }
   },
-
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": false
+  },
   "_observability_note": "核心能力（非 plugin，ISSUE 下沉）：timing 由各 phase SKILL 在 phase 边界内联经 hat-timing-stamp 写入，受此顶层开关门控。与 todo_sync/phase_merge 同级；preset 可覆盖（hotfix 设 false）。",
-
   "todo_sync": true,
   "phase_merge": [],
   "_phase_merge_note": "数组的数组，如 [[3,4]] 表示 P3→P4 无停顿。P5→P6 永不可合并。当前默认全部不合并（所有 preset 均为 []，每个阶段都重要）。",
-
   "overrides": {},
   "_overrides_note": "用户自定义覆盖，优先级高于 preset 但低于 P2 运行时决策。",
-
   "presets": {
     "full": {
-      "execution": { "mode": "auto", "engine": "auto" },
+      "execution": {
+        "mode": "auto",
+        "engine": "auto"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "full", "per_task_review": "each" },
-        "tdd": { "enabled": true, "mode": "full" },
-        "retrospective": { "enabled": true }
+        "review": {
+          "enabled": true,
+          "code_review": "full",
+          "per_task_review": "each"
+        },
+        "tdd": {
+          "enabled": true,
+          "mode": "full"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "standard": {
-      "execution": { "mode": "auto" },
+      "execution": {
+        "mode": "auto"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "medium" },
-        "tdd": { "enabled": true, "mode": "lite" },
-        "retrospective": { "enabled": true }
+        "review": {
+          "enabled": true,
+          "code_review": "medium"
+        },
+        "tdd": {
+          "enabled": true,
+          "mode": "lite"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "lite": {
-      "execution": { "mode": "inline" },
+      "execution": {
+        "mode": "inline"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "light", "design_rounds": 0 },
-        "tdd": { "enabled": false, "mode": "none" },
-        "retrospective": { "enabled": false }
+        "review": {
+          "enabled": true,
+          "code_review": "light",
+          "design_rounds": 0
+        },
+        "tdd": {
+          "enabled": false,
+          "mode": "none"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "hotfix": {
-      "execution": { "mode": "inline" },
-      "plugins": {
-        "review": { "enabled": false },
-        "tdd": { "enabled": false, "mode": "none" },
-        "retrospective": { "enabled": false }
+      "execution": {
+        "mode": "inline"
       },
-      "observability": { "enabled": false },
+      "plugins": {
+        "review": {
+          "enabled": false
+        },
+        "tdd": {
+          "enabled": false,
+          "mode": "none"
+        },
+        "retrospective": {
+          "enabled": false
+        }
+      },
+      "observability": {
+        "enabled": false
+      },
       "phase_merge": [],
       "todo_sync": false,
       "p5_auto_only": true

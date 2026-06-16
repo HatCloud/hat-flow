@@ -53,6 +53,34 @@ Running `/task-setup` performs a preflight check and reports anything missing.
 Then run `/task-setup` to configure Linear identity, optional Telegram
 notifications, enabled plugins, and output language.
 
+### Self-install prompt (let Claude Code set it up)
+
+Prefer to let your Claude Code do the install + setup? Paste this into a Claude
+Code session — most of it automates; it only stops to ask you the few things
+that need a human decision:
+
+```text
+Install and configure the hat-flow task workflow plugin for me.
+
+1. Install:
+   /plugin marketplace add https://github.com/HatCloud/hat-flow.git
+   /plugin install hat-flow@hat-flow
+   (restart if Claude Code asks you to)
+2. Run /task-setup and complete it. You can do these automatically:
+   - dependency preflight (jq / python3 / node)
+   - write a project CLAUDE.md skeleton if missing
+   - pick a default preset (standard) and write a project-local
+     task-defaults.json skeleton (and ~/.claude/task-defaults.local.json for
+     my cross-project defaults)
+   Ask me only about:
+   - Linear: do I want it? if so, team / project / API key
+   - Telegram unattended notifications: set up or skip
+   - the project's lint / test verification commands
+   - whether this project should disable worktree isolation (branch.worktree:false)
+3. When done, tell me I can start with /task <description>, or run a fully
+   unattended task with:  claude -p '/task -q <task or issue-id>'
+```
+
 ## Quick start
 
 1. `/task-setup` — one-time first-run configuration (dependency preflight,
@@ -63,6 +91,55 @@ notifications, enabled plugins, and output language.
    left off.
 4. `/task-end` — close out a finished task (final report, retrospective,
    archive).
+
+## Configuration layers
+
+Task behavior resolves through three config layers (later wins), plus call-time
+flags:
+
+| Layer | File | Scope |
+|---|---|---|
+| ① default template | `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` | ships with the plugin; read-only baseline + 4 presets |
+| ② global user | `~/.claude/task-defaults.local.json` | your cross-project preferences; **not overwritten by plugin updates** |
+| ③ project-local | `<project-root>/task-defaults.json` | per-project overrides — **highest config layer** |
+| ④ call-time flag | e.g. `/task --worktree off …` | single-run override, highest precedence |
+
+Merge order: `① default < ② global < ③ project-local < ④ flag < runtime`.
+Only write the keys you want to override (a sparse `overrides` object); layers
+deep-merge. Example: a repo where several tasks share one working tree sets
+`{"branch": {"worktree": false}}` in its project-local `task-defaults.json`,
+overriding a global `worktree:true` preference.
+
+Key options: `branch.mode` (`keep` default — stay on the current branch, good
+for same-directory multi-task collaboration — / `new`), `branch.worktree`
+(`true` / `false` / `"ask"`), and the `headless.*` auto-decisions used in
+unattended runs.
+
+## Headless / unattended mode
+
+Run a task start-to-finish with no human present:
+
+```
+claude -p '/task -q <task description or issue-id>'
+```
+
+- **`-q` / `--quiet` / `--headless`** (or the keyword「无人值守」) turns on
+  unattended mode. It is established **only** by this explicit signal — there is
+  no reliable way to auto-detect `claude -p`, so **you must pass `-q`** (an
+  interactive session and a `-p` session look the same to the workflow).
+- In unattended mode the workflow never calls an interactive prompt: every Init
+  decision resolves from config (`headless.*`, `branch.*`), and `branch.worktree`
+  defaults to **true** (each run is isolated in its own git worktree + task
+  branch; the main directory's HEAD never moves).
+- Reversible stop-points degrade gracefully (`degrade_policy: conservative`):
+  e.g. a design/plan review that does not converge records its open findings and
+  continues, instead of stalling. Irreversible / high-risk points (verification
+  crash, machine-judgeable MUST-fail, branch discard) still hard-stop.
+- Optional Telegram notifications report progress and any pauses.
+
+> Front-load your decisions in Design/Plan; once Execute starts the run is
+> hands-off. `branch.worktree:false` in project-local config opts a repo out of
+> worktree isolation (back to sharing one working tree).
 
 ## Plugins
 
@@ -91,6 +168,11 @@ Bundles four adapted skills from [obra/superpowers](https://github.com/obra/supe
 `hatflow-verification-before-completion`, `hatflow-dispatching-parallel-agents`,
 `hatflow-receiving-code-review`). To use the auto-triggering upstream versions,
 install obra/superpowers directly — the `hatflow-` prefix keeps both side by side.
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md). Upgrade with `/plugin update hat-flow`
+(restart required); there is no auto-update.
 
 ## License
 

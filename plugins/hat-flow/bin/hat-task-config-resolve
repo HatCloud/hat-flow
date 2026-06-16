@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""hat-task-config-resolve — deterministic three-layer task config resolver.
+
+Merges the task config layers and emits the effective config JSON to stdout:
+
+    ① default template   (task-defaults.json, ships with the skill / plugin)
+  < ② global user local  (~/.claude/task-defaults.local.json, not overwritten by updates)
+  < ③ project local      ({project-root}/task-defaults.json, written by task-setup)
+  < ④ call-time flags    (--flags '<json>', highest precedence)
+  < (runtime decisions resolved later by the skill, e.g. P2 Step 2e)
+
+Resolution performed here (deterministic, testable):
+  - select effective preset and deep-merge its block onto the top-level defaults
+  - apply each layer's top-level overrides and its `overrides` object
+  - resolve `branch.worktree` sentinel "ask": quiet → true, interactive → stays "ask"
+    (so the interactive 1d step still knows to prompt). Explicit true/false always wins.
+
+NOT resolved here (left for the skill, needs MCP/git probing):
+  - `"auto"` plugin values (linear.enabled / git.enabled / execution.engine / etc.)
+
+Usage:
+  hat-task-config-resolve [--template P] [--global-local P] [--project-root P]
+                          [--preset NAME] [--quiet] [--flags '<json>']
+
+Exit codes: 0 ok; 2 usage/parse error (template missing or invalid JSON).
+"""
+import argparse
+import copy
+import json
+import os
+import sys
+
+# Keys that name a full preset table or the comment fields — never deep-merged
+# as plain config from a sparse layer onto the effective result.
+_PRESETS_KEY = "presets"
+_OVERRIDES_KEY = "overrides"
+_PRESET_KEY = "preset"
+
+
+def _deep_merge(base, overlay):
+    """Recursively merge overlay onto base (overlay wins). Returns a new dict.
+
+    Dict values merge key-by-key; every other type (list, scalar, None) replaces.
+    """
+    if not isinstance(base, dict) or not isinstance(overlay, dict):
+        return copy.deepcopy(overlay)
+    out = copy.deepcopy(base)
+    for k, v in overlay.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = copy.deepcopy(v)
+    return out
+
+
+def _load_json(path, required=False):
+    if not path or not os.path.exists(path):
+        if required:
+            sys.stderr.write(f"hat-task-config-resolve: template not found: {path}\n")
+            sys.exit(2)
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(f"hat-task-config-resolve: cannot read {path}: {exc}\n")
+        if required:
+            sys.exit(2)
+        return {}
+    if not isinstance(data, dict):
+        sys.stderr.write(f"hat-task-config-resolve: {path} is not a JSON object\n")
+        if required:
+            sys.exit(2)
+        return {}
+    return data
+
+
+def _apply_layer(eff, layer):
+    """Deep-merge a sparse layer doc onto the effective config.
+
+    The layer's `presets` table is ignored (preset selection already resolved);
+    its `preset` key is handled by the caller; its `overrides` object is applied
+    last so it always wins within the layer.
+    """
+    if not layer:
+        return eff
+    body = {k: v for k, v in layer.items() if k not in (_PRESETS_KEY, _OVERRIDES_KEY, _PRESET_KEY)}
+    eff = _deep_merge(eff, body)
+    if isinstance(layer.get(_OVERRIDES_KEY), dict):
+        eff = _deep_merge(eff, layer[_OVERRIDES_KEY])
+    return eff
+
+
+def _pick_preset(preset_override, layers, template):
+    if preset_override:
+        return preset_override
+    # last layer that explicitly sets "preset" wins (flags > project > global > template)
+    chosen = None
+    for layer in layers:
+        if isinstance(layer, dict) and layer.get(_PRESET_KEY):
+            chosen = layer[_PRESET_KEY]
+    if chosen:
+        return chosen
+    return template.get(_PRESET_KEY, "standard")
+
+
+def resolve(template, global_local, project_local, flags, preset_override=None, quiet=False):
+    layers = [global_local, project_local, flags]
+    preset = _pick_preset(preset_override, [template, global_local, project_local, flags], template)
+
+    # ① base = template top-level minus the presets table
+    base = {k: v for k, v in template.items() if k != _PRESETS_KEY}
+    base_overrides = base.pop(_OVERRIDES_KEY, {})
+
+    # apply selected preset block, then template-level overrides
+    preset_block = template.get(_PRESETS_KEY, {}).get(preset, {})
+    eff = _deep_merge(base, preset_block)
+    if isinstance(base_overrides, dict):
+        eff = _deep_merge(eff, base_overrides)
+
+    # ② global local, ③ project local, ④ flags
+    eff = _apply_layer(eff, global_local)
+    eff = _apply_layer(eff, project_local)
+    eff = _apply_layer(eff, flags)
+
+    eff[_PRESET_KEY] = preset
+
+    # resolve branch.worktree sentinel "ask"
+    branch = eff.setdefault("branch", {})
+    if branch.get("worktree", "ask") == "ask":
+        branch["worktree"] = True if quiet else "ask"
+
+    return eff
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(add_help=True)
+    default_template = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        "..", "skills", "task", "task-defaults.json",
+    )
+    parser.add_argument("--template", default=os.path.realpath(default_template))
+    parser.add_argument(
+        "--global-local",
+        default=os.path.expanduser("~/.claude/task-defaults.local.json"),
+    )
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--preset", default=None)
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--flags", default=None, help="JSON object of call-time overrides")
+    args = parser.parse_args(argv)
+
+    template = _load_json(args.template, required=True)
+    global_local = _load_json(args.global_local)
+    project_local = _load_json(os.path.join(args.project_root, "task-defaults.json"))
+
+    flags = {}
+    if args.flags:
+        try:
+            flags = json.loads(args.flags)
+        except ValueError as exc:
+            sys.stderr.write(f"hat-task-config-resolve: --flags is not valid JSON: {exc}\n")
+            sys.exit(2)
+        if not isinstance(flags, dict):
+            sys.stderr.write("hat-task-config-resolve: --flags must be a JSON object\n")
+            sys.exit(2)
+
+    eff = resolve(template, global_local, project_local, flags, args.preset, args.quiet)
+    json.dump(eff, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -55,7 +55,7 @@ Reason: autonomous progression past decision points leads to wasted work when us
 
 ### Unattended State（每次执行时加载）
 
-1. **读取状态**：`cat "{open[0].path}/unattended.json" 2>/dev/null`
+1. **读取状态**：`cat "{task-folder}/unattended.json" 2>/dev/null`（task-folder 从 Step 1 解析到的 phases.md 所在路径获取，而非 `open[0].path`——phases.md 是唯一权威状态源，多任务时按 `open[0].path` 取会取错）
 2. **若 enabled == true**：执行 `Read ${CLAUDE_PLUGIN_ROOT}/skills/task/UNATTENDED_PROTOCOL.md`，加载完整协议
 3. **若文件不存在或 enabled != true**：正常交互流程
 

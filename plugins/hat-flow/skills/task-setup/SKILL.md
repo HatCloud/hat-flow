@@ -16,6 +16,18 @@ Write every message you show to the user in the user's configured language (the 
 
 ---
 
+## Red Flags
+
+| If you are thinking... | The reality is... |
+|---|---|
+| "`jq` is missing but I'll push on — most steps don't need it" | `jq` missing means every hook (review/linear/git/timing) silently fails: the flow runs but produces nothing. Stop and have the user install it first. |
+| "I'll write my own Linear team/project/key into the config so it just works" | Config must hold no author-private values. Write only what the user selects; this skill ships to other people's projects. |
+| "Hardcode the resolved status UUIDs to save a runtime lookup" | State UUIDs are never written here. They resolve at runtime via `get_status_map` by name. Hardcoded UUIDs break across workspaces. |
+| "Put the override in the global `task-defaults.json`" | Overrides go to the project-local `task-defaults.json`, never the global preset file. Global edits leak one project's choices into all others. |
+| "Set the output language for the user inside this wizard" | Output language follows Claude Code's `/config`; this wizard does not force a language. |
+
+---
+
 ## Step 0: 依赖预检
 
 任务流的 hook 引擎与若干 bin 脚本依赖外部命令。**先跑预检**，缺失则提示安装后再继续：

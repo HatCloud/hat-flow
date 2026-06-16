@@ -1,5 +1,6 @@
 ---
 name: spec-git
+user-invocable: false
 description: "Use when committing code, creating branches, writing commit messages, or when the user asks about git conventions. Covers Conventional Commits and branch naming. 触发词: \"提交规范\", \"Git 规范\", \"分支命名\", \"commit 规范\""
 ---
 
@@ -11,6 +12,16 @@ description: "Use when committing code, creating branches, writing commit messag
 
 **LANGUAGE RULE — strictly enforced, no exceptions:**
 Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+
+## Red Flags
+
+| Rationalization | Reality |
+|-----------------|---------|
+| "Just `git add -A`, it's faster." | Bulk adds risk including unrelated changes; add specific files so each commit is one logical unit. |
+| "`fix: fix bug` is clear enough." | Vague messages waste reviewers' time; state intent + scope (`fix(auth): prevent crash when token expires`). |
+| "I'll commit the formatting separately as `style:`." | Format before the feature commit; a standalone format commit fragments history. |
+| "One commit per file keeps things tidy." | Group logically-related files; one commit = one logical change, not one file. |
+| "I'll commit now, the user will see the fix works." | Confirm the fix works with the user before committing during review. |
 
 ## Commit Format
 
@@ -95,13 +106,13 @@ build(ios): bump X.Y.Z:N
 
 ## Worktree Testing Flow
 
-Worktree 无法直接运行 `yarn ios` / `yarn android`（native build artifacts 和 Metro 依赖主目录环境）。
+某些项目的原生构建/运行命令无法在 worktree 里直接跑（构建产物、本地工具链或 dev server 依赖主目录环境）。典型如 RN：`yarn ios` / `yarn android`（native build artifacts 和 Metro 依赖主目录）；其它技术栈替换为各自对应的构建/运行命令。**下面第 3 步的命令仅为 RN 示例，由项目按自己的栈替换。**
 
-当 `task` Phase 4 检测到 worktree 时，引导用户：
+当 `task` Phase 4 检测到 worktree 且项目存在此类约束时，引导用户：
 
 1. **Remove worktree**：释放任务分支
 2. **Switch to task branch in main directory**：`git checkout <branch-name>`
-3. **Test**：`yarn ios` / `yarn android`
+3. **Test**：跑项目的原生构建/运行命令（RN 示例：`yarn ios` / `yarn android`；其它栈替换为对应命令）
 4. **Fix issues**：直接在任务分支上提交修复
 5. **Complete**：测试通过后调用 `/task-end`
 

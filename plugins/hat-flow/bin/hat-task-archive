@@ -43,10 +43,12 @@ def git(*args):
 
     capture_output=True 表示捕获 stdout 和 stderr（不直接打印到终端）。
     text=True 表示输出为字符串而非 bytes。
-    timeout=10 表示最多等待 10 秒。
+    timeout=120 表示最多等待 120 秒：commit 会触发 pre-commit hook
+    （含 site/ 改动时跑 tsc，约 10-20s），10s 会必然超时，故放宽。
+    快操作（mv/add）仍立即返回，不受影响。
     """
     result = subprocess.run(
-        ["git"] + list(args), capture_output=True, text=True, timeout=10,
+        ["git"] + list(args), capture_output=True, text=True, timeout=120,
     )
     return result
 

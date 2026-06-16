@@ -33,6 +33,16 @@
 
 不注入任何 TDD 指令。
 
+### 网页/UI 产物的 TDD（界面交互可测）
+
+**TDD 不再局限于纯逻辑函数。** 对网页类产物，界面与交互行为也可纳入 TDD——用 headless 浏览器（Playwright，见 `webapp-testing` skill）把"行为/结构"写成可自动断言的测试，作为 RED/GREEN 的验证命令（Full）或验收命令（Lite）。
+
+- **可程序断言、适合 headless TDD 的**：DOM 结构与分块、点击/hover/拖拽等交互、元素可见性与折叠展开、视图/偏好的 localStorage 持久化（reload 后仍保持）、导航后的 URL/状态、组件渲染出的节点数/属性（如 SVG 图谱节点、opacity）。
+  - 典型 RED→GREEN：先写"卡片视图默认渲染为分块 / 点击 `<details>` 展开 / hover 浮窗文本无字面 `[^1]`"的 headless 断言，运行失败（RED）；实现到通过（GREEN）。
+- **仍不适用 TDD、留人工复核的**：像素级视觉、配色/留白等主观美观、导出图"好不好看"。
+- **与 per-task 自检结合**：Execute 阶段每完成一个较大的 UI 任务后，跑该任务对应的 headless 行为断言作为 per-task 自检（不必等到 Phase 5 才统一验证），尽早暴露交互回归。
+- 前提：项目能起本地 preview（如 `astro build && astro preview` 或 dev server）供 Playwright 驱动。
+
 ### TDD Spec 注入（条件性）
 
 若当前 task 包含 RED 步骤（Full TDD），检查项目 CLAUDE.md `## 测试配置` 是否声明了 `测试规范文件`：

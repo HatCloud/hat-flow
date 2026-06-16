@@ -14,7 +14,7 @@
 2. **识别任务** — 通过脚本或 Glob 检测 `.tasks/open/` 中的活跃任务
 3. **技术债务检查** — 回顾任务期间是否产生了变通方案或已知未修复问题
 4. **编写 final.md** — 包含完成内容、遇到的问题、偏差分析、验证结果、变更日志条目
-5. **流程回顾** — 按 PROCESS_REVIEW_TEMPLATE Part A 填写，Part B 由 retrospective plugin 的 P6.post-archive hook 执行
+5. **流程回顾** — 由 retrospective plugin 的 `P6.post-archive` hook 驱动（hook 输出的 retrospective 段执行流程审查）
 6. **关闭活动** — Linear 状态同步、changelog 更新、CLAUDE.md 更新、pre-commit 安全检查、归档提交、分支处理
 
 ## 关键规则
@@ -30,6 +30,6 @@
 
 ## 依赖
 
-- 引用：PROCESS_REVIEW_TEMPLATE.md、task-config.json
+- 引用：task-config.json
 - Hook：P6.pre-archive/post-archive（P6 phase_start/phase_end 已下沉为 core timing 内联、非 hook——ISSUE）
 - 脚本：hat-task-detect、hat-task-archive、hat-plugin-hook、hat-conversation-export

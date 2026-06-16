@@ -22,15 +22,15 @@ task-config.json 由 P2 Step 2e 生成，包含完整的插件配置快照。若
 
 解析并存储以下关键字段：
 
-| 字段 | 默认值 | 说明 |
-|---|---|---|
-| `execution.mode` | `"inline"` | 执行模式：`auto` / `inline` / `parallel-agents` |
-| `execution.engine` | `"auto"` | 仅 auto/parallel-agents 派发模式：`auto` / `sonnet` / `opus` |
-| `plugins.review.code_review` | `"medium"` | Code review 策略 |
-| `plugins.review.reviewer` | `"claude"` | Reviewer 类型 |
-| `plugins.review.max_rounds` | `3` | 最大 review 轮次 |
-| `plugins.linear.enabled` | `true/false` | Linear 集成 |
-| `plugins.tdd.mode` | `"none"` | TDD 模式 |
+| 字段                         | 默认值       | 说明                                                         |
+| ---------------------------- | ------------ | ------------------------------------------------------------ |
+| `execution.mode`             | `"inline"`   | 执行模式：`auto` / `inline` / `parallel-agents`              |
+| `execution.engine`           | `"auto"`     | 仅 auto/parallel-agents 派发模式：`auto` / `sonnet` / `opus` |
+| `plugins.review.code_review` | `"medium"`   | Code review 策略                                             |
+| `plugins.review.reviewer`    | `"claude"`   | Reviewer 类型                                                |
+| `plugins.review.max_rounds`  | `3`          | 最大 review 轮次                                             |
+| `plugins.linear.enabled`     | `true/false` | Linear 集成                                                  |
+| `plugins.tdd.mode`           | `"none"`     | TDD 模式                                                     |
 
 将解析结果存为变量 `task_config`，后续各决策点直接引用。
 
@@ -45,15 +45,18 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 ```
 
 解析字段：
+
 - `enabled`: true/false
 - `declined`: true/false（可选）。`true` 表示用户**已拒绝**无人值守（区别于延后激活的待激活态）。见第 5 节哨兵语义。
 - `activate_after`: `"now"` / `"design"` / `"plan"`（缺省视为 `"now"`；决定 `enabled` 何时翻为 true，见第 5 节）
 - `task_type`: `"self_test"` 或 `"user_test"`
 - `telegram_chat_id`: 字符串或 null
 - `triggered_at`: ISO 时间戳
+- `degrade_policy`: `"standard"` / `"conservative"` / `"headless"`（可选；缺省 `standard`）。撞卡点分级处理档位——`standard`=暂停等人工（现状）；`conservative`=可逆点 accept-with-findings 续跑 + 留痕（同点至多一次）；`headless`=同 conservative + 全局 degrade_budget（后续）。由 quiet 入口（`-q` → conservative、`--headless` → headless）或 effective config 的 `headless.degrade_policy` 写入。详见 §9。
 - `end_decisions`: （仅 self_test）对象，包含 `branch`/`claude_md` 两个字段
 
 若文件不存在或 `enabled != true`：不进入无人值守模式，按正常交互流程执行。两种 `enabled:false` 须区分：
+
 - **已拒绝（`declined == true`）**：用户主动拒绝无人值守。消费侧守卫须**先判 `declined == true` 并短路**——不再询问、不进激活分支、不推断 `activate_after`（哨兵无 `activate_after` 字段，不可套用「缺省视为 now」）。
 - **延后激活（`declined` 缺省/false 且 `activate_after` 为 design/plan）**：待激活态，由编排器 Step 3 在匹配过渡点翻 `enabled`。
 
@@ -96,35 +99,34 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 
 **标准通知时机**：
 
-| 时机 | 消息示例 |
-|---|---|
-| 无人值守激活 | `[task-name] 无人值守模式已激活，类型：self_test` |
-| Phase 过渡 | `[task-name] Phase N 完成 → 开始 Phase N+1` |
-| 关键自动决策 | `[task-name] 自动决策：[问题] → [选择]` |
-| 澄清假设 | `[task-name] 设计假设：\n- Q: ...\n- A: ...（置信: High）` |
-| BLOCKED cancel | `[task-name] 任务因阻塞已取消：[原因]` |
-| 验证失败 cancel | `[task-name] 验证失败，任务已取消：[错误]` |
-| git 失败暂停 | `[task-name] git 操作失败，任务已暂停：[错误]，请处理后重新运行 /task` |
-| 低置信暂停 | `[task-name] 需要你的输入：[问题列表]，请回复后重新运行 /task` |
-| user_test 停止 | `[task-name] 执行完毕，请手动测试后调用 /task-end` |
-| 任务完成 | `[task-name] 任务完成 ✓ 已归档` |
-
+| 时机            | 消息示例                                                               |
+| --------------- | ---------------------------------------------------------------------- |
+| 无人值守激活    | `[task-name] 无人值守模式已激活，类型：self_test`                      |
+| Phase 过渡      | `[task-name] Phase N 完成 → 开始 Phase N+1`                            |
+| 关键自动决策    | `[task-name] 自动决策：[问题] → [选择]`                                |
+| 澄清假设        | `[task-name] 设计假设：\n- Q: ...\n- A: ...（置信: High）`             |
+| BLOCKED cancel  | `[task-name] 任务因阻塞已取消：[原因]`                                 |
+| 验证失败 cancel | `[task-name] 验证失败，任务已取消：[错误]`                             |
+| git 失败暂停    | `[task-name] git 操作失败，任务已暂停：[错误]，请处理后重新运行 /task` |
+| 低置信暂停      | `[task-name] 需要你的输入：[问题列表]，请回复后重新运行 /task`         |
+| user_test 停止  | `[task-name] 执行完毕，请手动测试后调用 /task-end`                     |
+| 任务完成        | `[task-name] 任务完成 ✓ 已归档`                                        |
 
 ---
 
 ## 5. How to Create unattended.json
 
-**激活时机：** P2 Step 2e 配置面板（主要入口）或 Phase 1/2/3 完成后（后备入口，仅当 unattended.json 尚不存在时）。
+**激活时机：** ① **Quiet 入口**（`-q`/`--quiet`/`--headless`/「无人值守」经编排器 Step 0 确立 `quiet_mode`）——由 task-init **1f** 直接物化 `unattended.json`（`enabled:true, activate_after:"now"`，并带 `degrade_policy`），Init 之后全程无人值守；② **交互入口**——P2 Step 2e 配置面板（主要交互入口）或 Phase 1/2/3 完成后（后备入口，仅当 unattended.json 尚不存在时）询问激活时机。
 
 ### activate_after 字段语义（共享契约 SC3）
 
 `unattended.json` 的 `activate_after: "now" | "design" | "plan"`（缺省视为 `"now"`）决定无人值守**何时真正生效**（即 `enabled` 何时翻为 `true`）。producer 侧（task-design Activation Timing、编排器 Step 2A.1）询问激活时机并写入；consumer 侧（编排器 Step 3 步骤 3-a）在匹配过渡点翻 `enabled`。
 
-| `activate_after` | 写入时 `enabled` | 在何处激活（翻 `enabled:true`） |
-|---|---|---|
-| `"now"` | `true` | 写入即生效，无需后续激活 |
-| `"design"` | `false` | 编排器 Step 3 在 **Design 完成后** 过渡时激活 |
-| `"plan"` | `false` | 编排器 Step 3 在 **Plan 完成后** 过渡时激活 |
+| `activate_after` | 写入时 `enabled` | 在何处激活（翻 `enabled:true`）               |
+| ---------------- | ---------------- | --------------------------------------------- |
+| `"now"`          | `true`           | 写入即生效，无需后续激活                      |
+| `"design"`       | `false`          | 编排器 Step 3 在 **Design 完成后** 过渡时激活 |
+| `"plan"`         | `false`          | 编排器 Step 3 在 **Plan 完成后** 过渡时激活   |
 
 延后激活（`design`/`plan`）期间 `enabled:false`，各 skill 按正常交互流程执行；过渡到匹配阶段时编排器翻 `enabled:true` 并加载本文件。延后激活默认任务类型为 `self_test`，其 `end_decisions`（branch / claude_md）取协议默认值（分支自动合并、CLAUDE.md 按需更新）——激活点不再补问，避免打断已转入的无人值守。
 
@@ -133,7 +135,7 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 当激活询问的 option 为「否」（用户拒绝无人值守）时，写入**拒绝哨兵**：
 
 ```json
-{"enabled": false, "declined": true}
+{ "enabled": false, "declined": true }
 ```
 
 该哨兵**不含** `activate_after` 字段。其作用是把「用户已拒绝」这一决定持久化，使后续过渡点不再重复询问。消费侧守卫（编排器 Step 2A.1 / Step 3、task-design Step 2e）须遵守：
@@ -179,97 +181,114 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 ### 核心决策（始终生效）
 
 #### orchestrator 过渡（task/SKILL.md Step 3）
-| 停止点 | 自动决策 |
-|---|---|
-| Design 完成后过渡 | 若 `activate_after == "design"` 且当前 `enabled:false` → 翻 `enabled:true` 并加载本文件（激活无人值守）；已 `enabled:true` → 静默推进，不询问、不 compact |
-| Plan 完成后过渡（compact 软停） | 已激活或本过渡点即将激活（`activate_after == "plan"`）→ 跳过 compact 建议（不输出 `/compact` 块），翻 `enabled:true` 后静默推进到 Execute |
+
+| 停止点                          | 自动决策                                                                                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Design 完成后过渡               | 若 `activate_after == "design"` 且当前 `enabled:false` → 翻 `enabled:true` 并加载本文件（激活无人值守）；已 `enabled:true` → 静默推进，不询问、不 compact |
+| Plan 完成后过渡（compact 软停） | 已激活或本过渡点即将激活（`activate_after == "plan"`）→ 跳过 compact 建议（不输出 `/compact` 块），翻 `enabled:true` 后静默推进到 Execute                 |
 
 > 延后激活（`activate_after` 为 design/plan）在匹配过渡点由编排器翻 `enabled`；翻转后发送"无人值守模式已激活"通知。两条停顿路径（Design/Plan 过渡）均不靠人工应答推进。
 
 #### task-init
-| 停止点 | 自动决策 |
-|---|---|
-| Dirty 文件 | 忽略，直接继续 |
-| 分支决策 | 留在当前分支 |
+
+| 停止点                    | 自动决策                                                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Dirty 文件                | 忽略，直接继续                                                                                                                   |
+| 分支决策                  | 留在当前分支                                                                                                                     |
 | 新分支分叉告警（ISSUE） | 仅「创建新分支」路径触发——Unattended 分支决策默认「留在当前分支」故通常不触发；若触发则记录告警、不阻塞（NO_GIT/git 关闭亦跳过） |
 
 #### task-design
-| 停止点 | 自动决策 |
-|---|---|
-| 澄清问题（Step 2） | 多轮 subagent 自讨论（见第 7 节） |
-| 选择方案（Step 3） | 按推荐选项 |
-| 每节确认（Step 4） | 自我检查通过即继续 |
-| 配置面板（Step 2e） | 按启发式推荐档位 |
-| 批准 design.md（Step 8） | reviewer 通过（Critical=0 且 Important=0）后自动批准 |
+
+| 停止点                   | 自动决策                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| 澄清问题（Step 2）       | 多轮 subagent 自讨论（见第 7 节）                                                        |
+| 选择方案（Step 3）       | 按推荐选项                                                                               |
+| 每节确认（Step 4）       | 自我检查通过即继续                                                                       |
+| 配置面板（Step 2e）      | 按启发式推荐档位                                                                         |
+| 批准 design.md（Step 8） | 有 reviewer 时 C/I 过线自动批准；无 reviewer 轮次（Low）直接自动批准；均不等待纯文本确认 |
+| Step 7 达 `max_rounds`   | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）                                 |
 
 #### task-plan
-| 停止点 | 自动决策 |
-|---|---|
-| Plan format | 按 task-config.json 配置 |
+
+| 停止点             | 自动决策                                                                                                                       |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Plan format        | 按 task-config.json 配置                                                                                                       |
+| 3b 收敛后确认循环  | `Verdict == Approved` 直接推进 3c（跳过“是否有补充/继续”）；`Verdict == Issues` 修复后重跑一次，仍 Issues 则 Telegram 通知暂停 |
+| 3b 达 `max_rounds` | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）                                                                       |
 
 #### task-execute（Phase 4）
-| 停止点 | 自动决策 |
-|---|---|
-| Light 验证未配置 | 跳过验证 |
-| BLOCKED | 重试一次（Opus），仍失败 → auto-cancel + Telegram |
-| NEEDS_CONTEXT 2 次后仍失败 | 视为 BLOCKED |
-| 执行引擎 | 按 `task_config.execution.mode` + `engine` |
+
+| 停止点                     | 自动决策                                                                    |
+| -------------------------- | --------------------------------------------------------------------------- |
+| Light 验证未配置           | 跳过验证                                                                    |
+| BLOCKED                    | 重试一次（Opus）；系统性问题→转 Revise，非系统性问题→auto-cancel + Telegram |
+| NEEDS_CONTEXT 2 次后仍失败 | 视为 BLOCKED                                                                |
+| 执行引擎                   | 按 `task_config.execution.mode` + `engine`                                  |
 
 #### task-test（Phase 5）
-| 停止点 | 自动决策 |
-|---|---|
+
+| 停止点                | 自动决策                                                                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次 Opus），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判 SHOULD/MAY → deferred 不阻断；全 PASS（含 deferred）→ 更新 phases.md DONE，推进 task-end |
-| 验收清单（user_test） | Telegram 通知，停止 |
+| 验收清单（user_test） | Telegram 通知，停止                                                                                                                                                                                                                              |
 
 #### task-end（Phase 6）
-| 停止点 | 自动决策 |
-|---|---|
-| 验证失败 | 重试一次（Opus 修复），仍失败 → auto-cancel + Telegram |
-| CLAUDE.md 更新 | 读 `end_decisions.claude_md` |
-| 分支处理 keep（ISSUE） | 追加 `docs/unmerged-branches.md` 登记（不提示） |
-| 分支处理（4 选项菜单） | 读 `end_decisions.branch` 映射：`auto_merge`→Merge locally / `keep`→Keep as-is；**`PR` / `Discard` 永不自动触发（跳过）**；字段缺失或非法值 → 默认 keep |
+
+| 停止点                   | 自动决策                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 多 open task 选择        | 选 `Updated` 最新任务；无法判定则 Telegram 通知后暂停                                                                                                   |
+| 验证失败                 | 重试一次（Opus 修复），仍失败 → auto-cancel + Telegram                                                                                                  |
+| CLAUDE.md 更新           | 读 `end_decisions.claude_md`                                                                                                                            |
+| 分支处理 keep（ISSUE） | 追加 `docs/unmerged-branches.md` 登记（不提示）                                                                                                         |
+| 分支处理（4 选项菜单）   | 读 `end_decisions.branch` 映射：`auto_merge`→Merge locally / `keep`→Keep as-is；**`PR` / `Discard` 永不自动触发（跳过）**；字段缺失或非法值 → 默认 keep |
 
 #### task-cancel
-| 停止点 | 自动决策 |
-|---|---|
-| 取消原因 | 从调用上下文推断 |
-| 处置方式 | Cancel（不 Defer） |
-| 代码变更处理 | Keep（保留分支） |
+
+| 停止点       | 自动决策           |
+| ------------ | ------------------ |
+| 取消原因     | 从调用上下文推断   |
+| 处置方式     | Cancel（不 Defer） |
+| 代码变更处理 | Keep（保留分支）   |
 
 ### 插件条件化决策
 
 以下决策仅在对应插件启用时执行：
 
 #### git plugin (`plugins.git.enabled`)
-| 停止点 | 自动决策 |
-|---|---|
+
+| 停止点         | 自动决策                         |
+| -------------- | -------------------------------- |
 | Git 规范不存在 | Use default Conventional Commits |
-| git 操作失败 | **暂停**，Telegram 通知 |
+| git 操作失败   | **暂停**，Telegram 通知          |
 
 #### linear plugin (`plugins.linear.enabled`)
-| 停止点 | 自动决策 |
-|---|---|
-| 创建 Linear issue | 自动创建 |
-| Linear API 失败 | 跳过，继续（不通知） |
-| 子 issue | Cancel together |
+
+| 停止点            | 自动决策             |
+| ----------------- | -------------------- |
+| 创建 Linear issue | 自动创建             |
+| Linear API 失败   | 跳过，继续（不通知） |
+| 子 issue          | Cancel together      |
 
 #### review plugin (`plugins.review.enabled`)
-| 停止点 | 自动决策 |
-|---|---|
-| Review 策略 | 按 `task_config.plugins.review.*` |
-| Code review 确认 | 自动执行 |
-| Revise 触发 | 自动选择深度 |
+
+| 停止点           | 自动决策                          |
+| ---------------- | --------------------------------- |
+| Review 策略      | 按 `task_config.plugins.review.*` |
+| Code review 确认 | 自动执行                          |
+| Revise 触发      | 自动选择深度                      |
 
 #### tdd plugin (`plugins.tdd.enabled`)
-| 停止点 | 自动决策 |
-|---|---|
+
+| 停止点           | 自动决策                                 |
+| ---------------- | ---------------------------------------- |
 | TDD RED 意外通过 | 自动调整，记录到 unattended-decisions.md |
 
 #### retrospective plugin (`plugins.retrospective.enabled`)
-| 停止点 | 自动决策 |
-|---|---|
+
+| 停止点                | 自动决策       |
+| --------------------- | -------------- |
 | Process Review Part B | 自动写 debt.md |
-| 技术债务 | 自动写 debt.md |
+| 技术债务              | 自动写 debt.md |
 
 > `end_decisions` 字段在创建 unattended.json 时由用户预先决定（见第 5 节）。
 
@@ -309,6 +328,7 @@ A: [答案]
 ### 低置信暂停
 
 两轮后仍有 Low 置信**关键问题**（影响设计方向、无法从代码上下文推导）：
+
 - → 暂停，Telegram 通知用户
 - → 任务停在当前阶段，等待新 session 恢复
 - 非关键问题（格式偏好、命名风格）取答案继续
@@ -317,16 +337,45 @@ A: [答案]
 
 ## 8. Error Handling
 
-| 错误类型 | 处理 | Telegram |
-|---|---|---|
-| subagent BLOCKED | 重试一次（切换 Opus），仍失败 → auto-cancel | 通知原因 |
-| 验证命令失败（Step 0 / 5a 的 build/test 命令本身崩溃） | 重试一次（Opus 修复），仍失败 → auto-cancel | 通知详情 |
+| 错误类型                                                 | 处理                                                                                                                                                   | Telegram |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| subagent BLOCKED                                         | 重试一次（切换 Opus），仍失败 → auto-cancel                                                                                                            | 通知原因 |
+| 验证命令失败（Step 0 / 5a 的 build/test 命令本身崩溃）   | 重试一次（Opus 修复），仍失败 → auto-cancel                                                                                                            | 通知详情 |
 | 验收项 FAIL（self_test 可机判 MUST/SHOULD 清单项不达标） | 进修复循环重试一次（Opus），仍无解 → **暂停** + 通知人工（**非 auto-cancel**——与"验证命令失败"区分：清单项是质量问题、保留任务等人工，命令崩溃才取消） | 通知内容 |
-| git 操作失败 | **暂停**（仅 git plugin 启用时），不 cancel | 通知错误 |
-| Linear API 失败 | 跳过，继续（仅 linear plugin 启用时） | 不通知 |
-| 低置信澄清问题 | 暂停等待用户回复 | 通知内容 |
-| 未预期异常 | auto-cancel | 通知异常 |
+| git 操作失败                                             | **暂停**（仅 git plugin 启用时），不 cancel                                                                                                            | 通知错误 |
+| Linear API 失败                                          | 跳过，继续（仅 linear plugin 启用时）                                                                                                                  | 不通知   |
+| 低置信澄清问题                                           | 暂停等待用户回复                                                                                                                                       | 通知内容 |
+| 未预期异常                                               | auto-cancel                                                                                                                                            | 通知异常 |
 
 **auto-cancel 流程：** 直接执行 task-cancel 核心逻辑（归档为 canceled），发送 Telegram 通知后停止。
 
 **暂停恢复：** 任务停在当前阶段（phases.md 状态不变）。用户下次运行 `/task` 时恢复。
+
+---
+
+## 9. Degrade Policy（撞卡点分级处理）
+
+`unattended.json` 的 `degrade_policy` 决定无人值守撞到「可逆/可降级卡点」时的处理强度。**非无人值守模式恒按 `standard`**（与改造前逐字等价，向后兼容）。
+
+| 卡点 | `standard`（缺省=现状） | `conservative` | `headless`（后续） |
+|------|------------------------|----------------|--------------------|
+| A4 design/plan review 达 `max_rounds` 不收敛 | 暂停 + Telegram 通知（§6/§8） | **accept-with-findings 续跑**：剩余 findings 原文写 `## Unresolved Review Findings`（design.md / plan.md）+ `unattended-decisions.md`，续跑；**同点同 phase 至多一次**，第二次退回 `standard`（暂停）。兜底：P4 review + P5 验收双网 | 同 conservative + 全局 degrade_budget |
+| A3 task-end 债务对账 | 现降级 + 高置信关/低置信留 | 维持现降级 + 关闭动作 / 低置信疑似项汇总进 `unattended-decisions.md`，final.md P6 引用 | 同 conservative + degrade_budget |
+| A2 user_test | 停（按 task_type） | 停 | 转 self_test + deferred（后续） |
+
+### 强制留痕（conservative / headless）
+
+每次 AUTO-DEGRADE 必须留痕：
+
+- `unattended-decisions.md` 追加 `## Headless Degraded Decisions` 段，逐条记「卡点 / 原文 findings / 自动决策 / 同点是否已用过一次」。
+- final.md（task-end P6）汇总引用这些降级决策，使人工回看可见。
+
+### HARD-STOP 硬下限（任何 degrade_policy 都不自动续，必停）
+
+<rule>
+The following are HARD-STOP points that NO degrade_policy may auto-continue past: branch PR/Discard decisions, git operation failure, verification command crash, machine-judgeable MUST/SHOULD acceptance FAIL, artifact gate FAIL, and multiple parallel open tasks. These always pause (Telegram notify) and wait for a human.
+Reason: these are irreversible or high-risk — auto-continuing past them can destroy work (discard), ship broken code (verification crash / MUST FAIL), or corrupt task state (artifact gate). Graduated degradation only applies to reversible/degradable points (review non-convergence, debt reconciliation); the hard floor is non-negotiable.
+</rule>
+
+- A4 的「续跑」仅适用于 **design/plan review 不收敛**（可逆——findings 留痕、P4/P5 双网兜底）；**绝不**适用于上方 HARD-STOP 清单。
+- `degrade_policy` 缺省（字段不存在）或为 `standard` 时，A4/A3 走原暂停路径——现有任务零行为变更。

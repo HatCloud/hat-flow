@@ -38,6 +38,6 @@
 
 ## 依赖
 
-- 引用：PROCESS_REVIEW_TEMPLATE.md、plugins/linear.md（通过 task-config.json 条件化）
-- 引用：spec-git（commit 规范）
+- 引用：plugins/linear.md（通过 task-config.json 条件化）
+- commit 规范与 Process Review 由 git / retrospective 插件 hook 承载（按 task-config.json 条件化）
 - 脚本：hat-task-detect、hat-task-archive

@@ -52,6 +52,5 @@ Task skill 是任务生命周期的编排器。读取任务文件夹中的 `phas
 |------|------|---------|
 | `DESIGN_PROTOCOL.md` | 设计阶段工作流（参考） | task-design 加载 |
 | `PLAN_PROMPT.md` | Plan 模板（参考） | task-plan 加载 |
-| `PROCESS_REVIEW_TEMPLATE.md` | 流程回顾模板 Part A | task-end 引用 |
 | `UNATTENDED_PROTOCOL.md` | 无人值守协议 | 条件加载 |
 | `plugins/` | 7 个插件 manifest + 指令文件 | hat-plugin-hook 运行时解析 |

@@ -1,5 +1,6 @@
 ---
 name: task-execute
+user-invocable: false
 description: "Use when executing Phase 4 (Execute) of a task. Runs plan tasks and code review. Can be called standalone or via /task orchestrator. 触发词: \"开始执行\", \"task execute\", \"执行阶段\", \"运行任务\", \"跑 plan\""
 ---
 
@@ -113,7 +114,7 @@ hat-timing-stamp {task-folder} phase_start P4
 **来源**：读取 `task-config.json` 的 `execution.mode`。
 
 <rule>
-未识别的 mode 值（含 legacy `subagent`）一律 fallback 为 `inline`。
+Any unrecognized mode value (including the legacy `subagent`) MUST fall back to `inline`.
 Reason: `subagent` 是旧 schema 值，已被 auto/parallel-agents 取代；遇未知 mode 时静默并行或直接报错都会破坏执行，退化为 inline 最安全——主 agent 串行执行、行为确定。
 </rule>
 
@@ -211,7 +212,9 @@ Light verify 失败、或 inline 卡壳、或被派发 task-executor 返回 BLOC
    - **≥ 3 次，或判定为架构级问题** → 升级。
 4. **升级动作**（subagent BLOCKED 与 inline 卡死同属此阶梯，只是表达形式不同）：补上下文重派 → 换更强模型（Sonnet→Opus）重试一次 → 拆小 task → 仍无解则按模式终结（**不弹要求应答的阻塞菜单**——约定 9：Execute 零阻塞交互）：
    - **[Interactive]** 在 session 内**可见地停下并输出清晰报告**（卡点描述 + 已尝试的根因修复 + 建议的下一步如转 Revise/拆分），phases.md 状态不变，用户回来后 `/task` 恢复或决策。Telegram 通知为 best-effort **叠加**（有 chat_id 则发），不替代可见停止。
-   - **[Unattended]** 转 Revise（系统性问题）或 Telegram 通知后 auto-cancel。
+   - **[Unattended]** 按硬判据二选一：
+     - 命中**系统性问题**（涉及 design 假设偏差 / 跨模块契约变更 / plan 任务边界需要重划）→ 转 Revise。
+     - 否则（局部实现卡点、非架构级）→ Telegram 通知后 auto-cancel。
 
 ```dot
 digraph stuck_ladder {

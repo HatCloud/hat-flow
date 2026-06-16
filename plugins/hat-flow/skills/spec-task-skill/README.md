@@ -6,7 +6,7 @@ Task workflow 系列 skill 的专用编写规范，继承 `spec-skill` 的所有
 
 - `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）
 - `${CLAUDE_PLUGIN_ROOT}/skills/task-init/SKILL.md` ~ `${CLAUDE_PLUGIN_ROOT}/skills/task-end/SKILL.md`（6 个阶段 skill）
-- `${CLAUDE_PLUGIN_ROOT}/skills/task-cancel/SKILL.md`、`${CLAUDE_PLUGIN_ROOT}/skills/task-revise/SKILL.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/task-cancel/SKILL.md`、`${CLAUDE_PLUGIN_ROOT}/skills/task-revise/SKILL.md`、`${CLAUDE_PLUGIN_ROOT}/skills/task-reopen/SKILL.md`（生命周期辅助 skill）
 
 ## 核心约定
 

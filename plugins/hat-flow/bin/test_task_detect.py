@@ -98,3 +98,32 @@ def test_with_linear_json(tmp_path):
     task_entry = next(t for t in data["open"] if t["name"] == "2026-01-01-linear-task")
     assert task_entry["linear"] is not None
     assert task_entry["linear"]["id"] == "ISSUE"
+
+
+# ---------------------------------------------------------------------------
+# 6. test_worktree_pointer
+# ---------------------------------------------------------------------------
+def test_worktree_pointer(tmp_path):
+    """Stub task dir with a .worktree pointer surfaces a 'worktree' field."""
+    task_dir = tmp_path / "open" / "2026-06-17-wt-task"
+    task_dir.mkdir(parents=True)
+    (task_dir / ".worktree").write_text("/abs/path/.claude/worktrees/2026-06-17-wt-task\n")
+
+    result = run_detect(str(tmp_path))
+
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    data = json.loads(result.stdout)
+    task_entry = next(t for t in data["open"] if t["name"] == "2026-06-17-wt-task")
+    assert task_entry["worktree"] == "/abs/path/.claude/worktrees/2026-06-17-wt-task"
+
+
+def test_no_worktree_field_when_absent(tmp_path):
+    """A normal open task has no 'worktree' key."""
+    task_dir = tmp_path / "open" / "2026-06-17-plain"
+    task_dir.mkdir(parents=True)
+    (task_dir / "plan.md").write_text("- [ ] x\n")
+
+    result = run_detect(str(tmp_path))
+    data = json.loads(result.stdout)
+    task_entry = next(t for t in data["open"] if t["name"] == "2026-06-17-plain")
+    assert "worktree" not in task_entry

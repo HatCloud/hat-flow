@@ -20,6 +20,19 @@ Write every message you show to the user in the user's configured language (the 
 
 ---
 
+## Red Flags
+
+| If you are thinking... | The reality is... |
+|---|---|
+| "Task is reopened, let me run the next phase myself" | reopen only moves the folder back and resets state. It hands off to `/task`; it never executes a phase itself. |
+| "Reset every phase's checkboxes to be safe" | Only the target Phase and everything after it reset to `[ ]`. Earlier completed `[x]` stay — re-doing already-done early phases wastes work. |
+| "Skip Linear update if the MCP call looks flaky" | Linear update is conditional on `plugins.linear.enabled`; when enabled, attempt it and on failure skip silently — do not silently drop it when it would have succeeded. |
+| "Hardcode the In Progress state UUID, it's faster" | State must resolve via `statusMap["In Progress"]` through `get_status_map`. Hardcoded UUIDs break across workspaces. |
+| "Keep the old unattended.json so it resumes unattended" | Always delete `unattended.json` on reopen. The user must re-decide unattended mode via `/task`; carrying it over auto-drives a task the user may want to drive manually. |
+| "Use plain `mv` to move the folder" | Use `git mv` so the deletion from the source dir and addition to `open/` stage atomically. |
+
+---
+
 ## TODO Sync
 
 ### Bootstrap（执行开始时）

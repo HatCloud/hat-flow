@@ -1,5 +1,6 @@
 ---
 name: spec-task-skill
+user-invocable: false
 description: "Use when creating, modifying, or reviewing task workflow skills (task-init, task-design, task-plan, task-execute, task-test, task-end, task-cancel, task-revise, task-reopen, and the task orchestrator). Extends spec-skill with task-specific conventions. Do NOT use for non-task skills. 触发词: \"task skill 规范\", \"检查 task skill\", \"task 技能合规\""
 ---
 
@@ -26,7 +27,7 @@ Write every message you show to the user in the user's configured language (the 
 ## Base Specification (spec-skill pre-loaded)
 
 <SPEC_SKILL>
-!`cat ${CLAUDE_PLUGIN_ROOT}/skills/spec-skill/SKILL.md`
+!`cat "${CLAUDE_PLUGIN_ROOT}/skills/spec-skill/SKILL.md"`
 </SPEC_SKILL>
 
 ## Dependencies

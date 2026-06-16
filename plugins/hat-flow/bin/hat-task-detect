@@ -50,6 +50,24 @@ def parse_plan_progress(plan_path):
         return None
 
 
+def read_worktree_pointer(task_dir):
+    """读取 worktree 隔离指针 .worktree（首行为 worktree 绝对路径）。
+
+    主仓库里 worktree 任务只留一个 stub 文件夹（仅含 .worktree 指针），真实
+    任务文件（phases.md/design.md/...）住在指针指向的 worktree 内。返回路径字符串
+    或 None（普通非 worktree 任务）。
+    """
+    path = os.path.join(task_dir, ".worktree")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            line = f.readline().strip()
+        return line or None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def read_linear_json(task_dir):
     path = os.path.join(task_dir, "linear.json")
     if not os.path.isfile(path):
@@ -83,6 +101,9 @@ def scan_open(base_path):
             "planProgress": parse_plan_progress(plan_path) if os.path.isfile(plan_path) else None,
             "linear": read_linear_json(task_dir),
         }
+        worktree = read_worktree_pointer(task_dir)
+        if worktree:
+            task["worktree"] = worktree
         tasks.append(task)
     return tasks
 

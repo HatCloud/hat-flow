@@ -1,6 +1,7 @@
 ---
 name: spec-skill
-description: "Use when creating, modifying, or reviewing Claude Code skills. Covers SKILL.md structure, language conventions, bilingual strategy, and quality checklist. Do NOT use for non-skill files. 触发词: \"写个 skill\", \"改一下 skill\", \"新建技能\", \"修改技能\", \"review 技能\""
+user-invocable: false
+description: "ALWAYS read this BEFORE authoring, creating, scaffolding, editing, modifying, or reviewing ANY Claude Code skill or SKILL.md — it is the single authoritative spec for all skill work. Use the moment a task involves a skill's structure, frontmatter, language/bilingual strategy, self-evolution components, or quality checklist. Do NOT use for non-skill files. 触发词: \"写个 skill\", \"建一个 skill\", \"新建技能\", \"做个技能\", \"脚手架技能\", \"改一下 skill\", \"修改技能\", \"让技能合规\", \"review 技能\", \"scaffold/author a skill\""
 ---
 
 # Skill Specification Guide
@@ -40,6 +41,20 @@ description: Use when [trigger]. Do NOT use when [exclusion]. 触发词: "中文
 ```
 
 description 规则：以 "Use when..." 开头，包含触发条件和排除条件，**必须包含中文触发词**（帮助 Claude 匹配中文用户意图），不超过 500 字符，不要概述流程。
+
+**可选字段 `self-evolving`**：若该技能开启了自进化能力（见下方 Self-Evolution Capability），在 frontmatter 加 `self-evolving: true` 作为开关标记——它是「技能开头原始数据」里供 review 条件触发的信号。未开启则不写此字段。
+
+**可选字段 `user-invocable`**：Claude Code 原生 frontmatter 字段（官方 telegram / vercel / codex 插件均在用）。`user-invocable: false` 把技能从 `/<name>` 斜杠命令列表里隐藏（隐藏后**仍能**被 description / 触发词自动激活、被其它技能调用，只是不在用户的 `/` 菜单里）；缺省即可被用户斜杠调用。**review 不得把它当违规字段误删**——它是合法可选项。
+
+**哪些该设 `false`（隐藏）**：不适合用户单独直接调用的技能——① **spec 类**（`spec-*` 规范/标尺，靠触发词激活而非 `/`）；② **被编排器派发的 worker**（如 task 族的 init/design/plan/execute/test/revise——由 orchestrator 路由，不单独跑）；③ **subagent-only / 内部委托工具**（如 reviewer、codex-* 、dogfooding）。**保持可见（缺省）**：面向用户的入口与生命周期命令（如 `task`、`task-end`/`-cancel`/`-reopen`/`-setup`、各工作流技能）。判据：用户会不会主动敲 `/<name>` 来用它？不会 → `false`。
+
+```yaml
+---
+name: work
+description: Use when ... 触发词: "work"
+self-evolving: true
+---
+```
 
 <rule>
 Description must state WHEN to use the skill, never summarize its workflow or steps.
@@ -377,6 +392,107 @@ Reason: uncontrolled scope creep during execution leads to token waste and delay
 
 ---
 
+## Self-Evolution Capability
+
+自进化技能从自身**每次运行**中沉淀经验、持续改进，而非一份静态文档。本章节是自进化合规的**单一来源**——review 以此为准；「以最新版本为准」由 reviewer 每次注入本文件天然保证，因此无需在技能里盖版本号（YAGNI）。
+
+**Frontmatter 标记**：开启后在技能 frontmatter 写 `self-evolving: true`（见 Required Structure §1）。它是 review 条件触发的开关信号。
+
+### Components
+
+| 组件 | 形态 | 关键约束 |
+|------|------|---------|
+| **经验库** `references/lessons.md` | SKILL.md 启动时 `!`cat`` 注入 | 表格化（见下）；**硬上限（默认 ≤15 条）**；靠裁决漏斗增长、归纳覆写收缩；越短越健康。**这是每个技能自己的数据**（可变） |
+| **冷归档** `references/lessons-archive.md` | **永不注入、永不作为路径给 model 主动读** | 被挤出经验库的条目沉这里——**不删**，仅供人工回溯 / revise-skill 复活 |
+| **修订日志** `references/changelog.md` | 不注入，按需 Read，最新在最上 | **仅在 skill 定义（SKILL.md / reference / 经验库结构）被修改时**写一条，记「改了什么 + 为何」。**没改 skill 就不写**——它不是每轮运行 / dogfood 的流水账 |
+| **过程准则（受管 · 全局注入）** spec-skill 的 `references/self-evolution-canonical.md` | 各技能 SKILL.md 启动时**直接 `!`cat`` / `Read` 母本的绝对路径**（`${CLAUDE_PLUGIN_ROOT}/skills/spec-skill/references/self-evolution-canonical.md`） | **先验后做 + 裁决漏斗 + 写入闸 + 整合三机制 + changelog 纪律** 的权威文本，**唯一母本**集中在此。**全局共享**（类比 system prompt）：所有自进化技能注入同一份、**不各存副本**；自进化流程严禁改 / 删；要改规则只改母本，全体下次启动即生效。技能若有自己额外的自进化补充，另注入它自己那份，不动母本 |
+| **收尾 Dogfooding** | 流程最后一个 Phase | 复盘本轮**两类摩擦点**（①技能与实际不符 ②执行返工：凭记忆猜字段/参数/文件名导致的回改）按裁决漏斗定去向 + 按需跑经验库维护（防膨胀三机制）。**注意：复盘 ≠ 写 changelog**——没真正改 skill 就不写 changelog |
+
+可选组件：**激进迭代期**——前 N 轮前置激进迭代 + 全程交互，稳定后收敛到每轮结尾一次。
+
+**为什么把过程准则外置成全局母本**：先验后做 / 裁决漏斗 / 写入闸 / 整合 / changelog 纪律这套**对所有自进化技能都一样**。若每个技能各自手写进 SKILL.md 正文，自进化流程改正文时会顺手改动它们 → 各技能慢慢漂移、且 changelog 纪律被改坏（实测：work 模板曾把 changelog 写成「每轮 dogfood 流水账」）。**收敛成单一 canonical 母本、各技能启动时直接注入它的绝对路径（不各存副本）**，既保证每次必读、又让自进化碰不到它，改一处即全体生效——无需批量同步副本。
+
+### 经验库格式（表格，非自由堆叠）
+
+```markdown
+| 经验 | 重要度 | 来源 | 上次命中 |
+|---|---|---|---|
+| 一句话经验（可带 emoji 标类别） | 1-10 | case/日期 | 日期 |
+```
+
+不记精确命中计数（agent 自报不可靠、逐步记账必被省略）；改用**重要度**（创建时打 1-10）+ **上次命中**（recency，整合时粗判刷新）。lessons.md 头部另记一行 `上次整合: YYYY-MM-DD`——整合触发判据据它 + 硬上限判定（见防膨胀机制）。
+
+### 防膨胀机制（经验库的核心约束）
+
+1. **写入闸（防垃圾桶 · 每次写入）**：往 lessons.md 写一条前，先回答「为何不能上移到 ①SKILL 正文 / ②reference / ③CLAUDE.md」。答得上来就上移，不进经验库。
+2. **整合（升级 + 淘汰 + 归纳覆写 · 触发式，非每轮强做）**：整合 = 反复命中的经验**升级**固化进流程后移除 + 超限/过时条目**淘汰**进 `lessons-archive.md`（不删，高重要度豁免——低频≠低价值，如安全类）+ **归纳覆写**合并重叠、刷新「上次命中」。**在 lessons.md 头部记一行「上次整合: YYYY-MM-DD」**；每轮收尾按下表评估「这轮要不要整合」，省得每次都重写全表：
+
+| 必做整合（满足任一） | 可跳过（无必做项 + 满足任一） |
+|---|---|
+| 达硬上限（≤15）｜进入上线 / 对外提交阶段｜到特定节点（换期 / 里程碑）｜距上次整合 ≥ 1 天 | 本轮无新经验 / 仅轻量更新｜经验库已精简 / 条目很少｜刚整合过（数小时内） |
+
+判据落地只看两样：**硬上限**（满没满）+ **上次整合时间**（隔多久）。整合后把头部「上次整合」日期更新为今天。
+
+<rule>
+Before adding any entry to lessons.md, justify why it cannot instead go to the SKILL body, a reference, or the project CLAUDE.md. If it can, put it there — lessons.md is the last-resort sink, not the default.
+Reason: lessons.md is the path of least resistance; without this gate it silently becomes a dumping ground and the funnel's ①②③ ("harden into process") outlets get skipped. A soft lesson that could be a hard rule should become one.
+</rule>
+
+<rule>
+Evict from lessons.md by moving entries into lessons-archive.md, never by deleting. lessons-archive.md is never injected and never read proactively.
+Reason: eviction must be reversible — a lesson dropped for low recency may matter later. A cold archive keeps the audit trail and lets revise-skill resurrect entries without paying injection cost every run.
+</rule>
+
+<rule>
+Write to changelog.md ONLY when the skill's own definition is actually modified (SKILL.md / a reference / the lessons-library structure), one entry per change recording what changed and why. A run that does not modify the skill writes nothing to changelog. The per-run dogfooding narrative (case details, what was tried) is NOT archived to changelog — it is distilled into the body/lessons or discarded.
+Reason: treating changelog as a per-run流水账 makes it grow on every execution even when the skill never changed, destroying its value as a modification/rollback trail and bloating the repo. changelog answers "how did this skill change over time", not "what happened each run".
+</rule>
+
+<rule>
+The self-evolution process rules (pre-flight verification + decision funnel + write-gate + consolidation + changelog discipline) live in a single canonical master under spec-skill (`references/self-evolution-canonical.md`). Each self-evolving skill injects this master DIRECTLY by `!`cat``-ing (or, for an alternate runtime-compatible skills, `Read`-ing) the master's ABSOLUTE path at startup — NO per-skill copy is kept. Do NOT hand-write these rules into each skill's SKILL.md body, and do NOT let the self-evolution process edit the master.
+Reason: identical process rules duplicated by hand across skills drift apart and get corrupted by the very process they govern. One canonical master injected by absolute path into every skill guarantees consistency and makes a rule change take effect everywhere on the next run — with no copies to sync.
+</rule>
+
+### 编排族的经验归属（orchestrator + workers）
+
+一个技能负责**编排**、把具体活派给一组子技能执行（如 `task` 编排 `task-init / task-design / task-execute / …`），这叫**编排族**。族里一道任务由多个技能重合完成，「这条经验落哪个技能」会出现单技能场景没有的歧义。判据只有一条：
+
+> **经验归属 = 它下次会被检索、被应用的那个决策点，不是它被发现的地方。**
+> 自检：「下次这条经验，该在**谁**的**哪个决策点**被读到？」——落在那个技能，而非偶然发现它的那次流程所在的技能。
+
+三条推论覆盖绝大多数情况：
+
+| 经验性质 | 例 | 落点 |
+|---|---|---|
+| **执行细节** | 「执行子任务时跑测试前要先 source 环境」 | 子技能——即使是在一次完整编排流程里发现的，它唯一的复用点就是那个子技能 |
+| **编排决策** | 「design 没过审不该放进 plan」「某类任务该跳过 test 阶段」 | orchestrator——选谁 / 排序 / 分支 / 何时停 |
+| **交接契约** | 「plan 传给 execute 的产物必须含验证命令」 | 看谁把关：把关动作在编排层→orchestrator；是子技能被调用时的前置假设→该子技能开头 |
+
+orchestrator 自己也只是一个技能，**有自己的 `lessons.md`，专收编排经验**；**不给编排族另造 series 级公共经验库**（那是又一个垃圾桶入口）。每个技能各收各的，按上表分流。
+
+<rule>
+For an orchestrator + workers family, a lesson belongs to the skill whose decision point will retrieve it next, not the skill where it was discovered. Execution-detail lessons go to the worker; orchestration-decision lessons go to the orchestrator; never give a family a shared "series-level" lessons.md.
+Reason: in a family the discovery locus and the retrieval locus diverge — a lesson found while running a worker may really be an orchestration rule. Filing by discovery scatters lessons where no decision point reads them; filing by retrieval keeps each lesson where it will actually fire.
+</rule>
+
+<rule>
+Extend the write-gate with a locus question: before writing a family lesson, answer "which skill's which decision point reads this next?". If you cannot name a single owner, the lesson is either a process improvement to harden into a body (orchestrator or worker), or you have not yet located its real retrieval point — do NOT mirror the same soft lesson into multiple skills' lessons.md.
+Reason: a lesson that "could go anywhere" is the write-gate's signal that it is too general (harden it) or undiagnosed (find its locus). Mirroring one lesson across several lessons.md guarantees drift — fix one copy, forget the others — which is more corrosive than bloat.
+</rule>
+
+### When to Offer
+
+仅对**重复使用型流程类技能**（反复处理同类任务，如 work / review / distill）主动提议**完整经验库机制**；**spec(Spike)类技能不设独立经验库**——经验直接改正文（文档即知识，避免又一个垃圾桶入口），只保留 changelog；一次性工具技能默认 N/A。**所有被修改的技能都要有 changelog**（见 File Organization）。
+
+<rule>
+When creating or modifying a recurring-workflow (process-type) skill, ask the user via AskUserQuestion whether to include the self-evolution capability. If yes, scaffold the components and set `self-evolving: true`. Do NOT add a lessons.md to a spec-type skill — record its lessons in the body and keep only a changelog.
+Reason: self-evolution pays off only for skills that run repeatedly on similar tasks. For a spec-type skill the document IS the knowledge, so a separate lessons.md is a redundant dumping ground. The frontmatter marker lets review verify the implementation against this spec.
+</rule>
+
+本规格自包含——所有自进化组件已在上文定义，无需依赖任何外部项目实例。
+
+---
+
 ## Anti-Patterns
 
 | Anti-pattern | Correct approach |
@@ -432,6 +548,26 @@ Skill 加载时执行 shell 命令，输出替换占位符：
 ```
 
 命令要轻量（毫秒级），注意工作目录。
+
+**`!`cat`` 路径约定**：读取 skill 内部文件时，用 `${CLAUDE_SKILL_DIR}` 代替硬编码的项目根路径，skill 移动或在不同项目复用时自动适应：
+
+```bash
+# ✅ 同 skill 内文件
+!`cat "${CLAUDE_SKILL_DIR}/references/lessons.md" 2>/dev/null || echo "(暂缺)"`
+
+# ✅ 跨 skill 文件（如 revise 读 work 的 reference）
+!`cat "${CLAUDE_PLUGIN_ROOT}/skills/work/references/protocol.md" 2>/dev/null || echo "(暂缺)"`
+
+# ❌ 避免：硬编码项目根路径
+!`cat ".claude/skills/work/references/lessons.md" 2>/dev/null || echo "(暂缺)"`
+```
+
+`${CLAUDE_SKILL_DIR}` 解析为 SKILL.md 所在目录的绝对路径，项目级与全局 skill 均适用（已验证）。
+
+<rule>
+Skill content must not contain concrete project information or hardcoded local/absolute paths (e.g. `~/Projects/<name>/...`, `/Users/<you>/...`). Use `${CLAUDE_SKILL_DIR}` or paths relative to it. A project-level skill may reference its OWN project (via relative paths), but never another project.
+Reason: hardcoded local paths make a skill unshareable and brittle — the moment the project moves or another person installs it, every such reference breaks. Portable references survive relocation and sharing. (Universal framework paths like `.claude/skills/` are fine; specific project roots are not.)
+</rule>
 
 ### Dynamic Routing
 
@@ -540,14 +676,44 @@ Skill 修改完成后，用自身 Checklist 逐项审核。这既是验收步骤
 
 ## File Organization
 
+通用 skill 文件结构（约定文件名，路径相对技能目录）：
+
 ```
 skills/skill-name/
-  SKILL.md        # Bilingual instructions
-  README.md       # 流程综述（纯中文）
-  PROTOCOL.md     # Optional: 子协议
-  PROMPT.md       # Optional: subagent prompt
-  scripts/        # Optional: 脚本
+  SKILL.md                  # Bilingual instructions（主流程/规范）
+  README.md                 # 流程综述（纯中文）
+  references/               # Optional: 子协议 / 标准 / 经验库 / 日志
+    changelog.md            # 修订日志（被修改的 skill 通用，不注入，最新在最上，仅改才写）
+    <protocol>.md           # 子协议（按预注入策略 !`cat` 或按需 Read）
+    lessons.md              # 经验库（仅流程类/self-evolving）：!`cat` 注入，表格化，硬上限
+    lessons-archive.md      # 冷归档（仅流程类）：永不注入/引用
+  scripts/                  # Optional: 脚本
 ```
+（自进化技能**不再保存** `references/self-evolution.md` 副本——过程准则统一注入全局母本，见下。）
+
+> 自进化技能的 SKILL.md 启动注入区应有**两行注入**：① `${CLAUDE_SKILL_DIR}/references/lessons.md`（本技能数据，可变）② 过程准则**全局母本**的绝对路径 `${CLAUDE_PLUGIN_ROOT}/skills/spec-skill/references/self-evolution-canonical.md`（受管，勿改）。①用 `${CLAUDE_SKILL_DIR}` 引用本技能自有；②用绝对路径直引母本、**不各存副本**，改母本即全体生效。an alternate runtime 兼容技能两行都改用 `Read` + 绝对路径（禁 `!`cat`` / `${CLAUDE_SKILL_DIR}`）。
+
+### 按类型分（流程类 vs spec(Spike)类）
+
+| 类型 | changelog | lessons.md + 冷归档 |
+|------|-----------|---------------------|
+| **流程类**（work / task / review / distill 等反复处理同类任务） | ✅ | ✅ 完整自进化机制（见 Self-Evolution Capability） |
+| **spec(Spike)类**（`spec-*`、规范/标准类） | ✅ | ❌ 经验直接改正文——文档即知识，不设独立经验库（否则又一个垃圾桶入口） |
+| **一次性工具类** | 改了就记 | ❌ |
+
+<rule>
+Every skill that gets modified must maintain a `references/changelog.md` (newest on top), recording each change and why.
+Reason: without a per-skill modification log there is no rollback trail — if an edit breaks behavior, you cannot tell what changed or revert intent. This applies to all skill types, not just self-evolving ones.
+</rule>
+
+### Naming: ASCII Only
+
+文件名与文件夹名一律用 **ASCII 英文 kebab-case**，禁止中文 / 空格 / 点（概念名在正文里可用用户配置语言，落到磁盘的名字必须英文）。通用约定译名：经验库→`lessons.md`、冷归档→`lessons-archive.md`、修订日志→`changelog.md`、子协议→`<name>-protocol.md`。项目特有文件名（如某甲方标准、报告模板、产出文件夹）由该项目自己的规范定义，不进本全局 spec。
+
+<rule>
+File and folder names must be ASCII (English kebab-case). Never use Chinese characters, spaces, or dots in names.
+Reason: non-ASCII paths break tooling, cross-platform sync, and Claude Code's memory path encoding (which maps `/` and `.` to `-`). Chinese filenames also make grep/scripts brittle. Concept names may stay Chinese in prose; the on-disk name must be English.
+</rule>
 
 ## Checklist — Before Creating or Modifying a Skill
 
@@ -556,13 +722,21 @@ skills/skill-name/
 - [ ] Failure handling for each step?
 - [ ] AskUserQuestion at user decision points?
 - [ ] No hardcoded paths/versions?
+- [ ] 无具体项目信息 / 本地绝对路径 / 跨项目引用？（用 `${CLAUDE_SKILL_DIR}`/相对路径；项目级 skill 只引用自身项目）
+- [ ] 文件名 / 文件夹名全 ASCII 英文（无中文 / 空格 / 点）？
 - [ ] Description includes 中文触发词?
 - [ ] LANGUAGE RULE block present?
 - [ ] Bilingual strategy applied? (titles English, descriptions Chinese, constraints English)
 - [ ] Critical sub-files pre-injected via `!`cat``?
 - [ ] Dependencies declared?
 - [ ] README.md created/updated?
+- [ ] `references/changelog.md` 存在且本次改动已记一条（最新在最上）？
+- [ ] 文件结构符合 File Organization？经验库归属按类型正确（流程类才有 lessons.md；spec 类只有 changelog）？
 - [ ] Dogfooding planned?
 - [ ] Mandatory Stop Points defined? (if skill has user decision points)
 - [ ] VDD strategy noted? (Full TDD / Lite TDD / N/A)
+- [ ] 重复使用型流程类：已用 AskUserQuestion 询问是否加入自进化能力？
+- [ ] 若 `self-evolving: true`：本技能自有组件齐备（经验库表格化 + 硬上限 / 冷归档 / 修订日志 / 收尾 Dogfooding）；且过程准则（先验后做 / 裁决漏斗 / 写入闸 / 整合三机制 / changelog 纪律）由启动注入区**直接注入全局母本绝对路径**（`spec-skill/references/self-evolution-canonical.md`）提供——**非各存副本、非手写进正文**？
+- [ ] frontmatter 的 `self-evolving` 标记与实际组件状态一致（不空挂）？
+- [ ] 若属编排族（orchestrator + workers）：经验按「检索点归属」分流（执行细节→worker，编排决策→orchestrator），无 series 级公共经验库，无同一软经验跨技能镜像？
 - [ ] Self-compliance check passed? (use this checklist on the skill itself)

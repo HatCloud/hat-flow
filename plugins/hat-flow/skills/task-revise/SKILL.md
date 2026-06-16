@@ -1,5 +1,6 @@
 ---
 name: task-revise
+user-invocable: false
 description: "Use when executing a Revise Cycle within Phase 4/5. Runs an adaptive single fix loop (root-cause → optional design/plan → execute → verify) to address systemic issues found during code review or testing. Triggered by task-execute (4b) or task-test (5d), routed by the orchestrator. 触发词: \"revise cycle\", \"修订循环\", \"修复系统性问题\""
 ---
 

@@ -2,7 +2,26 @@
   "_schema_version": "2.0",
   "_comment": "任务流程全局默认配置。复制为 task-defaults.json 后生效，该文件不进 git。顶层 plugins 定义全局默认值，presets 定义档位覆盖，overrides 用于用户自定义覆盖。",
   "preset": "standard",
-
+  "branch": {
+    "mode": "keep",
+    "_mode_values": "keep | new",
+    "worktree": "ask",
+    "_worktree_values": "true | false | \"ask\"",
+    "_worktree_note": "显式 true/false 任何模式生效；\"ask\"= 交互模式 1d 弹询问（默认 false），无头/quiet 模式解析为 true。同目录多 task 协作的项目设 false。",
+    "name": null
+  },
+  "headless": {
+    "_comment": "无头/quiet 模式下各 init 交互点的自动决策来源（仅 quiet_mode 时生效）。",
+    "existing_task": "continue",
+    "git_conventions": "default",
+    "dirty_policy": "ignore",
+    "degrade_policy": "conservative",
+    "linear_on_fail": "skip"
+  },
+  "end_decisions": {
+    "branch": "keep",
+    "claude_md": "auto_update"
+  },
   "execution": {
     "mode": "inline",
     "_mode_values": "inline | subagent",
@@ -10,7 +29,6 @@
     "_engine_values": "auto | sonnet | opus",
     "_engine_note": "仅 mode=subagent 时生效"
   },
-
   "plugins": {
     "review": {
       "enabled": true,
@@ -33,57 +51,107 @@
       "mode": "none"
     },
     "retrospective": {
-      "enabled": true
+      "enabled": false
     }
   },
-
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": false
+  },
   "_observability_note": "核心能力（非 plugin，ISSUE 下沉）：timing 由各 phase SKILL 在 phase 边界内联经 hat-timing-stamp 写入，受此顶层开关门控。与 todo_sync/phase_merge 同级；preset 可覆盖（hotfix 设 false）。",
-
   "todo_sync": true,
   "phase_merge": [],
-
   "overrides": {},
-
   "presets": {
     "full": {
-      "execution": { "mode": "subagent", "engine": "auto" },
+      "execution": {
+        "mode": "subagent",
+        "engine": "auto"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "full" },
-        "tdd": { "enabled": true, "mode": "full" },
-        "retrospective": { "enabled": true }
+        "review": {
+          "enabled": true,
+          "code_review": "full"
+        },
+        "tdd": {
+          "enabled": true,
+          "mode": "full"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "standard": {
-      "execution": { "mode": "inline" },
+      "execution": {
+        "mode": "inline"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "medium" },
-        "tdd": { "enabled": true, "mode": "lite" },
-        "retrospective": { "enabled": true }
+        "review": {
+          "enabled": true,
+          "code_review": "medium"
+        },
+        "tdd": {
+          "enabled": true,
+          "mode": "lite"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "lite": {
-      "execution": { "mode": "inline" },
+      "execution": {
+        "mode": "inline"
+      },
       "plugins": {
-        "review": { "enabled": true, "code_review": "light", "design_rounds": 0 },
-        "tdd": { "enabled": false, "mode": "none" },
-        "retrospective": { "enabled": false }
+        "review": {
+          "enabled": true,
+          "code_review": "light",
+          "design_rounds": 0
+        },
+        "tdd": {
+          "enabled": false,
+          "mode": "none"
+        },
+        "retrospective": {
+          "enabled": false
+        }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": true,
+      "observability": {
+        "enabled": false
+      }
     },
     "hotfix": {
-      "execution": { "mode": "inline" },
-      "plugins": {
-        "review": { "enabled": false },
-        "tdd": { "enabled": false, "mode": "none" },
-        "retrospective": { "enabled": false }
+      "execution": {
+        "mode": "inline"
       },
-      "observability": { "enabled": false },
+      "plugins": {
+        "review": {
+          "enabled": false
+        },
+        "tdd": {
+          "enabled": false,
+          "mode": "none"
+        },
+        "retrospective": {
+          "enabled": false
+        }
+      },
+      "observability": {
+        "enabled": false
+      },
       "phase_merge": [],
       "todo_sync": false,
       "p5_auto_only": true

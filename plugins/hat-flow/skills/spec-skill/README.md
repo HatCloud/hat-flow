@@ -79,6 +79,33 @@ Skill 不是操作手册，而是行为约束系统——不仅定义"做什么"
 - **Implementer States** — 4 状态协作规范（DONE/DONE_WITH_CONCERNS/NEEDS_CONTEXT/BLOCKED）
 - **Scope Freeze** — 设计批准后范围变更需用户确认
 
+## 文件结构与类型分层
+
+通用结构：`SKILL.md` + `README.md` + `references/`（子协议 / 标准 / 经验库 / 日志）+ 可选 `scripts/`。文件名一律 ASCII kebab-case。
+
+按类型决定要哪些组件：
+
+| 类型 | changelog | 经验库 lessons.md + 冷归档 |
+|------|-----------|---------------------------|
+| **流程类**（work/task/review/distill） | ✅ | ✅ 完整自进化 |
+| **spec(Spike)类**（spec-*、规范类） | ✅ | ❌ 经验直接改正文 |
+| **一次性工具类** | 改了就记 | ❌ |
+
+**所有被修改的 skill 都要有 `references/changelog.md`**（不注入，最新在最上）——回溯防错的单一来源。
+
+## 自进化与经验库防膨胀
+
+流程类技能可开启自进化（frontmatter `self-evolving: true`），从每次运行沉淀经验。经验库 `references/lessons.md` 启动 `!cat` 注入，**表格化**（经验 / 重要度 1-10 / 来源 / 上次命中），不记精确计数。
+
+防膨胀机制（防止经验库变垃圾桶 + token 膨胀）：
+
+1. **写入闸**（每次写入）：写经验前先论证「为何不能上移到 SKILL 正文 / reference / CLAUDE.md」，答得上来就上移。
+2. **整合 = 升级 + 淘汰 + 归纳覆写**（触发式，非每轮强做）：升级（反复命中的固化进流程后移除）+ 淘汰（超限/过时条目挤进 `lessons-archive.md`，不删、可回溯）+ 归纳覆写（合并重叠、刷新「上次命中」）。经验库头部记「上次整合」日期，每轮收尾按判据评估：**达硬上限 ≤15 / 进入上线提交 / 到特定节点 / 距上次整合 ≥1 天 → 必做**；本轮轻量、已精简、或刚整合过 → 跳过。
+
+裁决漏斗（摩擦点去向）：①流程问题→SKILL 正文 ②reference 不贴合→对应 reference ③通用规则→CLAUDE.md ④稀有例外→经验库（兜底）。
+
+**编排族归属**（orchestrator + workers，如 task 族）：经验归属看「下次在谁的哪个决策点被检索」而非「在哪发现」——执行细节落 worker，编排决策落 orchestrator，交接契约看谁把关。orchestrator 自己也只是一个技能、有自己的 lessons.md 收编排经验；不给族另造公共经验库，不把同一软经验镜像进多个技能（必 drift）。写入闸为此加一问：「这条下次在哪个技能的哪个决策点被读到？」答不出唯一归属 → 要么固化进正文、要么还没定位到复用点。
+
 ## Dogfooding
 
 Skill 写完/改完后必须跑一次真实任务验证。没有真实任务时：

@@ -40,7 +40,8 @@ Reason: autonomous progression past decision points leads to wasted work when us
 | Step 3.0e | 有未完成的子 issue | 逐个确认：标记 Done / 返回 Backlog / 保持不变 | Decision |
 | Step 3.2 | CLAUDE.md 需要更新 | 确认更新内容 | Decision |
 | Step 3.3 | 发现意外代码变更 | 先单独提交 / 暂存 / 丢弃 | Decision |
-| Step 3.5 | 在非 main 分支上 | 4 选项菜单（merge / PR / keep / discard），discard 需 typed 确认 | Decision |
+| Step 3.4.4 | worktree 隔离任务归档后 | 按 `end_decisions.branch`（auto_merge/keep）merge-back + 清理；PR/Discard 永不自动 | 核心，无交互（worktree 任务的分支处理在此，3.5 自然 no-op） |
+| Step 3.5 | 在非 main 分支上（非 worktree 任务） | 4 选项菜单（merge / PR / keep / discard），discard 需 typed 确认 | Decision |
 
 ## TODO Sync
 
@@ -115,8 +116,12 @@ Reason: user saying "tests passed" does not substitute for running the actual ve
 
    Do NOT use `ls`, `find`, or repeated `bash` commands to search for the task folder. 脚本或单个 Glob 调用就足够了。如果两者都不行，询问用户任务文件夹名称。
 
-   - 一个任务 → 直接使用
-   - 多个 → AskUserQuestion 让用户选择
+    - 一个任务 → 直接使用
+    - 多个 →
+       - **[Interactive]** AskUserQuestion 让用户选择
+       - **[Unattended]** 不询问，按如下顺序自动选择：
+          1) 当前 session 最近更新（`Updated` 最新）的 open task；
+          2) 若无法判定（无 phases.md 或时间戳并列），发送 Telegram 通知并暂停，等待 `/task` 恢复人工选择。
    - 没有 → 检查 `.tasks/done/` 是否有最近的文件夹（可能是部分执行的）。找到 → 询问用户是否要继续关闭。未找到 → "没有打开的任务。" **End skill.**
 
 2. 读取任务的 `design.md` 和 `plan.md`（如果存在）
@@ -172,7 +177,7 @@ Reason: core docs are the task's identity and cross-session state. Archiving wit
 - `6a. 验证 + final.md` → Step 0 + Step 2
 - `6b. 归档 + Linear Done` → Step 3.0 + Step 3.1 + Step 3.2 + Step 3.3 + Step 3.4 + Step 3.5
 
-**归档 commit 之前（Step 3.3.4）**：将 Phase 6 所有步骤标记为 `[x]`，Status 改为 `DONE`，更新 `**Updated**` 时间——使归档 commit 捕获完整 Phase 6 状态，归档后工作树不再残留 phases.md 修改。
+Phase 6 DONE 定稿与 P6 phase_end 须在归档 commit 之前完成（权威规则见 Step 3.3.4）。
 
 <rule>
 Every step completion MUST update phases.md: mark step [x], update Updated time, update Status when all steps done.
@@ -192,7 +197,8 @@ Both recording new debt and closing resolved debt MUST go through user confirmat
 Reason: debt visibility is a team concern — the user, not the agent, owns what to track and what counts as resolved. Auto-closing risks silently dropping unfixed debt.
 </rule>
 
-**[Unattended]** 无人值守模式：A 自动追加新债务为 `- [ ]`；B 自动把**高置信**候选（本任务直接改动的文件/issue 命中的 open 项）标 `- [x] ... — resolved: <issue-id>`，低置信项保持 open 并在 final.md 记录"疑似解决待人工确认"。均写 `docs/debt.md`，不询问。
+**[Unattended]** 无人值守模式（§9 **A3** 债务对账）：A 自动追加新债务为 `- [ ]`；B 自动把**高置信**候选（本任务直接改动的文件/issue 命中的 open 项）标 `- [x] ... — resolved: <issue-id>`，低置信项保持 open。均写 `docs/debt.md`，不询问。
+- **`degrade_policy` conservative / headless 额外留痕**：把自动关闭动作 + 低置信疑似项汇总写入 `unattended-decisions.md` 的 `## Headless Degraded Decisions`，并在 final.md P6 汇总引用（使人工回看可见所有自动债务决策）。`standard` / 缺省维持原行为（仅 final.md 记"疑似解决待人工确认"），现有任务零变更。
 
 ### Step 2: Write final.md
 
@@ -444,6 +450,43 @@ git tag -l 'revise-*' | xargs git tag -d 2>/dev/null
 
 如果有 tag 被删除，输出清理结果。无 revise tag 则跳过。
 
+**3.4.4 Worktree Teardown（核心，仅 worktree 隔离任务）**
+
+worktree 由 core config `branch.worktree` 门控、用内置工具创建（task-init 1d-wt），其拆解同属核心（不是某插件能力）。归档 commit 完成后、P6.post-archive 之前执行。
+
+**检测是否在 worktree 内**（linked worktree 的 `--git-dir` 与 `--git-common-dir` 不同）：
+
+```bash
+[ "$(git rev-parse --git-dir 2>/dev/null)" != "$(git rev-parse --git-common-dir 2>/dev/null)" ] && echo IN_WORKTREE
+```
+
+非 worktree（输出空）→ 跳过本步（普通分支由 3.5 P6.post-archive 的 git plugin 处理）。
+
+**在 worktree 内时**：记 `WT="$(git rev-parse --show-toplevel)"`、`BR="task/{folder}"`、`MAIN_ROOT`（`git worktree list` 首行的主工作树路径）。读 `end_decisions.branch`（unattended.json；交互模式则取 Step 3.5 用户决策；缺省 `keep`）。
+
+1. **先把归档后的任务文件夹物理同步回主仓库**（无论 `.tasks/` 是否被 git 跟踪都不丢记录）：
+   ```bash
+   mkdir -p "$MAIN_ROOT/.tasks/done"
+   cp -R "$WT/.tasks/done/{folder}" "$MAIN_ROOT/.tasks/done/" 2>/dev/null || true
+   rm -rf "$MAIN_ROOT/.tasks/open/{folder}"   # 清除主仓库 stub 指针
+   ```
+2. **退出 worktree 回主目录**：`ExitWorktree(action="keep")`（path 进入的 worktree，keep 仅返回原目录、不删；删除由下方按 end_decisions 决定）。CWD 现在主仓库。
+3. **按 `end_decisions.branch` 处理**：
+
+   | 值 | 动作 |
+   |---|---|
+   | `auto_merge` | 主目录 `git merge --no-ff "$BR" -m "merge: {folder} (worktree)"`；成功 → `git worktree remove "$WT"` + `git branch -d "$BR"`。merge 冲突 → **不强merge**：保留 worktree + 分支，登记 `docs/unmerged-branches.md`，**[Unattended]** Telegram 通知冲突需人工。 |
+   | `keep`（缺省） | 不 merge、不删 worktree/分支；登记 `docs/unmerged-branches.md`（分支名 + worktree 路径），留待人工 |
+
+   **PR / Discard**：worktree 任务**永不自动** PR/Discard——一律按 `keep` 保留 worktree，登记待人工（与 §6 一致）。
+
+<rule>
+For a worktree task, ExitWorktree(keep) and return to the main directory BEFORE any merge; physically copy the archived task folder back to the main repo first so removing the worktree never loses the task record. Never `git worktree remove` with unmerged work unless end_decisions is auto_merge AND the merge succeeded cleanly.
+Reason: the worktree's `.tasks/` may be untracked (gitignored in a generic project), so a merge alone would not carry the task record — only the physical copy guarantees it survives removal. Force-removing an unmerged worktree discards real work, which is a HARD-STOP class action (see UNATTENDED_PROTOCOL §9).
+</rule>
+
+完成后 CWD 在主目录、on 原分支：3.5 的 git-plugin 分支处理因「已在主分支、无 task 分支 checked out」自然 no-op，不重复处理。
+
 **3.5 P6.post-archive Hook（分支处理 + 回顾）**
 
 归档 commit 完成后运行：
@@ -473,9 +516,7 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（git: 分支
 
 ### P6 结束时间戳（core timing，内联——已前移到归档前）
 
-P6 phase_end **不再在归档后写**，已前移到 **Step 3.3.4**（归档 commit 之前），与 phases.md Phase 6 DONE 一同定稿，使二者都进入本任务的归档 commit、归档后工作树干净。此处不再有任何写操作（保留本节仅作交叉指引，防止误以为还要在末尾补写）。
-
-> 历史背景：此 phase_end 原在归档后写、落 `done/` 路径不进归档 commit（曾被标为"已知 minor 限制"），实测会留下未提交的 timing.jsonl 泄漏进后续无关 commit、归档产物残缺。已通过前移至 Step 3.3.4 修复。
+P6 phase_end 已前移到 Step 3.3.4（权威规则见该步），此处无写操作（本节仅作交叉指引，防止误以为还要在末尾补写）。
 
 ---
 
@@ -483,8 +524,9 @@ P6 phase_end **不再在归档后写**，已前移到 **Step 3.3.4**（归档 co
 
 ## Dependencies
 
-- **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/task-config.json`
-- **Writes**: `{task-folder}/final.md`, `{task-folder}/phases.md`, `{task-folder}/conversation.md`, `{task-folder}/consumption-report.md`
+- **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/task-config.json`, `{task-folder}/unattended.json`（`end_decisions.branch` 驱动 worktree merge-back）
+- **Writes**: `{task-folder}/final.md`, `{task-folder}/phases.md`, `{task-folder}/conversation.md`, `{task-folder}/consumption-report.md`, `docs/unmerged-branches.md`（worktree keep / 冲突时登记）
+- **Worktree teardown（核心，仅 worktree 任务，Step 3.4.4）**: 内置 `ExitWorktree(action="keep")` + `git merge --no-ff` / `git worktree remove` / `git branch -d`；物理 `cp -R` 归档文件夹回主仓库、`rm -rf` 主仓库 stub
 - **Hooks**: `P6.pre-archive`（git + linear）, `P6.post-archive`（git + retrospective）
 - **Core timing**（内联，非 hook）: phase_start P6（阶段开始）/ phase_end P6（**Step 3.3.4，归档 commit 之前**，与 phases.md DONE 一同定稿）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
 - **Scripts**: hat-task-archive, hat-task-detect, hat-plugin-hook, hat-conversation-export, hat-timing-stamp

@@ -1,5 +1,6 @@
 ---
 name: task-init
+user-invocable: false
 description: "Use when initializing a new task (Phase 1: Setup). Handles git branch, task folder creation, Linear setup, and requirement confirmation. Can be called standalone or via /task orchestrator. 触发词: \"初始化任务\", \"task init\", \"开始初始化\""
 ---
 
@@ -21,7 +22,20 @@ Write every message you show to the user in the user's configured language (the 
 
 ## NO_GIT Mode
 
-如果 Branch 值为 `NO_GIT`，跳过以下步骤：1c（Git 规范 + Dirty 检查）、1d（分支决策，直接在 CWD 下创建任务文件夹）、1c 中的 phases.md git commit。其余步骤正常执行。
+如果 Branch 值为 `NO_GIT`，跳过以下步骤：1c（Git 规范 + Dirty 检查）、1d（分支决策，直接在 CWD 下创建任务文件夹）、1d-wt（Worktree 隔离，依赖 git）、1c 中的 phases.md git commit。其余步骤正常执行。
+
+---
+
+## Red Flags
+
+| If you think... | Reality |
+|---|---|
+| "Let me explore the codebase to understand the request before confirming" | Init does NOT explore code. Exploration belongs to Phase 2 (Design). Confirm the requirement first. |
+| "The requirement is clear enough, skip the structured restate" | Step 1b.1 is mandatory for ALL input types. Implicit understanding is where rework starts. |
+| "User implied which branch they want, I'll just create it" | Interactive mode: never create a branch without an explicit AskUserQuestion answer (1d Iron Law). Quiet/unattended: follow `branch.mode` config (default keep), do NOT ask. |
+| "I'll pick the tier myself, no need to ask" | 1b.3 tier choice is a mandatory stop point (except Unattended). Recommend, then confirm. |
+| "Let me write the task folder before the branch is settled" | All filesystem writes happen in 1f, AFTER branch setup. Writing early strands files on the wrong branch. |
+| "Linear creation failed, I'll silently continue" | On Linear failure, AskUserQuestion (retry / skip). Do NOT silently drop the integration. |
 
 ---
 
@@ -66,7 +80,7 @@ Write every message you show to the user in the user's configured language (the 
    - 分支决策 → 留在当前分支
    - Linear issue → 自动创建；Linear 失败 → 跳过
 
-> 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。task-init 在 Phase 1 完成前运行，无人值守模式在 Phase 1 全部完成后才激活。
+> 无人值守模式的激活（unattended.json 创建）有两条入口：① **Quiet 入口**——编排器 Step 0 由显式信号确立 `quiet_mode` 时，由 task-init **1f** 直接物化 `unattended.json`（`_source:"headless"` 的 config + `enabled:true`），使 Init 之后全程无人值守；② **交互延后入口**——非 quiet 时，由编排器 Step 2A.1 / task-design Activation Timing 询问激活时机后创建。各阶段 skill 读取已有状态。
 
 ---
 
@@ -159,7 +173,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 
 完成后：将 phases.md 中 `1b.2 Prompt 质量分析` 标记为 `[x]`（在内存中）。
 
-### 1b.3 档位粗选
+### 1b.3 Tier Pre-Selection
 
 **目的：在需求确认后立即确定任务档位，写入 task-config.json，使后续所有步骤可读取配置。**
 
@@ -185,12 +199,23 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 展示推荐的 preset + 裁剪建议，选项：推荐的 preset（Recommended）/ 其他 3 个 preset / 自定义。
 裁剪建议附在推荐理由中，用户可采纳或忽略。
 
-**5. 决定 task-config.json 内容（内存）：**
-- 读取 `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 中对应 preset 的模板（preset 的键深合并覆盖顶层默认）
-- 应用裁剪覆盖（用户确认的禁用/启用调整）
-- 解析所有 `"auto"` 值为具体值（`linear.enabled: "auto"` → 检测 Linear MCP 可用性解析为 `true`/`false`；`git.enabled: "auto"` → 检测 git 仓库解析为 `true`/`false`）
-- **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——ISSUE 已将其下沉为核心能力）。默认 `{"enabled": true}`；**preset 顶层的 `observability` 覆盖默认**——如 `hotfix` 的顶层 `observability.enabled: false` 经合并应解析出 `false`（务必合并顶层 `observability` 键，勿只合并 `plugins.*`）。
-- 档位决策在内存确定；`task-config.json` 的实际写盘移到 1f（任务文件夹创建之后），此处不写文件。
+**5. 解析 effective config（三层合并，内存）：**
+
+运行三层配置解析器（默认模板 ① < 全局用户 local ② < 项目本地 ③ < 调用 flag ④）：
+
+```bash
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
+  [quiet_mode 为真时追加 --quiet] [有 flag overrides 时追加 --flags '<json>']
+```
+
+- `{chosen-preset}` = 第 1-4 步选定的档位。`--quiet` 与 `--flags` 取自编排器 Step 1 的双信号判定与 flag 解析（quiet_mode、flag_overrides 在当前上下文可用）；独立调用时按编排器 Step 1 同一规则自行判定。
+- 脚本输出 = 合并后的 effective config：已叠加 ②③④ 层、已按 quiet_mode 解析 `branch.worktree` 的 `"ask"` 哨兵（quiet→`true`；交互→保持 `"ask"`，待 1d 询问）。脚本**不解析** `"auto"` 值，保留供下面解析。
+- 在脚本输出基础上**应用裁剪覆盖**（用户在第 4 步确认的逐插件禁用/启用调整）。
+- **解析所有 `"auto"` 值为具体值**：`linear.enabled: "auto"` → 检测 Linear MCP 可用性解析为 `true`/`false`；`git.enabled: "auto"` → 检测 git 仓库解析为 `true`/`false`（`execution.engine: "auto"` 等保持运行时解析）。
+- **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——ISSUE 下沉为核心能力）。脚本已正确合并顶层 `observability`——`hotfix` 的顶层 `observability.enabled: false` 经合并解析为 `false`（脚本从模板顶层而非 `plugins.*` 取该键）。
+- 新顶层段 `branch` / `headless` / `end_decisions` 一并进入 effective config，随 1f 写入 task-config.json。
+- 档位与配置在内存确定；`task-config.json` 的实际写盘移到 1f（任务文件夹创建之后），此处不写文件。
 
 **6. 计算 phases.md 步骤列表（内存）：**
 按已决定的 config 在内存计算步骤列表（不写盘，实际写入在 1f）：
@@ -206,7 +231,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 
 > **P1 hook 时序**：本阶段全部文件系统写（task-config.json / phases.md / prompt.md）、P1 hook（`P1.phase-start` → `P1.phase-end`）与内联 timing（phase_start/phase_end P1 经 `hat-timing-stamp`）统一在 1f 任务文件夹创建之后运行。`hat-plugin-hook {task-folder} ...` 必须有已存在的 `{task-folder}` 才能解析，故 1b.3 与 1c/1d 阶段不调用任何 P1 hook 或 timing。
 
-### 1b.4 Debt 关联检查（轻量）
+### 1b.4 Debt Linkage Check (Lightweight)
 
 读取 `docs/debt.md`（不存在则跳过），按 **issue-id + 文件路径重叠 + 关键词** 筛出与本任务范围相关的 **open（`- [ ]`）** 条目，简要带入上下文供 Design 参考（"本任务可能顺带解决/触及这些已知债务"）。
 
@@ -231,20 +256,59 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 
 （NO_GIT 模式下跳过，直接在 CWD 下创建文件夹）
 
+从 effective config（1b.3 第 5 步）读取 `branch.mode`（`keep`/`new`，默认 `keep`）与 `branch.name`（`null` = 按任务文件夹名自动生成分支名）。
+
 <rule>
-You MUST use AskUserQuestion to ask the user before creating any branch. Never create a branch automatically.
-Reason: the user may want to stay on the current branch or choose a specific branching strategy.
+In Interactive mode you MUST use AskUserQuestion before creating any branch; never create one automatically. In quiet/unattended mode this Iron Law is lifted — resolve from `branch.mode` in the effective config without asking (default `keep` = stay on the current branch).
+Reason: an interactive user may want a specific branching strategy, but an unattended run has no one to answer, so it must resolve deterministically from config. The default `keep` lets several tasks run in the same directory and collaborate on one working tree.
 </rule>
 
-AskUserQuestion：**创建新分支** / **留在当前分支**
+**[Interactive]** AskUserQuestion：**留在当前分支（Recommended）** / **创建新分支**（推荐项对齐 config `branch.mode`，默认 keep）。
+**[Unattended / quiet]** 不询问，按 `branch.mode` 自动决定（默认 `keep` = 留在当前分支）。
 
-执行所选选项：`git checkout -b` / 留在当前分支。git plugin 关闭时跳过分支创建。
+执行所选：`keep` → 留在当前分支；`new` → `git checkout -b {branch.name 或自动生成的任务名}`。git plugin 关闭时跳过分支创建。
+
+> **worktree 隔离（`branch.worktree`）**：worktree 物理隔离与「交互模式在此追加 worktree 询问」由 Worktree Isolation 段承载（见下方 `### 1d-wt. Worktree Isolation`）。`branch.worktree` 取值已在 1b.3 第 5 步按模式解析（quiet→`true`、交互→`"ask"` 待此处询问、显式 true/false 直接生效）。
 
 > **选「创建新分支」前的分叉告警（ISSUE，非阻塞）**：创建前比对 `git merge-base HEAD main` 与 `git rev-parse main`——若 `main` 有 HEAD 未含的 commit（当前 HEAD 落后 main、新分支 base 过旧）→ **非阻塞告警**：**[Interactive]** 纯提示「当前 HEAD 落后 main，新分支将基于较旧基线，建议先 rebase/merge main」后继续（**不加停止点、不阻塞**）；**[Unattended]** 记录该告警后继续。`NO_GIT` / git plugin 关闭时跳过本检查。
 
 任务文件夹名格式：`YYYY-MM-DD-kebab-description`（10-20 字符的 kebab-case 描述）。存入内存——do NOT create directory yet.
 
 完成后：将 phases.md 中 `1d. 分支决策` 标记为 `[x]`（在内存中，因为 phases.md 还未创建）。
+
+### 1d-wt. Worktree Isolation
+
+（NO_GIT / git plugin 关闭时跳过——worktree 依赖 git。）
+
+读取 effective config `branch.worktree`（已在 1b.3 第 5 步解析：quiet 模式已定为 true/false；交互模式可能残留 `"ask"`）。
+
+**决定是否隔离：**
+
+| `branch.worktree` 值 | 处理 |
+|---|---|
+| `true` | 启用 worktree 隔离（见下方物理创建） |
+| `false` | 不隔离，留在当前工作树（按 1d 的分支决策） |
+| `"ask"`（仅交互模式残留） | **[Interactive]** AskUserQuestion 追加询问：**不隔离（Recommended，默认）** / **启用 worktree 隔离**；选不隔离→false、选启用→true。**[Unattended]** 不会到此分支（quiet 已解析为 true/false） |
+
+**启用 worktree 时的物理创建**（worktree 必挂 task 专用分支、主目录 HEAD 不动，隔离落在 worktree 内）：
+
+1. 记主仓库根与目标：`MAIN_ROOT="$(git rev-parse --show-toplevel)"`；`WT="$MAIN_ROOT/.claude/worktrees/{task-folder-name}"`；分支名 `task/{task-folder-name}`（config `branch.name` 非 null 时用之）。
+2. 基于当前 HEAD 创建并注册 worktree（不动主目录工作树/HEAD）：
+   ```bash
+   git worktree add -b "task/{task-folder-name}" "$WT" HEAD
+   ```
+3. 切入 worktree（`path` 进入已注册 worktree → session CWD 随之切换，`.tasks/` 天然隔离在 worktree 内）：
+   `EnterWorktree(path="$WT")`
+4. 将 `MAIN_ROOT` 与 `WT` 暂存内存，供 1f 写主仓库指针 stub。
+
+> **与 1d 分支决策的关系**：启用 worktree 时 task 专用分支已由本步 `git worktree add -b` 创建，**1d 不再在主目录 `git checkout -b`**（主目录 HEAD 保持不动）。`branch.mode==new` 的语义由 worktree 专用分支取代；`branch.mode==keep` 时 worktree 仍建独立 task 分支（隔离需要）——主目录始终不动。
+
+<rule>
+Creating a worktree must never move the main directory's HEAD. Use `git worktree add -b <branch> <path> HEAD` to make a new branch in a separate working tree — never `git checkout -b` in the main directory when worktree is enabled.
+Reason: the point of worktree isolation is that other tasks sharing the main directory keep working on their own branch. Moving the main HEAD would break same-directory multi-task collaboration, which is exactly what `branch.worktree:false` exists to preserve.
+</rule>
+
+完成后：将 `1d-wt. Worktree 隔离` 标记为已完成（内存）。
 
 ### 1e. Linear Context
 
@@ -266,7 +330,40 @@ echo '<json>' | hat-task-scaffold ".tasks/open/YYYY-MM-DD-topic" --linear-stdin
 
 备选方案：`mkdir -p .tasks/open/YYYY-MM-DD-topic/` + 手动写入 `linear.json`。
 
-**写入 task-config.json：** 将 1b.3 第 5 步在内存确定的档位配置写入 `{task-folder}/task-config.json`（文件夹已创建）。
+**写入 task-config.json：** 将 1b.3 第 5 步在内存确定的档位配置写入 `{task-folder}/task-config.json`（文件夹已创建）。**[Quiet]** quiet_mode=true 时，在写入的对象顶层追加 `"_source": "headless"`（标记本 config 由无头入口物化，供 task-design Step 2e 短路判定）。
+
+**[Quiet] 物化 unattended.json（仅 quiet_mode=true 的新任务）：**
+
+quiet_mode 经 Step 0 确立时，在此直接物化无人值守状态文件，使 Init 之后全程无需人工激活（不再等 Step 2A.1 询问）：
+
+```json
+{
+  "enabled": true,
+  "activate_after": "now",
+  "task_type": "self_test",
+  "telegram_chat_id": "{detected_chat_id_or_null}",
+  "triggered_at": "{ISO_timestamp}",
+  "degrade_policy": "{effective config 的 headless.degrade_policy，或 Step 0 flag 映射值；缺省 conservative}",
+  "end_decisions": {
+    "branch": "{effective config 的 end_decisions.branch，默认 keep}",
+    "claude_md": "{effective config 的 end_decisions.claude_md，默认 auto_update}"
+  }
+}
+```
+
+- `telegram_chat_id` 按 `UNATTENDED_PROTOCOL.md` §3 探测（无则 null，通知静默降级）。
+- `task_type` 缺省 `self_test`（无头自测推进到 task-end）；若 flag/config 指明需用户测试则 `user_test`。
+- 写入后本阶段后续停顿点即按无人值守自动决策。`unattended.json` 已存在（恢复场景）则不覆盖。
+- **非 quiet 模式**：不写 unattended.json（保持原交互流程，激活时机由 Step 2A.1 / task-design Activation Timing 询问）。
+
+**[Worktree] 写主仓库指针 stub（仅 1d-wt 启用 worktree 时）：** 此刻 CWD 已在 worktree 内，task 文件写在 worktree 的 `.tasks/open/{task-folder}/`（天然隔离）。为支持跨 session 从主仓库恢复，在**主仓库**留一个 stub 指针（经绝对路径 `$MAIN_ROOT`，不受 CWD 切换影响）：
+
+```bash
+mkdir -p "$MAIN_ROOT/.tasks/open/{task-folder-name}"
+printf '%s\n' "$WT" > "$MAIN_ROOT/.tasks/open/{task-folder-name}/.worktree"
+```
+
+主仓库 stub 仅含 `.worktree` 指针（`hat-task-detect` 读出 `worktree` 字段，编排器据此回切，见 task/SKILL.md Step 2B）；真实任务文件全在 worktree 内。
 
 **写入 session.json：** 写 `{task-folder}/session.json` = `{"sessions": ["$CLAUDE_CODE_SESSION_ID"]}`（数组形态，schema 见下），用于精确定位本任务的会话导出（修复 dogfooding 分析「抓最新 jsonl」导致的串任务）。`CLAUDE_CODE_SESSION_ID` 环境变量缺失时跳过写入（graceful）——此时 `/dogfooding` / 导出将回退到名匹配并标注「会话来源未经确认」。
 
@@ -390,14 +487,17 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 | 1b.3 | 档位推荐 | 确认 preset 和裁剪建议 | 按推荐自动选择 |
 | 1c | Git 规范不存在 | 定义方式选择 | 自动使用 Conventional Commits |
 | 1f（P1.phase-start hook） | 发现 dirty 文件 | 处理方式（stash/commit/继续） | 忽略继续 |
-| 1d | 分支决策 | 必须询问 | 留在当前分支 |
+| 1d | 分支决策 | 必须询问（Interactive） | 按 `branch.mode` 自动决定（默认 keep = 留在当前分支） |
+| 1d-wt | worktree 隔离（`branch.worktree=="ask"`） | 追加询问是否启用（默认否） | 按解析值自动（quiet 缺省 true；显式 true/false 直接生效） |
 | 1e | 有 Linear 配置 | 是否创建 issue | 自动创建；失败则跳过 |
 | 1f | Linear issue 创建失败 | 重试 / 跳过 | 自动跳过 |
 | post-1f | 任务文件夹已创建 | 提示执行 `/rename <task-folder-name>` 对齐 session 名 | **[Unattended] 自动跳过，不执行 /rename** |
 
 ## Dependencies
 
-- **Scripts**: hat-task-detect, hat-task-scaffold, hat-git-conventions, hat-plugin-hook, hat-timing-stamp
-- **Writes**: `{task-folder}/phases.md`, `{task-folder}/prompt.md`, `{task-folder}/linear.json`, `{task-folder}/task-config.json`, `{task-folder}/session.json`
+- **Scripts**: hat-task-detect, hat-task-scaffold, hat-git-conventions, hat-plugin-hook, hat-timing-stamp, hat-task-config-resolve（三层配置合并）
+- **Writes**: `{task-folder}/phases.md`, `{task-folder}/prompt.md`, `{task-folder}/linear.json`, `{task-folder}/task-config.json`, `{task-folder}/session.json`, `{task-folder}/unattended.json`（仅 quiet_mode 物化）
+- **Reads（三层配置）**: `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json`（①默认模板）, `~/.claude/task-defaults.local.json`（②全局用户 local，可选）, `{project-root}/task-defaults.json`（③项目本地，可选）
+- **Worktree（仅 1d-wt 启用时）**: `git worktree add -b task/<folder> <path> HEAD`（创建专用分支隔离工作树，主目录 HEAD 不动）+ 内置 `EnterWorktree(path=...)` 切入；主仓库写 stub 指针 `$MAIN_ROOT/.tasks/open/<folder>/.worktree`
 - **Hooks**（均在 1f 任务文件夹创建之后运行，依次）: `P1.phase-start`（git: dirty check + 处理[Interactive stash/commit/继续 · Unattended 忽略继续] + 规范确认）→ `P1.phase-end`（linear: issue setup）
 - **Core timing**（内联，非 hook）: phase_start P1（1f 文件夹创建后、P1.phase-start hook 之前）/ phase_end P1（1f 完成后、P1.phase-end hook 之前）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
