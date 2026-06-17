@@ -2,6 +2,9 @@
   "_schema_version": "2.0",
   "_comment": "任务流程全局默认配置。顶层 plugins 定义全局默认值，presets 定义档位覆盖，overrides 用于用户自定义覆盖。",
   "preset": "standard",
+  "telegram_chat_id": null,
+  "_telegram_chat_id_note": "无人值守 Telegram 通知目标的 chat_id（字符串或数字）。**默认 null = 不开启通知**。在 personal local 配置（~/.claude/task-defaults.local.json）覆盖，不要在分发版仓库里填具体值——hat-flow pipeline 会把本文件打包到公开仓库。",
+  "_telegram_chat_id_setup": "获取方式：运行 /telegram:configure 完成 Telegram companion 插件配对（access.json dmPolicy=allowlist + allowFrom 含本人）；或运行 task-setup Step 2 让向导写入 ~/.claude/task-defaults.local.json。探测优先级见 UNATTENDED_PROTOCOL.md §3。",
   "branch": {
     "mode": "keep",
     "_mode_values": "keep | new",
@@ -31,7 +34,10 @@
     "branch": "keep",
     "_branch_values": "keep | auto_merge",
     "claude_md": "auto_update",
-    "_claude_md_values": "auto_update | skip"
+    "_claude_md_values": "auto_update | skip",
+    "squash": true,
+    "_squash_values": "true | false",
+    "_squash_note": "End 收尾时把本任务的提交压缩为单个 commit：① 分支→main 合并（worktree teardown / git plugin Merge locally）用 git merge --squash；② 任务直接在 main 上工作时，把本任务从 base_ref 到 HEAD 的连续提交压缩（仅当该区间未被其它任务/需求的提交打断、且未推送时才压；否则保守跳过、不改写历史）。三层配置 / flag 可设 false 关闭。"
   },
   "execution": {
     "mode": "inline",

@@ -351,6 +351,8 @@ Reason: each phase SKILL.md carries the hook calls (observability/review/git/lin
    - **FAIL** → 尝试 fallback 补齐缺失文件（主 agent 按 task-config 与 design.md 补齐）。补齐后重跑检查。
    - 仍 FAIL → 阻断推进，告知用户缺失的文件列表
    - **Timing 检查**：脚本校验 timing.jsonl 含 `P{N}` 的 `phase_end`——缺 `phase_end` 为**非阻断警告**（WS-D，不挡推进），缺 `phase_start` 为**硬 FAIL**；observability 关闭时 timing 检查整体 no-op（fail-open）
+
+   > **Timing 语义**：`hat-task-artifact-check` 区分两类——缺 `phase_start` 为**硬 FAIL**（计入 MISSING，阻断推进）；缺 `phase_end` 为**软警告**（不计入 MISSING，仅输出 ⚠️，不阻断）。`observability.enabled = false` 时 timing 整体 fail-open（no-op）。
 2. **Compact 建议**（仅 Plan 完成后、且 Interactive 模式触发）：
    - **前置门（最先判断）**：读取 `{task-folder}/unattended.json`。若 `enabled == true`（已是无人值守），**或** `enabled == false` 且 `activate_after` 匹配当前过渡点（本过渡点步骤 3 即将激活无人值守）→ **完全跳过本步，不输出任何 `/compact` 块**，直接进入步骤 3。这是前置条件判断，不是"先输出再说跳过"。
    - **触发条件**（仅 Interactive）：刚完成的阶段是 Plan

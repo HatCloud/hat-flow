@@ -2,6 +2,13 @@
 
 > 最新在最上。
 
+## 2026-06-17 End 提交压缩 squash（end_decisions.squash）
+
+- 新增 `end_decisions.squash`（task-defaults.json + .example，缺省 true；三层/flag 可关）。
+- **场景①分支→main 合并 squash**：core 3.4.4 worktree teardown 的 `auto_merge` 与 git plugin P6.post-archive「Merge locally」均按 squash 开关用 `git merge --squash`（+ `branch -D`）/ 原 `--no-ff`。
+- **场景② main 连续提交段 squash**：git plugin P6.post-archive 新增 1.5 步——已在 main 时把 `base_ref..HEAD` 用 `git reset --soft` 压成单 commit，**守卫全过才执行**（base 是祖先 / N≥2 / 无 merge / 全未推送 / 仅本 open task），任一不过保守跳过 + final.md 记因；`<rule>` 禁止存疑时改写历史。base_ref 由 git plugin P1.phase-start 记录到 `{task-folder}/.git-base-ref`。
+- 命令序列已在 scratch repo 验证（merge --squash → base+1；reset --soft → 3 提交合 1、文件全留）。
+
 ## 2026-06-17 Step 1.5 债务对账 A3 留痕 (M3)
 
 - Step 1.5 [Unattended] 债务对账按 `degrade_policy`：conservative/headless 额外把自动关闭动作 + 低置信疑似项汇总写 unattended-decisions.md `## Headless Degraded Decisions` + final.md P6 引用；standard/缺省维持原行为。见 UNATTENDED_PROTOCOL §9 A3。

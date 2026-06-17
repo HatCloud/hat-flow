@@ -368,7 +368,7 @@ degrade to a `★` warning line in the session log).
 hits a notification moment (phase transition, key auto-decision, validation
 failure, task complete). No MCP plugin required for sending — the companion
 `telegram@claude-plugins-official` plugin is used only for **access control**
-(`access.json`) and pairing.
+and pairing.
 
 **Setup (one-time, three steps):**
 
@@ -385,11 +385,10 @@ failure, task complete). No MCP plugin required for sending — the companion
    keeps your identifier out of the distribution):
    ```bash
    mkdir -p ~/.claude
-   echo "{\"telegram_chat_id\": \"<your chat id>\"}" > ~/.claude/task-defaults.local.json
+   echo '{"telegram_chat_id": "<your chat id>"}' > ~/.claude/task-defaults.local.json
    chmod 600 ~/.claude/task-defaults.local.json
    ```
-   Find your `chat_id` from `~/.claude/channels/telegram/access.json`
-   (`allowFrom[0]`) or by sending any message to your bot and reading
+   Find your `chat_id` by sending any message to your bot and reading
    `https://api.telegram.org/bot<token>/getUpdates`.
 
 **Where the value comes from** (resolution order — first hit wins):
@@ -397,13 +396,13 @@ failure, task complete). No MCP plugin required for sending — the companion
 1. The current session was started **from Telegram** (`<channel source="telegram">`) — `chat_id` is read from the inbound message.
 2. Your personal local config — `~/.claude/task-defaults.local.json` → `telegram_chat_id`. **Recommended for CLI sessions.**
 3. The shared task-defaults (`${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` or project-local `<project>/task-defaults.json`). **Not recommended** — the shipped default is `null` (opt-out) and committing a real chat_id leaks your identifier.
-4. None of the above — `telegram_chat_id = null`, all Telegram notifications skip with `★ Telegram 通知降级：chat_id 未配置 — ...`. Workflow continues unaffected.
+4. None of the above — `telegram_chat_id = null`, all Telegram notifications skip with a `★` warning line. Workflow continues unaffected.
 
 **Security note** — your `chat_id` and bot token are personal identifiers. The
 shipped `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` deliberately
 holds `null` for `telegram_chat_id`; do **not** commit a real value to any
 file inside the plugin repo. Always use the personal local config or the
-plugin's own `~/.claude/channels/telegram/.env` for secrets.
+companion plugin's own `.env` for secrets.
 
 ## Attribution
 

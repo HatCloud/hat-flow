@@ -471,11 +471,11 @@ worktree 由 core config `branch.worktree` 门控、用内置工具创建（task
    rm -rf "$MAIN_ROOT/.tasks/open/{folder}"   # 清除主仓库 stub 指针
    ```
 2. **退出 worktree 回主目录**：`ExitWorktree(action="keep")`（path 进入的 worktree，keep 仅返回原目录、不删；删除由下方按 end_decisions 决定）。CWD 现在主仓库。
-3. **按 `end_decisions.branch` 处理**：
+3. **按 `end_decisions.branch` 处理**（读 `end_decisions.squash`，缺省 `true`）：
 
    | 值 | 动作 |
    |---|---|
-   | `auto_merge` | 主目录 `git merge --no-ff "$BR" -m "merge: {folder} (worktree)"`；成功 → `git worktree remove "$WT"` + `git branch -d "$BR"`。merge 冲突 → **不强merge**：保留 worktree + 分支，登记 `docs/unmerged-branches.md`，**[Unattended]** Telegram 通知冲突需人工。 |
+   | `auto_merge` | 主目录合并 task 分支：`squash==true`（缺省）→ `git merge --squash "$BR" && git commit -m "{conventional msg} [{folder}]"`（worktree 内全部改动压成单 commit）；`squash==false` → `git merge --no-ff "$BR" -m "merge: {folder} (worktree)"`。成功 → `git worktree remove "$WT"` + `git branch -D "$BR"`（squash 后用 `-D`；no-ff 可 `-d`）。merge 冲突 → **不强 merge**：保留 worktree + 分支，登记 `docs/unmerged-branches.md`，**[Unattended]** Telegram 通知冲突需人工。 |
    | `keep`（缺省） | 不 merge、不删 worktree/分支；登记 `docs/unmerged-branches.md`（分支名 + worktree 路径），留待人工 |
 
    **PR / Discard**：worktree 任务**永不自动** PR/Discard——一律按 `keep` 保留 worktree，登记待人工（与 §6 一致）。
@@ -524,7 +524,7 @@ P6 phase_end 已前移到 Step 3.3.4（权威规则见该步），此处无写�
 
 ## Dependencies
 
-- **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/task-config.json`, `{task-folder}/unattended.json`（`end_decisions.branch` 驱动 worktree merge-back）
+- **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/task-config.json`, `{task-folder}/unattended.json`（`end_decisions.branch`/`end_decisions.squash` 驱动 worktree merge-back 与 squash）, `{task-folder}/.git-base-ref`（git plugin 在 P1 记录，main 连续提交 squash 用）
 - **Writes**: `{task-folder}/final.md`, `{task-folder}/phases.md`, `{task-folder}/conversation.md`, `{task-folder}/consumption-report.md`, `docs/unmerged-branches.md`（worktree keep / 冲突时登记）
 - **Worktree teardown（核心，仅 worktree 任务，Step 3.4.4）**: 内置 `ExitWorktree(action="keep")` + `git merge --no-ff` / `git worktree remove` / `git branch -d`；物理 `cp -R` 归档文件夹回主仓库、`rm -rf` 主仓库 stub
 - **Hooks**: `P6.pre-archive`（git + linear）, `P6.post-archive`（git + retrospective）

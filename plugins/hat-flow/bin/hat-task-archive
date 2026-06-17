@@ -32,6 +32,7 @@ Exit codes:
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,42 @@ def git(*args):
         ["git"] + list(args), capture_output=True, text=True, timeout=120,
     )
     return result
+
+
+def rewrite_task_self_refs(dest_dir, task_folder_name):
+    """Replace absolute self-references in task docs with 任务文档/ placeholder.
+    Returns (success_count, warn_count, fail_count).
+    """
+    patterns = [
+        rf'[^\s"\'`\[\(]*?/worktrees/{re.escape(task_folder_name)}/',
+        rf'[^\s"\'`\[\(]*?/\.tasks/[^/]+/{re.escape(task_folder_name)}/',
+    ]
+    combined = re.compile('|'.join(f'({p})' for p in patterns))
+    success, warn, fail = 0, 0, 0
+
+    for root, dirs, files in os.walk(dest_dir):
+        for fname in files:
+            if not fname.endswith('.md'):
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                new_content = combined.sub('任务文档/', content)
+                if new_content != content:
+                    try:
+                        with open(fpath, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                        success += 1
+                        print(f'[path-rewrite] {os.path.relpath(fpath, dest_dir)}', file=sys.stderr)
+                    except Exception as write_err:
+                        fail += 1
+                        print(f'[path-rewrite-FAIL] {os.path.relpath(fpath, dest_dir)}: {write_err}', file=sys.stderr)
+            except Exception as read_err:
+                warn += 1
+                print(f'[path-rewrite-warn] {fname}: {read_err}', file=sys.stderr)
+
+    return success, warn, fail
 
 
 def die(msg):
@@ -123,6 +160,11 @@ def main():
 
     os.makedirs(dest_dir, exist_ok=True)   # 确保目标父目录存在
     shutil.move(src, dest)                 # 移动整个任务文件夹
+
+    # 归档后将任务文档中的绝对自引用路径替换为 任务文档/ 占位符
+    _success, _warn, rewrite_fail = rewrite_task_self_refs(dest, os.path.basename(dest))
+    if rewrite_fail > 0:
+        print(f'[path-rewrite] {rewrite_fail} file(s) FAILED to rewrite — absolute paths may remain in archived docs', file=sys.stderr)
 
     # ---- 5. Git 操作: 暂存 + 提交 ----
 

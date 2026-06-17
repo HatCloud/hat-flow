@@ -77,11 +77,17 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 
 > Telegram 通知是**可选**能力：需用户自行安装 companion 插件 `telegram@claude-plugins-official` 并完成配对（引导见 task-setup）。未安装 / 未配置时所有 Telegram 通知静默降级（打印一行告警、不阻断流程），无人值守流程照常推进。
 
+<rule>
+`chat_id` 和 bot token 都是**用户个人信息**——任何 hardcode 进 `${CLAUDE_PLUGIN_ROOT}/skills/task/` 仓库的源文件都会污染 hat-flow 分发版。配置必须落在仓库外（personal local config 或 plugin 自己的 `.env`）。
+Reason: the hat-flow pipeline (`hat-task-package`) reads `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` to bake the public distribution. Any chat_id/bot_token in that file ships to every downstream user and leaks the author's private identifiers.
+</rule>
+
 优先级顺序（取第一个成功的）：
 
-1. **Telegram session 上下文**：若当前对话有来自 `<channel source="telegram" ...>` 的消息，从最近一条消息中读取 `chat_id`
-2. **setup 配置**：若用户在 task-setup 中配置了通知目标，从项目配置 / `task-defaults.json` 的 `telegram_chat_id` 字段读取
-3. **无可用 chat_id**：将 `telegram_chat_id` 设为 null，跳过所有 Telegram 通知（不报错）
+1. **Telegram session 上下文**：若当前对话有来自 `<channel source="telegram" ...>` 的消息，从最近一条消息中读取 `chat_id`。适用：从 Telegram 直接启动的会话。
+2. **个人 local 配置（推荐）**：`~/.claude/task-defaults.local.json` 的 `telegram_chat_id` 字段。**不入仓库**——hat-flow 用户的 personal override 路径，适合非 Telegram 启动的常规 CLI 会话。task-setup Step 2 引导写入。
+3. **全局 / 项目配置**：顶层 `task-defaults.json` 的 `telegram_chat_id` 字段（位于 `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 或 hat-flow 用户的项目本地 `task-defaults.json`）。**慎用**——分发版场景下要么污染共享文件，要么需每用户单独覆盖。
+4. **无可用 chat_id**：将 `telegram_chat_id` 设为 null，跳过所有 Telegram 通知（不报错）。
 
 ---
 
@@ -93,9 +99,33 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 [{task-folder-name}] {message}
 ```
 
-**工具**：由 companion 插件 `telegram@claude-plugins-official` 提供的 reply 工具，传入 `telegram_chat_id`。工具全名随插件版本/命名约定而异（实测候选 `mcp__plugin_telegram_telegram__reply`，亦可能为 `mcp__telegram__reply`）——调用应 **name-agnostic**：插件未装 / 工具不可用一律走下方降级，不把工具全名当硬契约。
+**发送机制**：直接调 Telegram Bot API（`curl`），不依赖 MCP reply tool。broadcast 通知无入站 message 可 reply，MCP `reply` 工具的设计契约不匹配。
 
-**若 chat_id 为 null（或 Telegram 插件未安装、MCP 不可用、发送失败）**：跳过发送、不阻断流程，但须在 session 输出中打印一行可见降级告警（如 `[notify] Telegram 降级跳过：chat_id 不可用 — 本应通知「{message}」`），便于 session 内用户/事后回看时察觉漏发的通知，而非纯静默
+```bash
+curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+  --data-urlencode "text=[{task-name}] ${message}" \
+  -o /dev/null -w "%{http_code}" > /tmp/tg-status 2>&1 || echo "tg-curl-fail"
+```
+
+**Token 来源**：
+- `$TELEGRAM_BOT_TOKEN` 由 `telegram@claude-plugins-official` 的 `.env` 提供（位于 plugin 安装目录下）；plugin 进程在跑时已 source 进环境。
+- 独立场景：任何能调 `api.telegram.org` 的 bot token 都可——通知链路与 MCP plugin 完全解耦，plugin 仅承担 access control / access.json 配对。
+
+<rule>
+Use the Bot API directly, not the `mcp__plugin_telegram_telegram__reply` tool, for unattended notifications.
+Reason: `reply` requires a `message_id` to reply to (it's designed for the inbound-message flow where a Telegram user DMs the bot and the assistant replies). Unattended notifications are outbound broadcasts — there is no inbound message to reply to. Forcing the reply tool here either fails silently or invents a fake message_id, neither of which is honest.
+</rule>
+
+**降级（任一缺失/失败都跳、不阻断）**：
+
+| 缺失/失败项 | 跳过的通知 | 告警行 |
+|---|---|---|
+| `TELEGRAM_CHAT_ID` 为 null | 全部 | `★ Telegram 通知降级：chat_id 未配置 — 编辑 ~/.claude/task-defaults.local.json 加 telegram_chat_id=<id>，或运行 /telegram:configure 配对。` |
+| `TELEGRAM_BOT_TOKEN` 为空 | 全部 | `★ Telegram 通知降级：bot token 缺失 — 安装 telegram@claude-plugins-official 并 /telegram:configure <token>。` |
+| curl 退出非 0 / HTTP 非 2xx | 当次 | `★ Telegram 通知失败：HTTP=<code> 或 curl error — 本应通知「{message}」。` |
+
+降级告警统一前缀 `★`（比 `[notify]` 更显眼，session 内不易被淹没、事后回看 grep 一搜即得），且每条告警都给出**具体配置入口**而非笼统"chat_id 不可用"——便于用户立即知道在哪改。
 
 **标准通知时机**：
 
@@ -155,6 +185,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 4. 若选择 **自测任务**：追加 End 阶段决策收集（AskUserQuestion）：
    - **分支处理**：`"auto_merge"` / `"keep"`
    - **CLAUDE.md 更新**：`"auto_update"` / `"skip"`
+   - **squash**：`true` / `false`（缺省 `true`，取 effective config `end_decisions.squash`；通常沿用默认不单独询问）
 5. 写入文件（`enabled` 不再硬编码为 `true`——按 `activate_after` 决定：`now` → `true`，`design`/`plan` → `false`）：
    ```json
    {
@@ -241,6 +272,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 | CLAUDE.md 更新           | 读 `end_decisions.claude_md`                                                                                                                            |
 | 分支处理 keep（ISSUE） | 追加 `docs/unmerged-branches.md` 登记（不提示）                                                                                                         |
 | 分支处理（4 选项菜单）   | 读 `end_decisions.branch` 映射：`auto_merge`→Merge locally / `keep`→Keep as-is；**`PR` / `Discard` 永不自动触发（跳过）**；字段缺失或非法值 → 默认 keep |
+| 提交压缩 squash          | 读 `end_decisions.squash`（缺省 true）：`auto_merge` 合并用 `merge --squash`；main 连续提交段在守卫全通过时 `reset --soft` 压缩，任一守卫不过则保守跳过（见 git plugin P6.post-archive 1.5 + `<rule>`） |
 
 #### task-cancel
 

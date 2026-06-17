@@ -153,6 +153,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 | **外部依赖** | 是否需要外部资源？ | 依赖 API Key、外部服务、特定硬件 |
 | **歧义度** | 是否有多种合理理解？ | "适当处理"、"合理的"等模糊用语 |
 | **范围界定** | 边界是否清晰？ | "相关功能也要改"等开放式范围 |
+| **模型能力** | 任务是否包含调研/报告子任务且将由较弱模型生成？ | 有 report/research/调研 子任务（Design 阶段再规划事实核查步骤） |
 
 **输出格式（内联在结构化确认之后）：**
 
@@ -168,6 +169,9 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 ```
 
 如果出现 2+ 个 ❌，向用户建议重新描述需求后再继续。
+
+**模型能力维度 ⚠️ 触发规则**：若"模型能力"维度评为 ⚠️，在输出的"Suggestions"段加入：
+> Design 阶段在 Acceptance Tests 中加入"报告核心事实核查"项：手动核对报告中的关键数值、引用代码路径与实际代码/配置的一致性，执行阶段由实现者对照代码验证。此为人工提示，不自动执行。
 
 **注意：** 此分析基于 prompt 本身，不引入环境限制（如"能否在 Linux 运行"）。环境问题在 Phase 2 探索阶段处理。
 
@@ -346,7 +350,8 @@ quiet_mode 经 Step 0 确立时，在此直接物化无人值守状态文件，�
   "degrade_policy": "{effective config 的 headless.degrade_policy，或 Step 0 flag 映射值；缺省 conservative}",
   "end_decisions": {
     "branch": "{effective config 的 end_decisions.branch，默认 keep}",
-    "claude_md": "{effective config 的 end_decisions.claude_md，默认 auto_update}"
+    "claude_md": "{effective config 的 end_decisions.claude_md，默认 auto_update}",
+    "squash": "{effective config 的 end_decisions.squash，默认 true}"
   }
 }
 ```

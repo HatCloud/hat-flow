@@ -2,6 +2,8 @@
   "_schema_version": "2.0",
   "_comment": "任务流程全局默认配置。复制为 task-defaults.json 后生效，该文件不进 git。顶层 plugins 定义全局默认值，presets 定义档位覆盖，overrides 用于用户自定义覆盖。",
   "preset": "standard",
+  "telegram_chat_id": null,
+  "_telegram_chat_id_note": "无人值守 Telegram 通知目标的 chat_id。默认 null = 不开启通知。在 personal local 配置覆盖（~/.claude/task-defaults.local.json），不要在本仓库里填具体值。详见 UNATTENDED_PROTOCOL.md §3。",
   "branch": {
     "mode": "keep",
     "_mode_values": "keep | new",
@@ -20,7 +22,9 @@
   },
   "end_decisions": {
     "branch": "keep",
-    "claude_md": "auto_update"
+    "claude_md": "auto_update",
+    "squash": true,
+    "_squash_note": "End 收尾把本任务提交压缩为单 commit（分支→main 用 merge --squash；main 连续提交段在未被打断且未推送时压缩，否则保守跳过）。可设 false 关闭。"
   },
   "execution": {
     "mode": "inline",

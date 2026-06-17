@@ -328,8 +328,49 @@ JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
 
 - **Linear**——设置 `linear_api_key` 用户配置；`@hatcloud/linear-mcp` 经 `npx`
   拉起。未提供 key 时 Linear 插件自动关闭。
-- **Telegram**（无人值守模式通知）——安装配套的
-  `telegram@claude-plugins-official` 插件并运行 `/telegram:configure`。
+
+### 可选：Telegram 任务通知（无人值守模式）
+
+无人值守运行可将进度、决策、停机点通知广播到一个 Telegram 聊天——可选
+能力，不配置直接跳过即可（通知降级为会话日志中一行 `★` 告警）。
+
+**是什么**——无人值守任务在通知时刻（phase 过渡、关键自动决策、验证失败、
+任务完成）会直接调用 Telegram Bot API（`https://api.telegram.org/bot<token>/sendMessage`）。
+发送链路不依赖 MCP 插件；配套的 `telegram@claude-plugins-official` 插件**仅**承担
+**access control** 与配对。
+
+**一次配置，三步走：**
+
+1. 安装配套插件：
+   ```
+   /plugin install telegram@claude-plugins-official
+   ```
+2. 配对 bot 与你的 Telegram 账号并锁定到本人：
+   ```
+   /telegram:configure <your-bot-token-from-BotFather>
+   /telegram:access policy allowlist   # 配对完成后——丢弃配对码
+   ```
+3. 将 `chat_id` 落到 **personal local config**（不要写到仓库文件——会
+   把你的标识泄到分发版）：
+   ```bash
+   mkdir -p ~/.claude
+   echo '{"telegram_chat_id": "<your chat id>"}' > ~/.claude/task-defaults.local.json
+   chmod 600 ~/.claude/task-defaults.local.json
+   ```
+   找 `chat_id` 的方法：给 bot 发任意一条消息，再读
+   `https://api.telegram.org/bot<token>/getUpdates`。
+
+**取值顺序**（命中即停）：
+
+1. 当前会话**从 Telegram 启动**（`<channel source="telegram">`）——从入站消息读 `chat_id`。
+2. 个人 local 配置——`~/.claude/task-defaults.local.json` → `telegram_chat_id`。**CLI 会话推荐。**
+3. 共享 task-defaults（`${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 或项目本地 `<project>/task-defaults.json`）。**不推荐**——默认 `null`（opt-out），commit 真实 `chat_id` 会泄你的标识。
+4. 都不命中——`telegram_chat_id = null`，所有 Telegram 通知跳过，打印 `★` 告警行。流程不受影响。
+
+**隐私提示**——`chat_id` 与 bot token 都是个人标识。发布的
+`${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 默认 `telegram_chat_id: null`；
+**不要**把真实值 commit 到插件仓库任何文件里。secret 一律走 personal local
+config 或配套插件自己的 `.env`。
 
 ## 致谢
 

@@ -103,7 +103,7 @@ check_timing() {
 
   if ! has_timing_event "$timing" "phase_start" "$pkey"; then
     echo "❌ timing trace: no phase_start for $pkey (phase hook not executed?)"
-    (( MISSING++ )) || true
+    (( MISSING++ )) || true  # HARD FAIL — blocks gate
     return 0
   fi
 
@@ -131,8 +131,10 @@ check_timing() {
     # up as a missing phase_start, which IS blocked above. Blocking here would falsely
     # deadlock the archive of any task with a skipped mid-flow phase-end hook.
     echo "⚠️  timing trace: $pkey has phase_start but no phase_end (a later phase started) — phase-end hook may have been skipped; warning only, not blocking"
+    # SOFT WARNING — not counted in MISSING
   else
     echo "✅ timing trace: $pkey in progress (phase_start present, phase_end not yet expected)"
+    # NOT AN ERROR (in-progress)
   fi
 }
 

@@ -102,8 +102,26 @@ Linear 集成依赖 `@hatcloud/linear-mcp`（通过 `npx` 自动安装，无需�
 2. 若需要，提示用户：
    - 安装 companion 插件：`/plugin install telegram@claude-plugins-official`
    - 完成配对与策略配置：`/telegram:configure`（或 `/telegram:access`）
-   - 配对后，无人值守通知会自动从 Telegram session 上下文获取 chat_id。
-3. 不需要 → 跳过；无人值守仍可用（self_test 类型全自动推进，不依赖通知）。
+3. 配对完成后，**chat_id 落入 personal local 配置**——这样从 CLI 启动（非 Telegram）的会话也能发通知：
+
+   ```bash
+   # 1) 从 access.json 读出 allowFrom 里的 chat_id（一般是配对人本人）
+   CHAT_ID=$(python3 -c "import json; d=json.load(open('$HOME/.claude/channels/telegram/access.json')); print(d['allowFrom'][0])")
+
+   # 2) 创建或合并 ~/.claude/task-defaults.local.json
+   mkdir -p ~/.claude
+   if [ -f ~/.claude/task-defaults.local.json ]; then
+     python3 -c "import json; p='$HOME/.claude/task-defaults.local.json'; d=json.load(open(p)); d.setdefault('telegram_chat_id','$CHAT_ID'); json.dump(d, open(p,'w'), indent=2, ensure_ascii=False)"
+   else
+     echo "{\"telegram_chat_id\": \"$CHAT_ID\"}" > ~/.claude/task-defaults.local.json
+   fi
+   chmod 600 ~/.claude/task-defaults.local.json
+   ```
+
+   **为什么必须写到 local 配置**：探测优先级见 UNATTENDED_PROTOCOL.md §3。CLI 启动的会话**没有** Telegram session 上下文，chat_id 只能来自 personal local 配置；写进任何仓库内文件都会污染 hat-flow 分发版。
+
+4. 验证：跑一次 `cat ~/.claude/task-defaults.local.json`，确认含 `"telegram_chat_id": "<id>"`。
+5. 不需要 → 跳过；无人值守仍可用（self_test 类型全自动推进，不依赖通知）。
 
 ---
 

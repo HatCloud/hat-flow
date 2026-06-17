@@ -4,6 +4,11 @@
 
 ---
 
+## 2026-06-17 1f 物化 end_decisions.squash + git plugin 记 base_ref
+
+- 1f headless unattended.json 的 end_decisions 增 `squash`（缺省 true）。
+- git plugin P1.phase-start 新增：把任务起始 HEAD 记到 `{task-folder}/.git-base-ref`，供 End 阶段 main 连续提交段 squash 定位起点。
+
 ## 2026-06-17 1d-wt Worktree 物理隔离创建 (M2)
 
 - 新增 `1d-wt. Worktree Isolation`：读 `branch.worktree`（true/false/"ask"），交互模式 "ask" 追加询问；启用时 `git worktree add -b task/<folder> <path> HEAD`（主目录 HEAD 不动）+ 内置 `EnterWorktree(path=)` 切入；`<rule>` 禁止主目录 `git checkout -b`。

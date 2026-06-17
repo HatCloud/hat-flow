@@ -229,6 +229,20 @@ Reason: the user's stated workflow is "finish Design/Plan, then leave and let Ex
 
 ---
 
+### 10. 任务文档路径引用约束
+
+任务文档内引用**当前任务**的其他文件时，必须使用 `任务文档/<relative_path>` 占位符。
+
+- **禁止写入绝对路径**（worktree 路径、`.tasks/open/` 路径等），即使当下路径有效
+- **例外**：`docs/` 目录下的文档遵循原有路径写法（相对路径或直接文件名），不受占位符约束
+- 完整规范见 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/path-placeholder.md`
+
+**Checklist**（任务文档编写处）：
+- [ ] 自引用路径已使用 `任务文档/X` 形式，无绝对路径？
+- [ ] 是否 `docs/` 目录下文档（豁免）？
+
+---
+
 ## Compliance Checklist
 
 在 spec-skill 的通用 Checklist 基础上，task skill 额外检查：
