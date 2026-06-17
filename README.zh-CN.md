@@ -74,6 +74,55 @@
    claude -p '/task -q <任务或 issue-id>'
 ```
 
+## 升级
+
+插件**无自动升级**——必须手动触发，且需重启 Claude Code 后新版本才会生效。
+
+### 手动升级
+
+终端里执行：
+
+```text
+/plugin update hat-flow
+```
+
+然后**重启 Claude Code**（插件在启动时加载，重启前新版本不生效）。
+
+重启后**验证新版本生效**：
+
+- `/plugin` → 查看 `hat-flow` 行显示的版本号
+- 或：`cat ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json | grep version`
+
+**`/plugin update` 失败**时（网络 / 缓存问题），重装 marketplace 条目：
+
+```text
+/plugin marketplace remove hat-flow
+/plugin marketplace add https://github.com/HatCloud/hat-flow.git
+/plugin install hat-flow@hat-flow
+```
+
+### AI 升级 prompt（让 Claude Code 帮你升）
+
+把下面这段贴进 Claude Code 会话：
+
+```text
+帮我升级 hat-flow 插件。
+
+1. 执行 `/plugin update hat-flow`。若网络 / 缓存报错：
+   - `/plugin marketplace remove hat-flow`
+   - `/plugin marketplace add https://github.com/HatCloud/hat-flow.git`
+   - `/plugin install hat-flow@hat-flow`
+2. 提示我重启 Claude Code（新版本仅在重启后加载）。
+3. 重启后验证新版本已生效：
+   - 跑 `/plugin` 看 hat-flow 行的版本号
+   - 或：`cat ${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json | grep version`
+   若版本号未变，立刻停下来告诉我——哪里出问题了。
+4. 若我有本地 task-defaults.json（`~/.claude/task-defaults.local.json`
+   或 `<project>/task-defaults.json`），对照新版本 schema
+   `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 做 diff。标出任何
+   已删除或语义变更的键——但**未经我确认不要改我的文件**。
+```
+
 ## 快速开始
 
 1. `/task-setup`——首次一次性配置（依赖预检、Linear、插件、语言）。
@@ -122,6 +171,146 @@ claude -p '/task -q <任务描述或 issue-id>'
 
 > 把决策前置到 Design/Plan；一旦进入 Execute 就放手不管。项目本地配置写
 > `branch.worktree:false` 可让某个仓库退出 worktree 隔离（回到共享一个工作树）。
+
+## Task 参数（参考手册）
+
+任务行为由**命令行 flag + 三层配置文件 + 运行模式语义**共同决定。本节列出
+所有可调参数、各模式下的默认值，以及 flag 解析规则。
+
+### 命令行 flag
+
+`/task` 编排器在 Step 0（先于任何 phase）解析 `$ARGUMENTS`。flag 覆盖是稀疏
+JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
+
+| Flag | 映射到 | 效果 |
+|------|--------|------|
+| `-q` / `--quiet` | （mode flag） | 开启 Quiet 模式 + `degrade_policy → conservative` |
+| `--headless` | （mode flag） | 开启 Headless 模式 + `degrade_policy → headless`（M1 暂按 conservative 行为执行） |
+| `--worktree on\|off\|ask` | `branch.worktree` | 显式控制 worktree 隔离 |
+| `--no-worktree` | `branch.worktree = false` | `--worktree off` 简写 |
+| `--branch keep\|new` | `branch.mode` | 显式控制分支策略 |
+| `--preset <name>` | 顶层 `preset` | 覆盖默认档位（`full` / `standard` / `lite` / `hotfix`） |
+| 首个位置参数匹配 preset 名 | 顶层 `preset` | tier 关键词快捷方式 |
+
+### 配置参考（`task-defaults.json`）
+
+> **图例：** `"ask"` 是哨兵值——quiet / headless 解析为 `true`，交互模式保留
+> `"ask"`（1d 弹询问）。`"auto"` 插件值由 task-init 时刻探测本地环境
+> （Linear / git）后决定。
+
+#### 顶层 `preset`
+
+| 默认 | 值域 | 功能 |
+|------|------|------|
+| `standard` | `full` / `standard` / `lite` / `hotfix` | 从 `presets.*` 选档位块深合并到基线。 |
+
+#### `branch.*` — 任务专用分支与 worktree 隔离
+
+| Key | 类型 | 交互 | Quiet | Headless | 功能 |
+|---|---|---|---|---|---|
+| `branch.mode` | enum | 1d 弹询问（默认 `keep`） | 沿用配置（默认 `keep`） | 沿用配置 | `keep` 留当前分支；`new` 创建任务分支 |
+| `branch.worktree` | tri-state | `"ask"` 弹询问（默认 `false`） | `"ask"` → `true` | `"ask"` → `true` | 显式 `true` / `false` 任何模式覆盖 |
+| `branch.name` | string\|null | `null`（按文件夹自动命名） | 同左 | 同左 | 显式分支名覆盖 |
+
+#### `headless.*` — 仅当 `unattended.json enabled == true` 生效
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `headless.existing_task` | enum | `continue` | 有 open task 时续跑还是开新 |
+| `headless.git_conventions` | enum | `default` | 找不到 git 规范时的回退（`default` / `implicit` / `skip`） |
+| `headless.dirty_policy` | enum | `ignore` | dirty 文件处理（`ignore` / `stash`） |
+| `headless.degrade_policy` | enum | `conservative` | 撞卡点分级处理档位（`standard` / `conservative` / `headless`）；交互模式恒 `standard` |
+| `headless.linear_on_fail` | enum | `skip` | Linear API 失败处理（`skip` / `retry`） |
+
+#### `end_decisions.*` — Phase 6 自动决策默认值
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `end_decisions.branch` | enum | `keep` | `auto_merge` 自动合并到 main；`keep` 保留分支。`PR` / `Discard` 永不自动触发 |
+| `end_decisions.claude_md` | enum | `auto_update` | 是否自动更新项目 `CLAUDE.md` |
+| `end_decisions.squash` | bool | `true` | End 把本任务提交压成单 commit（分支合并用 `merge --squash`；main 连续段用 `reset --soft`）；可设 `false` 关闭 |
+
+#### `execution.*` — Phase 4 执行模式与引擎
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `execution.mode` | enum | `auto` | `auto` 按批决策（独立 2+ 互不依赖 → `parallel-agents`；耦合 / 单 → `inline`）/ `inline` 主线程串行 / `parallel-agents` 凡可隔离 task 都派 `task-executor`；legacy `subagent` 已迁移为 `auto` |
+| `execution.engine` | enum | `auto` | 仅作用于被派发的 subagent：`auto` 按 (难度, TDD, 复杂度) 选 Sonnet / Opus；显式 `sonnet` / `opus` 覆盖。inline task 恒跑主 agent 当前模型，不受此影响 |
+
+#### `plugins.review.*` — 各阶段独立 review
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `plugins.review.enabled` | bool | `true` | review 总开关 |
+| `plugins.review.design_rounds` | mixed | `auto` | `auto` 按复杂度决定（Low:0, Medium:1, High:1-2）/ 数字 = 固定轮次 |
+| `plugins.review.code_review` | enum | `medium` | 深度：`skip` / `light` / `medium` / `full` |
+| `plugins.review.per_task_review` | enum | `each` | `each` 每个 plan task 后各派一次（最细）；`checkpoint` 仅靠 P4.post-execute 全量 review 兜底 |
+| `plugins.review.reviewer` | enum | `claude` | reviewer 类型（暂只支持 `claude`） |
+| `plugins.review.max_rounds` | int (1-5) | `3` | reviewer 多轮对话最大轮次 |
+
+#### `plugins.linear.*` — Linear 集成
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `plugins.linear.enabled` | tri-state | `auto` | `auto` 由项目 CLAUDE.md ## Linear / `linear.json` / MCP 可用性决定；写 `task-config.json` 时解析为 `true` / `false` |
+| `plugins.linear.update_description` | bool | `true` | 更新 issue 描述 |
+| `plugins.linear.upload_docs` | bool | `true` | 上传 design / plan 文档 |
+| `plugins.linear.sync_sub_issues` | bool | `true` | 同步子 issue |
+
+#### `plugins.git.*` — git 约定
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `plugins.git.enabled` | tri-state | `auto` | `auto` = 探测 git 仓库（NO_GIT 强制 `false`） |
+
+#### `plugins.tdd.*` — TDD 强制约束
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `plugins.tdd.enabled` | bool | `false` | preset 覆盖（`full` / `standard` → `true`；`lite` / `hotfix` → `false`） |
+| `plugins.tdd.mode` | enum | `none` | `none` / `lite` / `full`；`mode != none` 时自动 `enabled = true` |
+
+#### `plugins.retrospective.*` — 归档后流程复盘
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `plugins.retrospective.enabled` | bool | 本分发版默认 `false` | 由 `apply_export_overrides` 软关闭 |
+
+#### 顶层非插件 keys
+
+| Key | 类型 | 默认 | 功能 |
+|---|---|---|---|
+| `observability.enabled` | bool | 本分发版默认 `false` | gate `hat-timing-stamp` 写入；由导出软关闭 |
+| `todo_sync` | bool | `true` | 同步 `phases.md` 到 `TaskCreate` / `TaskUpdate` UI |
+| `phase_merge` | array | `[]` | 例：`[[3,4]]` 表示 P3→P4 无停顿。**P5→P6 永不可合并** |
+
+### Preset 档位
+
+| Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `observability` | `todo_sync` | 典型场景 |
+|--------|------------------|------------|----------------|--------------------|------------------|-----------------|--------------|----------|
+| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | `true` | 大型重构、契约敏感 |
+| `standard`（缺省） | `auto` | `lite` | `medium` | `each` | `true` | `true` | `true` | 通用默认 |
+| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | `true` | 小改动、文档 |
+| `hotfix` | `inline` | `none` | `skip` | （跳过） | `false` | **`false`** | **`false`** | 紧急修复（最低开销） |
+
+> 任何字段都可经层 ②（`~/.claude/task-defaults.local.json`）、层 ③
+> （`<project>/task-defaults.json`）或调用 flag（最高）覆盖。
+
+### 模式对比
+
+| 维度 | Normal（交互） | Quiet（`-q` / `--quiet` / 「无人值守」） | Headless（`--headless`） |
+|------|----------------|---------------------------------------|--------------------------|
+| `quiet_mode` | `false` | `true` | `true` |
+| `degrade_policy` | `standard`（恒） | `conservative` | `headless`（M1 ≈ conservative） |
+| Init 各停顿点 | 询问用户 | 从配置解析 | 从配置解析 |
+| `branch.mode` 1d 询问 | 弹询问 | 沿用配置 | 沿用配置 |
+| `branch.worktree = "ask"` | 弹询问（默认 `false`） | `true` | `true` |
+| Compact 软停顿（Plan→Execute） | 触发 | 跳过 | 跳过 |
+| Telegram 通知 | — | opt-in | opt-in |
+| `unattended.json` 物化时机 | step 2A.1（交互询问） | task-init `1f` 直接 | task-init `1f` 直接 |
+
+> 目前「Quiet」与「Headless」仅在 `degrade_policy` 语义上有区别（headless 保留
+> 给未来更强行为）；两者的 stop-point 自动决策路径相同。
 
 ## 插件
 
