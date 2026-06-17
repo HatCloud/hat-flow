@@ -356,8 +356,54 @@ override any of them.
 
 - **Linear** — set the `linear_api_key` user config; the `@hatcloud/linear-mcp`
   server is launched via `npx`. Without a key, the Linear plugin disables itself.
-- **Telegram** (unattended-mode notifications) — install the companion
-  `telegram@claude-plugins-official` plugin and run `/telegram:configure`.
+
+### Optional: Telegram task notifications (unattended mode)
+
+Unattended runs can broadcast progress, decisions, and stop-point notifications to
+a Telegram chat — opt-in, no setup required to skip (notifications just
+degrade to a `★` warning line in the session log).
+
+**What it is** — the workflow calls the Telegram Bot API directly
+(`https://api.telegram.org/bot<token>/sendMessage`) when an unattended task
+hits a notification moment (phase transition, key auto-decision, validation
+failure, task complete). No MCP plugin required for sending — the companion
+`telegram@claude-plugins-official` plugin is used only for **access control**
+(`access.json`) and pairing.
+
+**Setup (one-time, three steps):**
+
+1. Install the companion plugin:
+   ```
+   /plugin install telegram@claude-plugins-official
+   ```
+2. Pair the bot with your Telegram account and lock it down to yourself:
+   ```
+   /telegram:configure <your-bot-token-from-BotFather>
+   /telegram:access policy allowlist   # after pairing — drops pairing codes
+   ```
+3. Persist your `chat_id` to the **personal local config** (not a repo file —
+   keeps your identifier out of the distribution):
+   ```bash
+   mkdir -p ~/.claude
+   echo "{\"telegram_chat_id\": \"<your chat id>\"}" > ~/.claude/task-defaults.local.json
+   chmod 600 ~/.claude/task-defaults.local.json
+   ```
+   Find your `chat_id` from `~/.claude/channels/telegram/access.json`
+   (`allowFrom[0]`) or by sending any message to your bot and reading
+   `https://api.telegram.org/bot<token>/getUpdates`.
+
+**Where the value comes from** (resolution order — first hit wins):
+
+1. The current session was started **from Telegram** (`<channel source="telegram">`) — `chat_id` is read from the inbound message.
+2. Your personal local config — `~/.claude/task-defaults.local.json` → `telegram_chat_id`. **Recommended for CLI sessions.**
+3. The shared task-defaults (`${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` or project-local `<project>/task-defaults.json`). **Not recommended** — the shipped default is `null` (opt-out) and committing a real chat_id leaks your identifier.
+4. None of the above — `telegram_chat_id = null`, all Telegram notifications skip with `★ Telegram 通知降级：chat_id 未配置 — ...`. Workflow continues unaffected.
+
+**Security note** — your `chat_id` and bot token are personal identifiers. The
+shipped `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` deliberately
+holds `null` for `telegram_chat_id`; do **not** commit a real value to any
+file inside the plugin repo. Always use the personal local config or the
+plugin's own `~/.claude/channels/telegram/.env` for secrets.
 
 ## Attribution
 
