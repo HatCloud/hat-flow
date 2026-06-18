@@ -33,6 +33,10 @@ These tools must be on your `PATH` before installing:
   on it.
 - **`node`** (with `npx`) — only needed for the optional Linear integration
   (`@hatcloud/linear-mcp` is launched via `npx`).
+- **Codex** (optional external plugin `openai-codex`) — only used when
+  `plugins.review.reviewer` or `execution.engine` is set to `codex` / `auto`.
+  Without it, `codex-check` returns `FALLBACK:` and the workflow transparently
+  degrades to Claude reviewers / executors — no failure.
 
 Running `/task-setup` performs a preflight check and reports anything missing.
 
@@ -261,7 +265,7 @@ Flag overrides become sparse JSON merged as layer ④ via
 | Key | Type | Default | Function |
 |---|---|---|---|
 | `execution.mode` | enum | `auto` | `auto` decides per batch (independent 2+ with no interdep → `parallel-agents`; coupled / single → `inline`); `inline` runs sequentially in the main agent; `parallel-agents` dispatches every isolatable task to `task-executor`. Legacy `subagent` is migrated to `auto`. |
-| `execution.engine` | enum | `auto` | Only affects dispatched subagents: `auto` picks Sonnet / Opus from (difficulty, TDD, complexity); explicit `sonnet` / `opus` overrides. Inline tasks always run on the main agent's current model. |
+| `execution.engine` | enum | `auto` | Only affects dispatched subagents: `auto` picks Sonnet / Opus from (difficulty, TDD, complexity); explicit `sonnet` / `opus` overrides; `codex` runs implementation serially via `/codex:rescue --write` (gated by sandbox + cwd + `codex-check`; hard-downgrades to Claude when unmet). `auto` is codex-first when Codex is available. Inline tasks always run on the main agent's current model. |
 
 #### `plugins.review.*` — independent review
 
@@ -271,8 +275,8 @@ Flag overrides become sparse JSON merged as layer ④ via
 | `plugins.review.design_rounds` | mixed | `auto` | `auto` decides from complexity (Low:0, Medium:1, High:1–2); number = fixed rounds. |
 | `plugins.review.code_review` | enum | `medium` | Depth: `skip` / `light` / `medium` / `full`. |
 | `plugins.review.per_task_review` | enum | `each` | `each` = review after every plan task (finest); `checkpoint` = only at the P4.post-execute full review. |
-| `plugins.review.reviewer` | enum | `claude` | Reviewer type (currently only `claude`). |
-| `plugins.review.max_rounds` | int (1–5) | `3` | Max reviewer rounds before forced converge. |
+| `plugins.review.reviewer` | enum | `claude` | Design/plan review engine: `claude` (native reviewer), `codex` (Codex via `/codex:rescue` read-only, outputs Critical/Important/Minor counts), `auto` (codex-first when available, else Claude). Code review (P4 4b) is always Claude. |
+| `plugins.review.max_rounds` | int / object | `3` | Max reviewer rounds before forced converge. Scalar (shared) or reviewer-aware `{claude: N, codex: M}` — Codex defaults higher (3 / 8) as it is stricter. |
 
 #### `plugins.linear.*` — Linear integration
 

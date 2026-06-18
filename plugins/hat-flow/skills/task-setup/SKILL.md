@@ -40,6 +40,7 @@ command -v node >/dev/null 2>&1 && echo "✓ node (Linear 集成需要)" || echo
 - **`jq`（必需）**：hook 路由引擎靠它解析 manifest/config；缺失则 review/linear/git/timing 等**所有插件 hook 静默失效**，流程照跑但产物全缺。缺则提示 `brew install jq` / `apt-get install jq`，装好再继续。
 - **`python3`（必需，3.8+）**：部分 bin 脚本与流程辅助逻辑运行其上。
 - **`node`（可选）**：仅 Linear 集成需要（`@hatcloud/linear-mcp` 经 `npx` 拉起）。未启用 Linear 可忽略。
+- **Codex（可选外部插件 `openai-codex`）**：仅当 `plugins.review.reviewer` 或 `execution.engine` 选 `codex` / `auto` 时用于派 Codex 做 design/plan review 或实现执行。**未安装不阻断**——`codex-check` 返回 `FALLBACK:`，流程自动降级 Claude reviewer / executor。
 
 `jq` 或 `python3` 缺失时**不要继续**——先让用户安装。
 

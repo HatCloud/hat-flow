@@ -145,6 +145,18 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 **[Unattended]** 合理时自动沿用，明显偏离时按推荐值自动修正，不询问。
 
+**Step 2e.4: Codex capability 持久化**（reviewer/engine 含 codex/auto 时，**不依赖面板是否触发**）
+
+当 `task-config.json` 的 `plugins.review.reviewer` ∈ {`codex`, `auto`} 或 `execution.engine` ∈ {`codex`, `auto`} 时，运行 `codex-check`（额度门已内含），把结果写入 `task-config.json` 的 `capabilities.codex`（**由本 phase skill 写入，非 `hat-task-config-resolve`**）：
+
+```json
+"capabilities": { "codex": { "checked_at": "<ISO>", "status": "ready|fallback", "reason": "<codex-check stdout/stderr 文本>", "quota_state": "ok|stale|unknown|low", "cwd_control": "unknown" } }
+```
+
+- `cwd_control` 此处先留 `"unknown"`，由 P4 task-execute 首个 codex execute 前的 cwd spike 回填 `verified|unsupported`。
+- **失效规则**：`checked_at` 超 30min 或进入新 phase 即视为过期，由各派发点（P2/P3/P4 dispatch）二次 `codex-check` 刷新覆盖（design Component C）。
+- reviewer/engine 均不含 codex/auto 时跳过本步（不写 capabilities）。
+
 ### Activation Timing（unattended activate_after，与编排器共享契约 SC3）
 
 在 Step 2e（及下方过渡处）询问无人值守激活时机。
@@ -187,6 +199,10 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
 
 **review plugin 关闭时**：跳过本步骤，直接标记 `独立 review` 为 `[x]`。
 
+**Reviewer 解析（codex-aware，派发前先判）**：按 `review.md ## P2.post-design-draft` 的「Reviewer-aware 派发（codex 分支）」解析 reviewer（读 `task-config.json` `plugins.review.reviewer` + `capabilities.codex`；过期/跨 phase → 派发点二次 `codex-check` 刷新）。
+- **解析为 `claude`/`sonnet`/`opus`** → 走下面 native design-reviewer 收敛循环（并行 R1/R2 矩阵）。
+- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 改走 review.md codex 分支：经 `/codex:rescue`（read-only）**串行** R1/R2（codex 不并发），输出 `## Critical/Important/Minor` + 末行计数，`codex-findings-count` 判 **C=0 & I=0** 收敛，round≥2 `SendMessage(to: agentId)` 续接。下面第 2–5 步的批判评估/修复/收敛检查逻辑**不变**，仅派发载体（codex vs native）与并发性（串行 vs 并行）不同。中途 `FALLBACK:`/quota → 降级 native design-reviewer（见 review.md，写 `fallback-log.jsonl`）。
+
 **收敛模式核心循环：**
 
 1. **并行派发** R1（结构审查）+ R2（对抗审查），均用 `subagent_type: design-reviewer`（保留 model override，按下方矩阵在派发时指定）：
@@ -212,7 +228,7 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
    - **[Unattended · `degrade_policy` standard 或缺省]** 不询问，发送 Telegram 通知后暂停（任务保留，等待 `/task` 恢复人工决策）。
    - **[Unattended · `degrade_policy` conservative / headless]** 走 §9 **A4 accept-with-findings**：把剩余未解决 findings 原文写入 design.md 的 `## Unresolved Review Findings` 段 + `unattended-decisions.md` 的 `## Headless Degraded Decisions`，续跑推进；**同点同 phase 至多一次**——若本 phase 已因 A4 续跑过一次（unattended-decisions.md 已有该记录），第二次退回 standard（暂停 + Telegram）。兜底：P4 code review + P5 验收双网。
 
-轮次数量由 `review.design_rounds` 决定（auto 按复杂度：Low:0, Medium:1, High:2），`max_rounds` 上限兜底。`design_rounds: 0` 时跳过本步骤。
+轮次数量由 `review.design_rounds` 决定（auto 按复杂度：Low:0, Medium:1, High:2），`max_rounds` 上限兜底（**reviewer-aware**：`max_rounds` 为标量则两 reviewer 共用；为对象 `{claude:N, codex:M}` 时 claude 取 `.claude`、codex 取 `.codex`，缺省 claude 3 / codex 8——codex 更严、收敛更慢）。`design_rounds: 0` 时跳过本步骤。
 
 ### Step 6.5 — P2.post-design-approved Hook
 

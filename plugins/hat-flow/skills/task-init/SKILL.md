@@ -220,6 +220,12 @@ hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
 - **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——ISSUE 下沉为核心能力）。脚本已正确合并顶层 `observability`——`hotfix` 的顶层 `observability.enabled: false` 经合并解析为 `false`（脚本从模板顶层而非 `plugins.*` 取该键）。
 - 新顶层段 `branch` / `headless` / `end_decisions` 一并进入 effective config，随 1f 写入 task-config.json。
 - 档位与配置在内存确定；`task-config.json` 的实际写盘移到 1f（任务文件夹创建之后），此处不写文件。
+- **Codex capability 预检（首次门控；effective config `plugins.review.reviewer` ∈ {`codex`,`auto`} 或 `execution.engine` ∈ {`codex`,`auto`} 时）**：运行 `codex-check`——
+  - `FALLBACK:`/不可用 → 第 4 步 AskUserQuestion 的 reviewer/engine 选项**不提供 codex**、`auto` 此刻锁定为 claude（不报错）。
+  - `READY` → 保留 codex/auto。
+  - 检测结果存内存，随 1f 写入 `task-config.json` 的 `capabilities.codex`（`{checked_at,status,reason,quota_state,cwd_control:"unknown"}`；`cwd_control` 由 P4 首个 codex execute 的 spike 回填）。**capabilities 由 phase skill 写入，非 `hat-task-config-resolve`。**
+  - **派发点二次检测（`checked_at` 过期 / 跨 phase 刷新）由各 phase（P2/P3/P4 dispatch）承担**（design Component C）；1b.3 仅做首次门控。
+  - reviewer/engine 均不含 codex/auto 时跳过本预检。
 
 **6. 计算 phases.md 步骤列表（内存）：**
 按已决定的 config 在内存计算步骤列表（不写盘，实际写入在 1f）：
@@ -334,7 +340,7 @@ echo '<json>' | hat-task-scaffold ".tasks/open/YYYY-MM-DD-topic" --linear-stdin
 
 备选方案：`mkdir -p .tasks/open/YYYY-MM-DD-topic/` + 手动写入 `linear.json`。
 
-**写入 task-config.json：** 将 1b.3 第 5 步在内存确定的档位配置写入 `{task-folder}/task-config.json`（文件夹已创建）。**[Quiet]** quiet_mode=true 时，在写入的对象顶层追加 `"_source": "headless"`（标记本 config 由无头入口物化，供 task-design Step 2e 短路判定）。
+**写入 task-config.json：** 将 1b.3 第 5 步在内存确定的档位配置写入 `{task-folder}/task-config.json`（文件夹已创建）。**[Quiet]** quiet_mode=true 时，在写入的对象顶层追加 `"_source": "headless"`（标记本 config 由无头入口物化，供 task-design Step 2e 短路判定）。若 1b.3 做过 Codex capability 预检，把内存中的 `capabilities.codex`（`{checked_at,status,reason,quota_state,cwd_control:"unknown"}`）一并写入顶层。
 
 **[Quiet] 物化 unattended.json（仅 quiet_mode=true 的新任务）：**
 

@@ -1,0 +1,2 @@
+{"type":"session_meta","id":"fixture-reached"}
+{"type":"response","payload":{"rate_limits":{"primary":{"used_percent":100.0,"resets_at":"2026-06-18T10:00:00Z"},"secondary":{"used_percent":58.0,"resets_at":"2026-06-19T00:00:00Z"},"credits":null,"rate_limit_reached_type":"primary","plan_type":"plus"}}}

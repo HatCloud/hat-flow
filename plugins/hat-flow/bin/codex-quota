@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESS_DIR="${CODEX_SESSIONS_DIR:-$HOME/.codex/sessions}"
+
+extract_rl() {
+    grep 'rate_limits' "$1" 2>/dev/null | tail -1 \
+        | jq -c '.. | objects | select(has("primary") and has("secondary"))' 2>/dev/null | tail -1
+}
+
+if [ ! -d "$SESS_DIR" ]; then
+    printf 'sessions directory not found: %s\n' "$SESS_DIR" >&2
+    exit 1
+fi
+
+if ! find "$SESS_DIR" -type f -name 'rollout-*.jsonl' -print -quit 2>/dev/null | grep -q .; then
+    printf 'no rollout snapshots found in: %s\n' "$SESS_DIR" >&2
+    exit 1
+fi
+
+snapshot_file=""
+snapshot_rl=""
+
+while IFS= read -r file; do
+    rl="$(extract_rl "$file" || true)"
+    if [ -n "$rl" ]; then
+        snapshot_file="$file"
+        snapshot_rl="$rl"
+        break
+    fi
+done < <(
+    find "$SESS_DIR" -type f -name 'rollout-*.jsonl' -print0 2>/dev/null \
+        | xargs -0 ls -t 2>/dev/null \
+        | head -20
+)
+
+if [ -z "$snapshot_rl" ]; then
+    printf 'no rate_limits snapshot found in: %s\n' "$SESS_DIR" >&2
+    exit 1
+fi
+
+# mtime 跨平台：GNU `stat -c %Y`（Linux）/ BSD `stat -f %m`（macOS）——不用 `date -r`（GNU date 无 -r）
+mtime="$(stat -c '%Y' "$snapshot_file" 2>/dev/null || stat -f '%m' "$snapshot_file")"
+now="$(date +%s)"
+stale=0
+if [ $((now - mtime)) -gt 21600 ]; then
+    stale=1
+fi
+
+jq -c \
+    --argjson snapshot_at "$mtime" \
+    --argjson stale "$stale" \
+    '{
+        h: {
+            used: (.primary.used_percent // null),
+            reset_at: (.primary.resets_at // null)
+        },
+        d: {
+            used: (.secondary.used_percent // null),
+            reset_at: (.secondary.resets_at // null)
+        },
+        credits: (
+            if .credits == null then
+                {has_credits: false, unlimited: false, balance: null}
+            else
+                {
+                    has_credits: true,
+                    unlimited: (.credits.unlimited // false),
+                    balance: (
+                        if .credits.balance == null then
+                            null
+                        else
+                            (.credits.balance | tonumber) as $balance
+                            | if ($balance % 1) == 0 then
+                                ($balance | floor)
+                            else
+                                $balance
+                            end
+                        end
+                    )
+                }
+            end
+        ),
+        reached: (.rate_limit_reached_type // null),
+        plan_type: (.plan_type // null),
+        snapshot_at: $snapshot_at,
+        stale: ($stale == 1)
+    }' <<<"$snapshot_rl"

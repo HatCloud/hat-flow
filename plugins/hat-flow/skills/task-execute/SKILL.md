@@ -118,6 +118,52 @@ Any unrecognized mode value (including the legacy `subagent`) MUST fall back to 
 Reason: `subagent` 是旧 schema 值，已被 auto/parallel-agents 取代；遇未知 mode 时静默并行或直接报错都会破坏执行，退化为 inline 最安全——主 agent 串行执行、行为确定。
 </rule>
 
+#### engine=codex 派发分支（串行 + dirty-state 协议，优先于 mode 判定）
+
+读 `task-config.json` `execution.engine` + `capabilities.codex`。**engine ∈ {codex, auto} 时先走本分支的统一漏斗**（design Component F / Data Flow）；engine = sonnet/opus 或漏斗未通过 → 回落下方 `route_model()` mode-based 调度。
+
+**A. 每 task engine 解析漏斗（hard gates 优先，与 P2/P3 同序）**：
+1. **硬沙盒门槛**：**先 `export CODEX_GIT_ROOT="$(git rev-parse --show-toplevel)"`**（gate 据此判定 git-root 子树内绝对写路径为合法；**不设则 gate 把任何绝对路径都判为 root 外 → 误 hard-fallback**），再对该 plan task 的 Steps + Guardrails 文本跑 `codex-sandbox-gate`（`hard-fallback:<reason>` exit 2 → 命中）。命中 / plan task 标 `codex:false` → **hard fallback** `route_model()`（即便标 `codex:true` 也不能 override 硬门槛）。
+2. **capabilities 刷新 + codex-check**：读 `capabilities.codex.checked_at`，过期（>30min）或本 phase 首次 → 派发点 `codex-check` 刷新 `capabilities.codex`。`FALLBACK:`/exit1-fallback → `route_model()`。
+3. **cwd 控制门**：见 B（`cwd_control==unsupported` → 硬降级 Claude）。
+- engine=auto：过 1–3 → **codex-first**；否则 `route_model()`。engine=codex：同样须过 1–3，不具备则 fallback（不报错）。
+
+**B. cwd 协议（design Component F，R2-Crit1）**：
+- **首个 codex execute task 前先 spike**：从已知 `git_root`（`git rev-parse --show-toplevel`，worktree = worktree 根）派一个最小 codex execute 写测试文件，检查其落点的 git root 是否 = `git_root`。结果写 `capabilities.codex.cwd_control = verified | unsupported`，**后续所有 P4 dispatch 只读该字段**（不重复 spike）。spike 在**首个 dirty-state baseline 采集之前**完成，**用后即删**（spike 文件用唯一临时名如 `.codex-cwd-spike-<rand>`，查完 `rm`），避免污染随后该 task 的 baseline 快照（该前缀亦应在 baseline 归因的 untracked 白名单内，防时序回归）。
+- `cwd_control==verified` → 每次派发前 `cd "$git_root"` 并验证 `pwd` 一致后再派（launch shell cwd 决定沙盒边界，**非** prompt 的 `Working directory is X` 行）。
+- `cwd_control==unsupported` → **P4 engine=codex declared unsupported**，全程硬降级 Claude executor（write 正确性优先于卸载 token）。
+
+**C. 不并发（串行）**：engine=codex 时**强制串行**单 task `/codex:rescue --write`——**覆盖 `mode=parallel-agents` 扇出**（codex 同 repo 不并发，避免 thread/cwd 串扰）、**也覆盖 `mode=inline`**（codex 本身即一次 dispatch，不在主 agent inline 跑）。
+
+**D. mid-flight dirty-state 协议（owner=task-execute；codex `--write` 可能 partial edits）**：
+
+每个 codex execute task **派发前完整 baseline** → `{task-folder}/codex-exec-<taskid>.pre`：
+```
+git rev-parse HEAD
+git status --porcelain=v1 -z
+git status --ignored --porcelain=v1 -z          # 覆盖 gitignored（R5-Imp1）
+git diff --binary ; git diff --cached --binary
+# + pre-existing untracked/ignored 文件内容快照（复制/tar 到 artifact，使 baseline 可重放，R3-Crit1）
+```
+据此分出路径类：**pre-clean** / **pre-dirty** / **pre-untracked** / **pre-ignored**。
+
+**中途 fallback 时**（codex 输出 `FALLBACK:` 前缀 / quota / rate-limit）→ 采 **post-snapshot** → `codex-exec-<taskid>.post`：post `git diff --binary` + post `git status --porcelain=v1 -z` + post `git status --ignored --porcelain=v1 -z`，得 **codex touched paths**，按路径归因处置：
+- 只碰 **pre-clean tracked** → 自动可验证 reverse patch（安全还原）。
+- **codex 新建 untracked**（pre 不存在、post 新增）→ **先复制内容到 artifact 留存**，再**定向删除**该新建文件（**禁止全局 `git clean`**）。
+- 碰 **pre-dirty / pre-untracked / pre-ignored 同路径** → **绝不自动回滚**（hunk 级归因不可证明、会覆盖用户改动）→ **escalate**。
+- 写 **gitignored 路径** → 经 `--ignored` 快照归因，escalate（不自动处置 ignored 内容）。
+- 任一不确定 → escalate。**绝不 `git reset --hard` / 绝不全局 `git clean`**。
+
+**escalate 的模式分支**：
+- **[Interactive]** AskUserQuestion 由用户决定保留/回滚。
+- **[Unattended]** **hard-stop**（dirty 冲突属不可逆风险点）：写 `fallback-log.jsonl`（`action=paused_dirty_conflict`）+ 保存 baseline，**暂停 phase**、远程通知，等 `/task` 恢复——**不调 AskUserQuestion、不自动续 Claude executor**。
+
+**`/task resume` 后 dirty-conflict resolution menu**：恢复检测到 `paused_dirty_conflict` → 三选项（基于 baseline/fallback artifact）：① **keep codex edits**（保留 → 继续 Claude executor 接续）；② **rollback using baseline**（用 baseline 还原冲突路径 → 继续 Claude executor 重做）；③ **cancel**（转 task-cancel）。**菜单选择层优先读 `TASK_RESUME_CHOICE` 环境变量 / 可注入 menu input fixture（自动化测试接缝）**，把 `resolution=keep|rollback|cancel` 与 executor continuation 写入 `fallback-log`。①② 明确继续 Claude executor、③ 不继续。
+
+**E. fallback-log.jsonl**：任何降级/暂停向 `{task-folder}/fallback-log.jsonl` 追加一行，字段：`phase`（`P4-4a`）、`integration_point`、`requested_engine`、`actual_engine`、`reason`、`codex_check_output`、`agentId`、`action`（+ dirty-state 路径含 `resolution`）。P6 final.md 汇总引用。
+
+> 处置完（且非 hard-stop 暂停）后 Claude executor 接续该 task。engine=codex 走通时，该 task 的执行循环（下方「执行循环」）以 codex dispatch 替代 inline/派发步骤，其余（light verify / per-task hook / TODO）不变。
+
 #### auto / parallel-agents 分层调度
 
 ```
@@ -316,10 +362,11 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 
 ## Dependencies
 
-- **Reads**: `{task-folder}/plan.md`, `{task-folder}/task-config.json`
-- **Writes**: `{task-folder}/phases.md`
+- **Reads**: `{task-folder}/plan.md`, `{task-folder}/task-config.json`（含 `execution.engine` + `capabilities.codex`）
+- **Writes**: `{task-folder}/phases.md`；**engine=codex 时**：`{task-folder}/fallback-log.jsonl`、`{task-folder}/codex-exec-<taskid>.pre`/`.post`（dirty-state baseline/快照）、`capabilities.codex.cwd_control`（spike 回填）
 - **Injects（派发 task-executor 时）**: `IMPLEMENTER_PROMPT.md`（全文注入实现者 prompt）
-- **References**: `hatflow-dispatching-parallel-agents`（独立批次并行派发纪律）, `hatflow-systematic-debugging`（卡壳升级阶梯根因定位）
+- **References**: `hatflow-dispatching-parallel-agents`（独立批次并行派发纪律）, `hatflow-systematic-debugging`（卡壳升级阶梯根因定位）, `review.md`（engine 解析漏斗与 P2/P3 同序）
+- **Scripts（engine=codex）**: `codex-sandbox-gate`（硬门槛）, `codex-check`（capability 刷新）；测试接缝 `TASK_RESUME_CHOICE` 环境变量
 - **Hooks**: `P4.per-task-pre`（tdd）, `P4.per-task-post`（tdd + review + git）, `P4.post-execute`（review）
 - **Core timing**（内联，非 hook）: phase_start P4（阶段开始）/ task_start P4（每 task 前）/ task_end P4（每 task 后、hook 之前）/ phase_end P4（返回编排器前）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
 - **Scripts**: hat-plugin-hook, hat-timing-stamp

@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+import os
+import re
+import shlex
+import sys
+
+
+INSTALL_COMMANDS = {
+    ("npm", "install"),
+    ("npm", "i"),
+    ("yarn", "add"),
+    ("pnpm", "add"),
+    ("pip", "install"),
+    ("pip3", "install"),
+    ("cargo", "add"),
+    ("go", "get"),
+    ("gem", "install"),
+    ("apt-get", "install"),
+    ("brew", "install"),
+}
+
+GIT_REMOTE_COMMANDS = {"clone", "fetch", "pull", "push"}
+URL_RE = re.compile(r"^(?:https?://|ssh://|git@)")
+HTTP_URL_RE = re.compile(r"^https?://")
+ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+COMMAND_SPLIT_RE = re.compile(r"\s*(?:&&|\|\||[;|])\s*")
+
+
+def split_command_segments(text):
+    for line in text.splitlines():
+        for segment in COMMAND_SPLIT_RE.split(line):
+            segment = segment.strip()
+            if segment:
+                yield segment
+
+
+def split_tokens(segment):
+    try:
+        return shlex.split(segment)
+    except ValueError:
+        return segment.split()
+
+
+def effective_tokens(tokens):
+    tokens = list(tokens)
+    changed = True
+    while changed and tokens:
+        changed = False
+        if tokens and tokens[0] == "sudo":
+            tokens.pop(0)
+            changed = True
+        if tokens and tokens[0] == "env":
+            tokens.pop(0)
+            changed = True
+        while tokens and ASSIGN_RE.match(tokens[0]):
+            tokens.pop(0)
+            changed = True
+    return tokens
+
+
+def is_absolute_path(token):
+    return token.startswith("/")
+
+
+def allowed_absolute_path(path):
+    if path == "/tmp" or path.startswith("/tmp/"):
+        return True
+    git_root = os.environ.get("CODEX_GIT_ROOT")
+    if not git_root:
+        return False
+    root = os.path.abspath(git_root)
+    candidate = os.path.abspath(path)
+    return candidate == root or candidate.startswith(root + os.sep)
+
+
+def hard_write_path(path):
+    return is_absolute_path(path) and not allowed_absolute_path(path)
+
+
+# 捕获重定向 token：`>` `>>`、fd 前缀 `2>` `1>>`、合并 `&>` `&>>`（含粘连目标或下一 token）
+# 注：fd 复制如 `2>&1` 会 yield `&1`——因不以 `/` 开头，hard_write_path 返回 False，故被自然过滤（预期行为，勿误判为写路径）。
+REDIR_RE = re.compile(r"^(?:\d+|&)?>>?(.*)$")
+
+
+def redirection_targets(tokens):
+    for index, token in enumerate(tokens):
+        match = REDIR_RE.match(token)
+        if not match:
+            continue
+        rest = match.group(1)
+        if rest:
+            yield rest
+        elif index + 1 < len(tokens):
+            yield tokens[index + 1]
+
+
+def write_command_targets(tokens):
+    if not tokens:
+        return []
+    command = tokens[0]
+    if command in {"cp", "mv", "install"}:
+        non_options = [token for token in tokens[1:] if not token.startswith("-")]
+        return non_options[-1:] if non_options else []
+    if command == "tee":
+        return [token for token in tokens[1:] if not token.startswith("-")]
+    if command == "dd":
+        return [token[3:] for token in tokens[1:] if token.startswith("of=")]
+    return []
+
+
+def segment_reason(tokens):
+    effective = effective_tokens(tokens)
+    if not effective:
+        return None
+
+    first = effective[0]
+    second = effective[1] if len(effective) > 1 else None
+
+    if second and (first, second) in INSTALL_COMMANDS:
+        return "network install"
+
+    if first in {"curl", "wget"} and any(HTTP_URL_RE.match(token) for token in effective[1:]):
+        return "network download"
+
+    if (
+        first == "git"
+        and second in GIT_REMOTE_COMMANDS
+        and any(URL_RE.match(token) for token in effective[2:])
+    ):
+        return "git remote"
+
+    for target in redirection_targets(tokens):
+        if hard_write_path(target):
+            return "writes outside sandbox root"
+
+    for target in write_command_targets(effective):
+        if hard_write_path(target):
+            return "writes outside sandbox root"
+
+    return None
+
+
+def classify(text):
+    for segment in split_command_segments(text):
+        reason = segment_reason(split_tokens(segment))
+        if reason:
+            return reason
+    return None
+
+
+def main():
+    text = sys.argv[1] if len(sys.argv) > 1 else sys.stdin.read()
+    reason = classify(text)
+    if reason:
+        print(f"hard-fallback:{reason}")
+        return 2
+    print("eligible")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

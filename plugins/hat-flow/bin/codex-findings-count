@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+import json
+import re
+import sys
+
+
+SUMMARY_RE = re.compile(
+    r"Critical\s*=\s*(\d+)\s+Important\s*=\s*(\d+)\s+Minor\s*=\s*(\d+)",
+    re.IGNORECASE,
+)
+SECTION_RE = re.compile(r"^\s*##\s+(Critical|Important|Minor)\s*$", re.IGNORECASE)
+# finding 条目：`- ` / `* ` / `1.` / `1)`——不含 `###`（子标题非 finding，避免 section-fallback 多计）
+ITEM_RE = re.compile(r"^\s*(?:[-*]\s+|\d+[.)]\s+)")
+
+
+def counts_from_summary(text):
+    matches = list(SUMMARY_RE.finditer(text))
+    if not matches:
+        return None
+    match = matches[-1]
+    return {
+        "critical": int(match.group(1)),
+        "important": int(match.group(2)),
+        "minor": int(match.group(3)),
+    }
+
+
+def counts_from_sections(text):
+    counts = {"critical": 0, "important": 0, "minor": 0}
+    current = None
+    saw_signal = False
+
+    for line in text.splitlines():
+        section = SECTION_RE.match(line)
+        if section:
+            current = section.group(1).lower()
+            saw_signal = True
+            continue
+        if line.startswith("## "):
+            current = None
+            continue
+        if current and ITEM_RE.match(line):
+            counts[current] += 1
+            saw_signal = True
+
+    return counts if saw_signal else None
+
+
+def parse_counts(text):
+    counts = counts_from_summary(text)
+    if counts is not None:
+        return counts, True
+    counts = counts_from_sections(text)
+    if counts is not None:
+        return counts, True
+    return {"critical": 0, "important": 0, "minor": 0}, False
+
+
+def main():
+    counts, parsed = parse_counts(sys.stdin.read())
+    counts["converged"] = counts["critical"] == 0 and counts["important"] == 0
+    print(json.dumps(counts, separators=(",", ":")))
+    return 0 if parsed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

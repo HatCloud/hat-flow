@@ -27,6 +27,7 @@
   review/linear/git/timing 等**所有插件 hook 静默失效**。安装：
   `brew install jq` / `apt-get install jq`。
 - **`python3`**（必需，3.8+）——部分流程辅助逻辑与 bin 脚本运行其上。
+- **Codex**（可选外部插件 `openai-codex`）——仅当 `plugins.review.reviewer` 或 `execution.engine` 设为 `codex` / `auto` 时使用。未安装时 `codex-check` 返回 `FALLBACK:`，流程自动降级为 Claude reviewer / executor，不报错。
 - **`node`**（含 `npx`）——仅可选的 Linear 集成需要（`@hatcloud/linear-mcp`
   经 `npx` 拉起）。
 
@@ -235,7 +236,7 @@ JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
 | Key | 类型 | 默认 | 功能 |
 |---|---|---|---|
 | `execution.mode` | enum | `auto` | `auto` 按批决策（独立 2+ 互不依赖 → `parallel-agents`；耦合 / 单 → `inline`）/ `inline` 主线程串行 / `parallel-agents` 凡可隔离 task 都派 `task-executor`；legacy `subagent` 已迁移为 `auto` |
-| `execution.engine` | enum | `auto` | 仅作用于被派发的 subagent：`auto` 按 (难度, TDD, 复杂度) 选 Sonnet / Opus；显式 `sonnet` / `opus` 覆盖。inline task 恒跑主 agent 当前模型，不受此影响 |
+| `execution.engine` | enum | `auto` | 仅作用于被派发的 subagent：`auto` 按 (难度, TDD, 复杂度) 选 Sonnet / Opus；显式 `sonnet` / `opus` 覆盖；`codex` 经 `/codex:rescue --write` 串行执行实现（受沙盒 + cwd + `codex-check` 门控，不满足则硬降级 Claude）。`auto` 在 Codex 可用时 codex-first。inline task 恒跑主 agent 当前模型，不受此影响 |
 
 #### `plugins.review.*` — 各阶段独立 review
 
@@ -245,8 +246,8 @@ JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
 | `plugins.review.design_rounds` | mixed | `auto` | `auto` 按复杂度决定（Low:0, Medium:1, High:1-2）/ 数字 = 固定轮次 |
 | `plugins.review.code_review` | enum | `medium` | 深度：`skip` / `light` / `medium` / `full` |
 | `plugins.review.per_task_review` | enum | `each` | `each` 每个 plan task 后各派一次（最细）；`checkpoint` 仅靠 P4.post-execute 全量 review 兜底 |
-| `plugins.review.reviewer` | enum | `claude` | reviewer 类型（暂只支持 `claude`） |
-| `plugins.review.max_rounds` | int (1-5) | `3` | reviewer 多轮对话最大轮次 |
+| `plugins.review.reviewer` | enum | `claude` | design/plan review 引擎：`claude`（native reviewer）/ `codex`（经 `/codex:rescue` read-only，输出 Critical/Important/Minor 计数）/ `auto`（可用时 codex-first，否则 Claude）。code review（P4 4b）恒 Claude |
+| `plugins.review.max_rounds` | int / 对象 | `3` | reviewer 多轮对话最大轮次。标量（共用）或 reviewer-aware `{claude: N, codex: M}`——codex 更严，默认更高（3 / 8） |
 
 #### `plugins.linear.*` — Linear 集成
 

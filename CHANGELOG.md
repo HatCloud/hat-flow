@@ -4,7 +4,7 @@ All notable changes to hat-flow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions use the plugin's
 `hat-flow--vX.Y.Z` tag scheme.
 
-## [0.2.1]
+## [0.3.0]
 
 ### Added
 - Headless / unattended mode: `claude -p '/task -q <task>'` runs a task end to
@@ -24,4 +24,4 @@ All notable changes to hat-flow are documented here. Format follows
 - This distribution ships with observability/timing and the self-evolution
   (retrospective) capability disabled by default.
 
-[0.2.1]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.2.1
+[0.3.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.3.0

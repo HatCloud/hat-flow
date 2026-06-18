@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Unified Codex plugin availability check.
+# Dynamically discovers plugin path, runs setup --json, validates ready + auth.
+#
+# Output:  "READY"  or  "FALLBACK: <reason>"
+# Exit:    0 = ready,  1 = not ready
+
+set -euo pipefail
+
+QUOTA_THRESHOLD="${QUOTA_THRESHOLD:-90}"
+CODEX_QUOTA_BIN="${CODEX_QUOTA_BIN:-$(dirname "$0")/codex-quota}"
+NO_QUOTA=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --no-quota)
+      NO_QUOTA=true
+      ;;
+  esac
+done
+
+discover_plugin() {
+  local candidate
+  for candidate in \
+    "$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex" \
+    "$HOME/.claude/plugins/cache/openai-codex/codex/"*; do
+    if [ -f "$candidate/scripts/codex-companion.mjs" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+CODEX_PLUGIN=$(discover_plugin 2>/dev/null) || {
+  echo "FALLBACK: Codex plugin not found"
+  exit 1
+}
+
+result=$(node "$CODEX_PLUGIN/scripts/codex-companion.mjs" setup --json 2>/dev/null) || {
+  echo "FALLBACK: setup command failed"
+  exit 1
+}
+
+fallback=$(echo "$result" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+if not d.get('ready'):
+    print('FALLBACK: Codex CLI not ready — ' + d.get('codex', {}).get('detail', 'unknown'))
+elif not d.get('auth', {}).get('loggedIn'):
+    print('FALLBACK: Codex not authenticated — run: codex login')
+" 2>/dev/null) || {
+  echo "FALLBACK: setup output parse failed"
+  exit 1
+}
+
+if [ -n "$fallback" ]; then
+  echo "$fallback"
+  exit 1
+fi
+
+if [ "$NO_QUOTA" != true ]; then
+  qrc=0
+  q="$("$CODEX_QUOTA_BIN" 2>/dev/null)" || qrc=$?
+
+  if [ "$qrc" -eq 0 ]; then
+    quota_status=$(printf '%s' "$q" | QUOTA_THRESHOLD="$QUOTA_THRESHOLD" python3 -c "
+import json
+import os
+import sys
+
+
+def as_float(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def fmt(value):
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+d = json.load(sys.stdin)
+threshold = as_float(os.environ.get('QUOTA_THRESHOLD'))
+if threshold is None:
+    threshold = 90.0
+
+reasons = []
+h_used = as_float(d.get('h', {}).get('used'))
+if h_used is not None and h_used >= threshold:
+    reasons.append(f'used={fmt(h_used)}%')
+
+reached = d.get('reached')
+if reached is not None:
+    reasons.append(f'reached={reached}')
+
+credits = d.get('credits', {})
+balance = as_float(credits.get('balance'))
+if credits.get('has_credits') is True and balance is not None and balance <= 0:
+    reasons.append(f'credit={fmt(balance)}')
+
+if reasons:
+    print('FALLBACK: Codex quota low (' + reasons[0] + ')')
+elif d.get('stale') is True:
+    print('STALE')
+" 2>/dev/null) || {
+      echo "★ quota unknown" >&2
+      quota_status=""
+    }
+
+    if [[ "$quota_status" == FALLBACK:* ]]; then
+      echo "$quota_status"
+      exit 1
+    fi
+    if [ "$quota_status" = "STALE" ]; then
+      echo "★ quota snapshot stale" >&2
+    fi
+  else
+    echo "★ quota unknown" >&2
+  fi
+fi
+
+echo "READY"
+exit 0

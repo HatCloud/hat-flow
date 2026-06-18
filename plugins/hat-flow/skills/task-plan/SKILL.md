@@ -122,6 +122,10 @@ hook 完成后：在终端输出可视化任务清单：
 
 **SC2 二元契约**：plan-reviewer 返回 `Verdict: Approved | Issues` + `## Advisory Recommendations` 桶。**不做数值评分、不算分数阈值、不按 model 分层矩阵分配、不按 dimension 派多个 subagent**。判据为 `Verdict == Approved`。
 
+**Reviewer 解析（codex-aware，派发前先判）**：按 `review.md ## P3.post-plan` 的「Reviewer-aware 派发（codex 分支）」解析 reviewer（读 `plugins.review.reviewer` + `capabilities.codex`；过期/跨 phase → 派发点二次 `codex-check` 刷新）。
+- **解析为 `claude`/`sonnet`/`opus`** → 上述 SC2 二元 `Verdict` 契约不变，下方收敛循环按 Verdict 判。
+- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 经 `/codex:rescue`（read-only）派，注入 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md` 维度 + 项目约定 + plan.md/design.md；**输出格式覆盖（仅 codex 路径）**：改用 `## Critical/Important/Minor` 三段 + 末行 `Critical=N Important=M Minor=K`，`codex-findings-count` 判 **C=0 & I=0** 收敛——**映射到下方循环**：`C=0 & I=0` 等价 `Verdict==Approved`，`C>0 或 I>0` 等价 `Verdict==Issues`。**不并发**串行；`max_rounds` reviewer-aware（对象取 `.codex`，缺省 8）；round≥2 `SendMessage(to: agentId)` 续接。中途 `FALLBACK:`/quota → 降级 native plan-reviewer（恢复 SC2 verdict 判据）并写 `{task-folder}/fallback-log.jsonl`（`phase=P3, integration_point=plan-review, ...`）。**claude plan-reviewer 的 SC2 verdict 契约不受影响。**
+
 **判断逻辑（收敛循环）：**
 
 - **[Unattended] 前置分支**：

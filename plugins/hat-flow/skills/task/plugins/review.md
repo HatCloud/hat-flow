@@ -23,7 +23,7 @@ design.md 写完、用户确认前执行。
 自我审查后、独立 review 执行前，AskUserQuestion 确认：
 1. Review 轮数：按复杂度默认 N 轮，是否调整？
 2. Code review 策略：Light / Medium / Full / 跳过
-3. Reviewer 类型：Claude（推荐）
+3. Reviewer 类型：Claude / Codex / auto（codex-first；缺省取 `task-config.json` `plugins.review.reviewer`）
 
 ### 独立 Review（Reviewer Subagent）
 
@@ -50,6 +50,25 @@ R1 返回后处理：
 - 根据 reviewer 反馈就地修复 design.md
 
 回退：reviewer subagent 失败时主 session 人工审查。
+
+### Reviewer-aware 派发（codex 分支）
+
+派发前先解析 reviewer：读 `task-config.json` `plugins.review.reviewer` 与 `capabilities.codex`。
+
+1. **解析漏斗（Data Flow 统一顺序，hard gates 优先；reviewer ∈ {codex, auto} 才进）**：
+   - ① **硬沙盒门槛**：design review 为只读分析（无 `--write`、无 root∪tmp 外写）；仅当本轮 review 需**联网获取素材**时 hard fallback。一般 design review 不联网 → 通过。
+   - ② 软门槛 / override：review 非 task 粒度，task 级 `codex:true/false` 不适用，跳过。
+   - ③ **capabilities 刷新 + codex-check**：读 `capabilities.codex.checked_at`，过期（>30min）或跨 phase → 派发点二次 `codex-check` 刷新 `capabilities.codex`（写回 `{checked_at,status,reason,quota_state}`）。结果 `FALLBACK:` / exit1-fallback → 降级 native design-reviewer。
+   - `reviewer=auto`：过①③ → **codex-first**；否则 claude。`reviewer=claude/sonnet/opus` → 永不进 codex（连①都不判）。
+2. **codex 分支**（解析为 codex 时，**替代**上面的 design-reviewer 矩阵）：
+   - 经 `/codex:rescue` 派 codex-rescue agent（**read-only，不加 `--write`**）。
+   - prompt 注入：`${CLAUDE_PLUGIN_ROOT}/skills/reviewer/DESIGN_REVIEW.md` 维度规范 + **项目专有约定**（Guardrails / `Depends:[]` / header / self-review 等）+ `design.md`、`prompt.md`（仓内相对路径，codex 可读）；外部本地依赖给**绝对路径**。
+   - **输出契约**：要求 codex 输出 `## Critical` / `## Important` / `## Minor` 三段 + 末行 `Critical=N Important=M Minor=K`。
+   - 捕获 **agentId**；收敛判据用 `codex-findings-count`（解析末行计数）判 **C=0 & I=0**（**非 verdict 行**）。
+   - **不并发**：R1/R2 **串行**（codex 同 repo 不并发，非 native 并行）。
+   - **max_rounds reviewer-aware**：取 `plugins.review.max_rounds` 的 codex 值（标量则两 reviewer 共用；对象取 `.codex`，缺省 8——codex 更严、收敛更慢）。
+   - **round≥2**：`SendMessage(to: agentId)` 续接（companion `--resume-last`），注入「修复后的 design.md + 上轮未清 Critical/Important」。
+3. **中途 fallback**：codex 输出 `FALLBACK:` / quota / rate-limit 错误 → 中止该 codex 轮，改派 native design-reviewer 重跑该轮（review 只读幂等、安全），并向 `{task-folder}/fallback-log.jsonl` 追加一行：`{phase:"P2", integration_point:"design-review", requested_engine:"codex", actual_engine:"claude", reason:<文本>, codex_check_output:<文本>, agentId:<id|null>, action:"fallback-to-native"}`。
 
 ## P2.post-design-approved
 
@@ -96,6 +115,16 @@ plan.md 生成后，评估其与 design.md 的一致性：
 - **Approved** → Issues 桶为空，Advisory 桶（如有）仅供参考，继续。
 - **Issues** → 就地修复 Issues 桶中的 Critical / Important 条目后继续（Advisory 不阻断）。
 
+### Reviewer-aware 派发（codex 分支）
+
+派发前解析 reviewer（读 `task-config.json` `plugins.review.reviewer` + `capabilities.codex`），漏斗同 P2：① 硬沙盒门槛（plan review 只读、不联网即通过）→ ② 软门槛/override（plan review 非 task 粒度，跳过）→ ③ capabilities 过期（>30min）/跨 phase → 派发点二次 `codex-check` 刷新；`FALLBACK:`/exit1-fallback → 降级 native plan-reviewer。`reviewer=auto` 过①③ → codex-first；`claude/sonnet/opus` → 永不 codex。
+
+解析为 codex 时，**替代**上面单 plan-reviewer 派发：
+- 经 `/codex:rescue`（**read-only，不加 `--write`**）派；prompt 注入 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md` 维度 + 项目专有约定 + `plan.md`、`design.md`。
+- **输出格式覆盖（仅 codex 路径）**：PLAN_REVIEW.md 原生用二元 `Verdict: Approved|Issues`；codex 路径**改用** `## Critical` / `## Important` / `## Minor` 三段 + 末行 `Critical=N Important=M Minor=K`（对齐 task finding-count 收敛判据）。**claude plan-reviewer 仍用原生 verdict，不受影响。**
+- 捕获 **agentId**；`codex-findings-count` 判 **C=0 & I=0** 收敛；**不并发**串行；`max_rounds` 取 codex 值（对象 `.codex`，缺省 8）；round≥2 `SendMessage(to: agentId)` 续接。
+- 中途 `FALLBACK:`/quota → 降级 native plan-reviewer 重跑该轮，向 `{task-folder}/fallback-log.jsonl` 追加：`{phase:"P3", integration_point:"plan-review", requested_engine:"codex", actual_engine:"claude", reason:<文本>, codex_check_output:<文本>, agentId:<id|null>, action:"fallback-to-native"}`。
+
 ## P4.per-task-post
 
 ### Per-Task 代码审查（按复杂度条件执行）
@@ -136,6 +165,8 @@ Review scope 限定为当前 task 变更的文件。
 ### 全量代码审查
 
 所有 task 执行完毕后进行。维度数 / agent 数**自适应**——不死绑 full→4，由 diff 性质决定。
+
+> **code review（P4 4b）恒 Claude `code-reviewer`，不受 `reviewer` 设置影响**——reviewer=codex/auto 只作用于 P2 design / P3 plan 收敛 review；codex 永不做 code review（design Component E / F）。
 
 #### 降档前置（进维度自适应表之前先判）
 
