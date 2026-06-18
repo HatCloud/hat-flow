@@ -99,29 +99,50 @@ Linear 集成依赖 `@hatcloud/linear-mcp`（通过 `npx` 自动安装，无需�
 
 无人值守模式（unattended）下的 phase 过渡 / 决策 / 完成通知经 Telegram 发送。**这是可选能力**——不配置则无人值守仍可运行，通知静默降级（打印告警）。
 
+通知走 `curl` 直连 Bot API、**与 telegram 插件解耦**（机制见 UNATTENDED_PROTOCOL.md §4）：只要下面**两个字段**就位即可发通知，**不要求装插件**——插件仅负责入站双向交互 / access control。引导用户时必须把两个字段都配齐并验证，缺任一通知都会静默降级。
+
+**通知所需的全部字段：**
+
+| 字段 | 落点 | 作用 |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | telegram 插件的 `.env`（具体路径见下方 step 2 命令） | 调 Bot API 的凭证 |
+| `telegram_chat_id` | `~/.claude/task-defaults.local.json` | 通知发给谁 |
+
 1. AskUserQuestion：是否需要无人值守 Telegram 通知？（需要 / 跳过）
-2. 若需要，提示用户：
-   - 安装 companion 插件：`/plugin install telegram@claude-plugins-official`
-   - 完成配对与策略配置：`/telegram:configure`（或 `/telegram:access`）
-3. 配对完成后，**chat_id 落入 personal local 配置**——这样从 CLI 启动（非 Telegram）的会话也能发通知：
+2. 若需要，按是否还要**双向遥控**二选一拿到 token，写入 `.env`：
+   - **要双向遥控**（从 Telegram 反向给 Claude 发指令 / 远程批准）：装插件 `/plugin install telegram@claude-plugins-official` + `/telegram:configure`——配对会把 token 写入 `.env`、配对人写入 access.json。
+   - **只要单向通知**（无人值守推荐，最省）：找 `@BotFather` 建 bot 拿 token，手动写入 `.env`：
+
+     ```bash
+     mkdir -p ~/.claude/channels/telegram
+     printf 'TELEGRAM_BOT_TOKEN=%s\n' '<你的-bot-token>' > ~/.claude/channels/telegram/.env
+     chmod 600 ~/.claude/channels/telegram/.env
+     ```
+
+3. 配置 chat_id 到 personal local（CLI 启动的会话**没有** Telegram session 上下文，chat_id 只能来自这里；写进任何仓库内文件会污染 hat-flow 分发版，探测优先级见 UNATTENDED_PROTOCOL.md §3）：
 
    ```bash
-   # 1) 从 access.json 读出 allowFrom 里的 chat_id（一般是配对人本人）
-   CHAT_ID=$(python3 -c "import json; d=json.load(open('$HOME/.claude/channels/telegram/access.json')); print(d['allowFrom'][0])")
-
-   # 2) 创建或合并 ~/.claude/task-defaults.local.json
+   # chat_id 来源：装了插件 → 从 access.json 读；没装 → 给 bot 发一条消息后访问
+   #   https://api.telegram.org/bot<token>/getUpdates 取 result[].message.chat.id，或用 @userinfobot 查自己的 id
+   CHAT_ID=$(python3 -c "import json; d=json.load(open('$HOME/.claude/channels/telegram/access.json')); print(d['allowFrom'][0])" 2>/dev/null || true)
+   [ -z "$CHAT_ID" ] && read -rp "输入 chat_id: " CHAT_ID
    mkdir -p ~/.claude
    if [ -f ~/.claude/task-defaults.local.json ]; then
-     python3 -c "import json; p='$HOME/.claude/task-defaults.local.json'; d=json.load(open(p)); d.setdefault('telegram_chat_id','$CHAT_ID'); json.dump(d, open(p,'w'), indent=2, ensure_ascii=False)"
+     python3 -c "import json; p='$HOME/.claude/task-defaults.local.json'; d=json.load(open(p)); d['telegram_chat_id']='$CHAT_ID'; json.dump(d, open(p,'w'), indent=2, ensure_ascii=False)"
    else
      echo "{\"telegram_chat_id\": \"$CHAT_ID\"}" > ~/.claude/task-defaults.local.json
    fi
    chmod 600 ~/.claude/task-defaults.local.json
    ```
 
-   **为什么必须写到 local 配置**：探测优先级见 UNATTENDED_PROTOCOL.md §3。CLI 启动的会话**没有** Telegram session 上下文，chat_id 只能来自 personal local 配置；写进任何仓库内文件都会污染 hat-flow 分发版。
+4. **验证两个字段都就位**（缺一不可）：
 
-4. 验证：跑一次 `cat ~/.claude/task-defaults.local.json`，确认含 `"telegram_chat_id": "<id>"`。
+   ```bash
+   grep -q '^TELEGRAM_BOT_TOKEN=' ~/.claude/channels/telegram/.env 2>/dev/null && echo "✓ token" || echo "✗ 缺 token"
+   grep -q 'telegram_chat_id' ~/.claude/task-defaults.local.json 2>/dev/null && echo "✓ chat_id" || echo "✗ 缺 chat_id"
+   ```
+
+   两项都 ✓ 才算配置完成。可选实发一条测试通知验证连通性：见 UNATTENDED_PROTOCOL.md §4 的 curl 片段。
 5. 不需要 → 跳过；无人值守仍可用（self_test 类型全自动推进，不依赖通知）。
 
 ---

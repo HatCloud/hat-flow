@@ -102,6 +102,8 @@ Reason: the hat-flow pipeline (`hat-task-package`) reads `${CLAUDE_PLUGIN_ROOT}/
 **发送机制**：直接调 Telegram Bot API（`curl`），不依赖 MCP reply tool。broadcast 通知无入站 message 可 reply，MCP `reply` 工具的设计契约不匹配。
 
 ```bash
+[ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -f "$HOME/.claude/channels/telegram/.env" ] \
+  && . "$HOME/.claude/channels/telegram/.env"
 curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
   --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
   --data-urlencode "text=[{task-name}] ${message}" \
@@ -109,8 +111,8 @@ curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" 
 ```
 
 **Token 来源**：
-- `$TELEGRAM_BOT_TOKEN` 由 `telegram@claude-plugins-official` 的 `.env` 提供（位于 plugin 安装目录下）；plugin 进程在跑时已 source 进环境。
-- 独立场景：任何能调 `api.telegram.org` 的 bot token 都可——通知链路与 MCP plugin 完全解耦，plugin 仅承担 access control / access.json 配对。
+- `$TELEGRAM_BOT_TOKEN` 从 telegram 插件的 `.env` 显式 source（见上方 curl 前置行的具体路径）。**不要假设它已在环境里**：telegram MCP server 把 token source 进的是它自己那个 bun 子进程的环境，不会传播到编排器跑 curl 的 shell；且 `telegram@claude-plugins-official` 插件可能被禁用（无头不需要其入站长轮询）。通知链路与 MCP plugin 完全解耦——plugin 仅承担 access control 配对。
+- 独立场景：任何能调 `api.telegram.org` 的 bot token 都可，只要它在 `.env` 里或已 export 到环境。
 
 <rule>
 Use the Bot API directly, not the `mcp__plugin_telegram_telegram__reply` tool, for unattended notifications.
