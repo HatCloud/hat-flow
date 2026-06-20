@@ -1,3 +1,61 @@
+---
+{
+  "name": "review",
+  "description": "设计/计划/代码审查：自我 review、独立 review、per-task review、全量 code review、Revise 触发检测",
+  "recommend_disable_when": [
+    "纯格式调整（空格、换行、排版）"
+  ],
+  "recommend_enable_when": [
+    "涉及安全相关变更",
+    "修改公共 API 或接口"
+  ],
+  "hooks": {
+    "P2.post-design-draft": {
+      "priority": 50,
+      "section": "## P2.post-design-draft",
+      "on_error": "graceful"
+    },
+    "P2.post-design-approved": {
+      "priority": 50,
+      "section": "## P2.post-design-approved",
+      "on_error": "graceful"
+    },
+    "P3.post-plan": {
+      "priority": 50,
+      "section": "## P3.post-plan",
+      "on_error": "graceful"
+    },
+    "P4.per-task-post": {
+      "priority": 30,
+      "section": "## P4.per-task-post",
+      "on_error": "graceful"
+    },
+    "P4.post-execute": [
+      {
+        "priority": 40,
+        "section": "## P4.post-execute/full-review",
+        "on_error": "graceful"
+      },
+      {
+        "priority": 41,
+        "section": "## P4.post-execute/convergence",
+        "on_error": "graceful"
+      },
+      {
+        "priority": 42,
+        "section": "## P4.post-execute/revise-detection",
+        "on_error": "graceful"
+      }
+    ],
+    "P5.test-feedback": {
+      "priority": 50,
+      "section": "## P5.test-feedback",
+      "on_error": "graceful"
+    }
+  }
+}
+---
+
 # Review Plugin
 
 ## P2.post-design-draft
@@ -200,8 +258,7 @@ Review scope 限定为当前 task 变更的文件。
 
 判"触架构文件"以此清单为准：
 - `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）
-- `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.manifest.json`（hook 点声明）
-- `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`（plugin 指令文件——承载派发/评分/状态机等结构性逻辑，含 review.md 自身）
+- `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`（plugin 指令文件 + 顶部 frontmatter hook 声明——承载派发/评分/状态机等结构性逻辑，含 review.md 自身）
 - `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json`
 - `agents/*.md`
 - `bin/*`
@@ -244,7 +301,7 @@ Review scope 限定为当前 task 变更的文件。
 主线程维护「本轮**期待 agentId 集合**」（= Round 1 派发的全部 agentId / Round≥2 复活或改派的 agentId）。每个 completion notification 重入时，按 notification 的 `task-id` 匹配该集合：
 
 - **命中** → 记录该 agent 的 review 结果，标记其已报。
-- **未命中**（linear-sync / 用户消息 / 其他后台 subagent）→ **不计入 join、不推进**，正常吸收后继续等。
+- **未命中**（用户消息 / 其他后台 subagent）→ **不计入 join、不推进**，正常吸收后继续等。
 
 `已报 == 期待全集`？ —— 否 → 结束回合继续等；是 → 汇总全部 findings、按 severity 统计，进入收敛判据。
 
@@ -328,7 +385,7 @@ Reason: the old multi-Critical-count threshold let one or two genuine Critical i
 检查 phases.md 中 4b 步骤是否有 `[→ REVISE RN]` 标记（精确匹配 `REVISE` 前缀；**`[→ 收敛 Rn]` 是收敛循环的临时标注、非回归触发，不在此匹配**）：
 - 如有：进入回归模式——scope 限定为 `git diff revise-rN-start..HEAD`
 - 回归 review 通过后：标记 4b `[x]` + 确认 Revise RN Return 完成
-- 回归 review 不通过：AskUserQuestion——触发新 R(N+1) / 手动修复 / 终止
+- 回归 review 不通过：**[Interactive]** AskUserQuestion——触发新 R(N+1) / 手动修复 / 终止；**[Unattended]** 自动触发新 R(N+1)（沿用原 Revise 深度），达 `max_rounds` 上限**硬停 + Telegram，等 `/task`**——**不走 `UNATTENDED_PROTOCOL.md` §9 A4 续跑**（A4 仅限 design/plan review；回归 review 不通过 = Revise 未修好，accept-with-findings 放行不安全）
 
 ### AI 触发检测（首次执行模式）
 

@@ -5,6 +5,14 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
+# codex-quota 是 codex 可选 helper，靠 jq 解析 rollout 快照。核心任务流程不需要 jq；
+# 无 jq 的干净环境（如 hat-flow 发布前 Docker 验证）下这些测试不适用，整体跳过。
+pytestmark = pytest.mark.skipif(
+    shutil.which("jq") is None,
+    reason="codex-quota 依赖 jq（codex 可选 helper）；无 jq 环境跳过",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "bin" / "codex-quota"

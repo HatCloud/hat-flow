@@ -294,6 +294,8 @@ digraph when_flowchart {
 | **YAGNI** | 没有明确需求就不加功能。 |
 | **No Redundant Constraints** | 每条约束只写一次。不同层级必须提供不同信息，not repeat the same rule。 |
 
+**压缩 / token 优化**额外对照 `references/optimization-rubric.md`——Anthropic 官方文档一手鉴真的 11 条优化准则（500 行上限、三级渐进披露、reference 一层深 + >100 行加 TOC、按脆弱度设自由度、默认+逃生口、术语一致无时效、JIT 上下文等）+ Source Ledger。压缩或 review 既有 skill 时逐条过。
+
 ## Proven Patterns
 
 经过 ISSUE/238 两轮 dogfooding 验证的设计模式。Skill 作者可根据需要采用。

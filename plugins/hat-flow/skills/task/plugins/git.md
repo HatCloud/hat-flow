@@ -1,3 +1,46 @@
+---
+{
+  "name": "git",
+  "description": "Git 提交纪律：dirty file 检查、Commit Checkpoint、分支合并、tag 清理",
+  "recommend_disable_when": [],
+  "recommend_enable_when": [],
+  "hooks": {
+    "P1.phase-start": {
+      "priority": 20,
+      "section": "## P1.phase-start",
+      "on_error": "blocking"
+    },
+    "P3.phase-end": {
+      "priority": 20,
+      "section": "## P3.phase-end",
+      "on_error": "blocking"
+    },
+    "P4.per-task-post": [
+      {
+        "priority": 40,
+        "section": "## P4.per-task-post/formatter",
+        "on_error": "blocking"
+      },
+      {
+        "priority": 50,
+        "section": "## P4.per-task-post/commit-checkpoint",
+        "on_error": "blocking"
+      }
+    ],
+    "P6.pre-archive": {
+      "priority": 20,
+      "section": "## P6.pre-archive",
+      "on_error": "blocking"
+    },
+    "P6.post-archive": {
+      "priority": 20,
+      "section": "## P6.post-archive",
+      "on_error": "graceful"
+    }
+  }
+}
+---
+
 # Git Plugin
 
 > **关于交互（spec-task-skill 约定 9 Interaction Front-Loading）**：本插件仅 **P4.per-task-post 为零阻塞交互**（commit 自动、不弹确认）。P1.phase-start 的 dirty 处理与 P6.post-archive 的分支菜单**保留 AskUserQuestion**——它们分属 Init / End 决策点，受约定 9 豁免（Init 集中收集决策、P5-P6 自然决策点）。修改时勿误把 P1/P6 的交互当作违反 P4 零交互。

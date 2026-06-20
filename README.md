@@ -17,8 +17,7 @@ resumable, reviewable engineering process.
   (`full` / `standard` / `lite` / `hotfix`).
 - **Independent review** — dedicated code / design / plan reviewers run as
   read-only subagents, separate from the agent doing the work.
-- **TDD discipline** — optional red-green-refactor enforcement with timing
-  instrumentation.
+- **TDD discipline** — optional red-green-refactor enforcement.
 - **Resumable across sessions** — the orchestrator reads `phases.md` to know
   exactly where to pick a task back up.
 
@@ -26,11 +25,12 @@ resumable, reviewable engineering process.
 
 These tools must be on your `PATH` before installing:
 
-- **`jq`** — required. The plugin hook engine parses manifests/config with it;
-  without `jq` all task-workflow plugins (review/linear/git/timing) silently
-  fail to fire. Install: `brew install jq` / `apt-get install jq`.
-- **`python3`** (3.8+) — required. Several workflow helpers and bin scripts run
-  on it.
+- **`python3`** (3.8+) — required. The plugin hook engine and the workflow
+  helpers / bin scripts all run on it. (The hook engine is pure Python — no
+  `jq` needed.)
+- **`jq`** — optional. Only the `codex-quota` Codex-quota helper uses it; the
+  core task workflow needs no `jq`. Install if you use Codex quota display:
+  `brew install jq` / `apt-get install jq`.
 - **`node`** (with `npx`) — only needed for the optional Linear integration
   (`@hatcloud/linear-mcp` is launched via `npx`).
 - **Codex** (optional external plugin `openai-codex`) — only used when
@@ -310,18 +310,17 @@ Flag overrides become sparse JSON merged as layer ④ via
 
 | Key | Type | Default | Function |
 |---|---|---|---|
-| `observability.enabled` | bool | `false` in this distribution | Gates `hat-timing-stamp` writes; disabled by the export override. |
 | `todo_sync` | bool | `true` | Sync `phases.md` to `TaskCreate` / `TaskUpdate` UI. |
 | `phase_merge` | array | `[]` | E.g. `[[3,4]]` skips the P3→P4 pause. **P5→P6 can never be merged.** |
 
 ### Presets
 
-| Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `observability` | `todo_sync` | Typical use |
-|--------|------------------|------------|----------------|--------------------|------------------|-----------------|--------------|------------|
-| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | `true` | Large refactors, contract-sensitive work |
-| `standard` (default) | `auto` | `lite` | `medium` | `each` | `true` | `true` | `true` | General-purpose |
-| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | `true` | Small changes, docs |
-| `hotfix` | `inline` | `none` | `skip` | (skipped) | `false` | **`false`** | **`false`** | Emergency fixes (minimum overhead) |
+| Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `todo_sync` | Typical use |
+|--------|------------------|------------|----------------|--------------------|------------------|--------------|------------|
+| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | Large refactors, contract-sensitive work |
+| `standard` (default) | `auto` | `lite` | `medium` | `each` | `true` | `true` | General-purpose |
+| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | Small changes, docs |
+| `hotfix` | `inline` | `none` | `skip` | (skipped) | `false` | **`false`** | Emergency fixes (minimum overhead) |
 
 > Override any field via layer ② (`~/.claude/task-defaults.local.json`),
 > layer ③ (`<project>/task-defaults.json`), or call-time flag (highest).

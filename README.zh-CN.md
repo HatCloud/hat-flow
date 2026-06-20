@@ -16,17 +16,17 @@
   `hotfix`）开关。
 - **独立 review**——专门的 code / design / plan reviewer 以只读 subagent
   运行，与执行任务的 agent 分离。
-- **TDD 纪律**——可选的红-绿-重构强制约束，带 timing 埋点。
+- **TDD 纪律**——可选的红-绿-重构强制约束。
 - **跨 session 可恢复**——编排器读取 `phases.md` 精确判断任务从何处续跑。
 
 ## 依赖要求
 
 安装前请确保以下命令在 `PATH` 中：
 
-- **`jq`**（必需）——hook 引擎靠它解析 manifest/config；缺失则
-  review/linear/git/timing 等**所有插件 hook 静默失效**。安装：
-  `brew install jq` / `apt-get install jq`。
-- **`python3`**（必需，3.8+）——部分流程辅助逻辑与 bin 脚本运行其上。
+- **`python3`**（必需，3.8+）——hook 引擎与全部流程辅助逻辑 / bin 脚本均
+  运行其上（hook 引擎是纯 Python，不再需要 `jq`）。
+- **`jq`**（可选）——仅 `codex-quota` 配额 helper 使用；核心任务流程不需要。
+  若要用 Codex 配额显示再装：`brew install jq` / `apt-get install jq`。
 - **Codex**（可选外部插件 `openai-codex`）——仅当 `plugins.review.reviewer` 或 `execution.engine` 设为 `codex` / `auto` 时使用。未安装时 `codex-check` 返回 `FALLBACK:`，流程自动降级为 Claude reviewer / executor，不报错。
 - **`node`**（含 `npx`）——仅可选的 Linear 集成需要（`@hatcloud/linear-mcp`
   经 `npx` 拉起）。
@@ -281,18 +281,17 @@ JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
 
 | Key | 类型 | 默认 | 功能 |
 |---|---|---|---|
-| `observability.enabled` | bool | 本分发版默认 `false` | gate `hat-timing-stamp` 写入；由导出软关闭 |
 | `todo_sync` | bool | `true` | 同步 `phases.md` 到 `TaskCreate` / `TaskUpdate` UI |
 | `phase_merge` | array | `[]` | 例：`[[3,4]]` 表示 P3→P4 无停顿。**P5→P6 永不可合并** |
 
 ### Preset 档位
 
-| Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `observability` | `todo_sync` | 典型场景 |
-|--------|------------------|------------|----------------|--------------------|------------------|-----------------|--------------|----------|
-| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | `true` | 大型重构、契约敏感 |
-| `standard`（缺省） | `auto` | `lite` | `medium` | `each` | `true` | `true` | `true` | 通用默认 |
-| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | `true` | 小改动、文档 |
-| `hotfix` | `inline` | `none` | `skip` | （跳过） | `false` | **`false`** | **`false`** | 紧急修复（最低开销） |
+| Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `todo_sync` | 典型场景 |
+|--------|------------------|------------|----------------|--------------------|------------------|--------------|----------|
+| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | 大型重构、契约敏感 |
+| `standard`（缺省） | `auto` | `lite` | `medium` | `each` | `true` | `true` | 通用默认 |
+| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | 小改动、文档 |
+| `hotfix` | `inline` | `none` | `skip` | （跳过） | `false` | **`false`** | 紧急修复（最低开销） |
 
 > 任何字段都可经层 ②（`~/.claude/task-defaults.local.json`）、层 ③
 > （`<project>/task-defaults.json`）或调用 flag（最高）覆盖。

@@ -1,3 +1,31 @@
+---
+{
+  "name": "tdd",
+  "description": "TDD 方法论：Full/Lite TDD 循环指令注入、RED 异常检测",
+  "recommend_disable_when": [
+    "纯文档/配置/SKILL.md 修改，无代码变更",
+    "项目无测试框架（无 test runner 配置文件）",
+    "单文件小修改（拼写、格式等）"
+  ],
+  "recommend_enable_when": [
+    "涉及核心业务逻辑变更",
+    "修改已有测试覆盖的模块"
+  ],
+  "hooks": {
+    "P4.per-task-pre": {
+      "priority": 60,
+      "section": "## P4.per-task-pre",
+      "on_error": "blocking"
+    },
+    "P4.per-task-post": {
+      "priority": 20,
+      "section": "## P4.per-task-post",
+      "on_error": "blocking"
+    }
+  }
+}
+---
+
 # TDD Plugin
 
 ## P4.per-task-pre
@@ -65,11 +93,3 @@ The following is this project's test-writing specification. Follow it when writi
   - **on_error: blocking** — 阻断流程
   - **[Interactive]** AskUserQuestion：验收标准是否正确？
   - **[Unattended]** 发送 Telegram 通知 `[task-name] TDD RED 步骤异常：验证在实现前通过`，暂停等待
-
-### TDD 验证状态记录
-
-将 TDD 执行结果记录到 timing.jsonl，经 core helper（自带顶层 `observability.enabled` 门控，关闭档 → no-op，无需 tdd 自判 observability 开关）：
-```bash
-hat-timing-stamp {task-folder} tdd_cycle P4 task="Task {N}" mode=full|lite red_pass=false green_pass=true
-```
-保留 `tdd_cycle` 事件名与 `red_pass`/`green_pass`/`mode` 字段（领域数据，非纯计时）。`red_pass`/`green_pass` 按本次实际 cycle 结果填（常态：RED 未意外通过 → `red_pass=false`，GREEN 通过 → `green_pass=true`）。该 `tdd_cycle` 与 obs 的 `task_end` 是 P4.per-task-post 上两个不同事件，各写一行、不撞名。

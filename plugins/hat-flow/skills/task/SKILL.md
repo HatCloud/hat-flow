@@ -12,8 +12,7 @@ self-evolving: true
 
 **Unattended / Quiet Mode：** 入口 **Step 0** 统一解析 `$ARGUMENTS`，由显式信号（`-q` / `--quiet` / `--headless` / 「无人值守」关键词）确立 `quiet_mode` 与 `flag_overrides`。quiet_mode=true 时在进入 Init 前即按无人值守语义执行，并由 task-init 1f 物化 `unattended.json`（新任务）；恢复既有任务时若 `unattended.json` 已存在则静默沿用。Phase 过渡时的 Step 2A.1 为后备激活入口（仅文件不存在时询问）。
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -60,86 +59,13 @@ Reason: self-assessed "trivial" changes frequently turn out to have hidden compl
 
 ## TODO Sync (TaskCreate / TaskUpdate)
 
-phases.md 是跨 session 的持久化状态源,但用户在当前 session 中无法实时看到进度。**必须使用 Claude Code 内置的 TaskCreate / TaskUpdate 工具同步进度到 UI**。
-
-### 双层结构
-
-TODO 列表由两层组成:
-
-1. **概览行 (overview)**: 始终存在的一条 task,subject 格式为 `[任务名] ✔P1:Init ✔P2:Design ▶P3:Plan ◻P4:Execute ◻P5:Test ◻P6:End`。status 始终为 `in_progress`(显示 spinner)。Phase 切换时更新 subject 中的符号:
-   - `✔` = 已完成
-   - `▶` = 当前进行中
-   - `◻` = 未开始
-   - Phase 标题用**一个英文单词**概括(Init / Design / Plan / Execute / Test / End)
-   - metadata: `{"level": "overview", "task": "<task-folder-name>"}`
-
-2. **当前阶段子步骤 (step)**: 当前 phase 的每个步骤一条 task,subject 前缀 `→`。Phase 切换时:**删除旧阶段所有 step 级 task,创建新阶段的 step 级 task**。metadata: `{"level": "step", "phaseNum": N, "stepId": "Na"}`
-
-### 显示效果
-
-```
-◼ [M0] ✔P1:Init ✔P2:Design ▶P3:Plan ◻P4:Execute ◻P5:Test ◻P6:End
-◻ → 3a. 生成 plan
-◻ → 3b. Plan 忠实度评估
-◻ → 3c. 提交任务文档
-◻ → 3d. Linear 同步
-```
-
-### 生命周期规则
-
-1. **任务启动时 (Phase 1 开始)**: **先**创建概览行 `[任务名] ▶P1:Init ◻P2:Design ◻P3:Plan ◻P4:Execute ◻P5:Test ◻P6:End` 并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 Phase 1 的 step 级 task（概览行必须拿到最小 ID 以固定在首行）。
-2. **Phase 切换时**:
-   - 删除当前阶段所有 `level: "step"` 的 task (TaskUpdate status: deleted)
-   - 更新概览行 subject (把完成的 phase 改 `✔`,新 phase 改 `▶`)
-   - 创建新阶段的 step 级 task
-3. **步骤开始时**: `TaskUpdate(status: "in_progress")`
-4. **步骤完成时**: `TaskUpdate(status: "completed")` + 同步更新 phases.md
-5. **跨 session 恢复时**: TaskCreate 列表丢失(session 级)。恢复时先 `TaskList` 检查是否已有 `level: "overview"` 的 task；若有则 `TaskUpdate` 更新 subject，若无则**先**从 phases.md 重建概览行（确保拿到最小 ID）并**立即** `TaskUpdate(status: "in_progress")`。**然后**再重建当前阶段 step 级 task，已完成步骤标记 completed。
-6. **任务结束时 (`/task-end`)**: 概览行标记 completed,所有 step 级 task 删除。
-
-<rule>
-Every phase skill execution MUST maintain the two-layer TODO structure: one overview line + current phase steps. phases.md and TaskCreate/TaskUpdate must stay in sync at all times.
-Reason: phases.md is invisible to the user during the session. The two-layer TODO is the only way the user sees both overall progress and current-step granularity.
-</rule>
+phases.md 是跨 session 的持久化状态源，但用户在当前 session 中无法实时看到进度，故**必须用 Claude Code 内置的 TaskCreate / TaskUpdate 同步进度到 UI**。双层结构（概览行 + 当前 phase step）、显示效果、生命周期规则与 Bootstrap 恢复逻辑的完整契约见 `task/references/todo-sync.md`。
 
 ---
 
 ## Hook Execution Routing
 
-每个 plugin hook 在 manifest 中声明 `execution` 模式，编排器据此路由：
-
-| `execution` | 路由 |
-|---|---|
-| `inline`（缺省） | `hat-plugin-hook` 正常输出指令正文，主线程同步执行（当前行为） |
-| `subagent:{name}` | 不在主线程执行；`hat-plugin-hook` 改为输出 `<!-- DISPATCH ... -->` 指令，编排器据此派一次性后台 subagent 异步执行（见 Subagent Async Dispatch） |
-
-`hat-plugin-hook` 默认对 `execution != inline` 的 hook **不输出指令正文**，而是输出一条机器可读的 `<!-- DISPATCH ... -->` 指令（并 stderr 提示 `[subagent] ...dispatched async`）。脚本**无状态、不检测任何环境变量**——每次按当前 manifest config 重新路由。`--no-filter` 参数强制全部 hook 输出 inline 正文（降级 / 测试逃生口）。
-
-> **subagent 模式不依赖任何实验特性 flag**：`Agent` 工具对主线程恒可用，无 agent-teams 类实验开关依赖，无常驻成员生命周期、无跨 session 蒸发问题（一次性派发，结束即自终结）。
-
-## Subagent Async Dispatch
-
-每个 phase skill 运行 `hat-plugin-hook {task-folder} {hook-point}` 后，编排器对其 **stdout** 的统一处理（**不下沉到各 phase skill** 的 hook 调用点逻辑）：
-
-```
-逐行读 hat-plugin-hook stdout：
-  - inline section（注释头 `<!-- plugin:.. execution:inline -->` + 正文）
-        → 主线程同步执行该指令
-  - DISPATCH 指令 `<!-- DISPATCH plugin:P hook:H name:N model:M subagent_type:T section:S -->`
-        → 编排器先从 `{P}.md` targeted 抽取 `## {H}` 与 `{S}`（即 `## Subagent Context`）两段 section 正文（按 `## ` 标题切片；{P}.md 仅约 200 行，抽 2 段成本极低），拼进派发 prompt；
-          （**事实注入**：P3.phase-end 注入主线程从 design.md 提取的 Overview 1-2 行；P6.pre-archive 注入主线程从 final.md 提取的 3-5 行摘要——均由主线程提取后注入，subagent 不读源文档；见 B1/B2）
-          Agent(subagent_type=T, model=M, run_in_background=true,
-                prompt = "你是被派发的一次性 N subagent，负责插件 P 的 H 异步执行。
-                          **按下方已注入的 section 正文执行，不要 Read {P}.md / design.md / plan.md / final.md**：
-                          〈## {H} 正文〉…〈## Subagent Context 正文〉〈事实注入文本：P3=design Overview / P6=final.md 摘要 / 其他 hook 省略〉
-                          task-folder={task-folder 绝对路径}；仅 Read {task-folder}/linear.json 取 issueUuid；
-                          幂等；失败在 result 文本写明（graceful）。")
-          fire-and-forget，不等待、不设超时，继续主流程
-```
-
-- **completion notification**：派发的后台 subagent 结束时回传 notification。主线程 graceful 吸收（记 timing.jsonl 或忽略），**不阻塞**——异步语义。
-- **错误处理**：subagent 无 `SendMessage`，失败只在其 result 文本体现。主线程收到 notification 后按该 hook `on_error` 处理：`graceful`（Linear 全部为 graceful）→ 记 timing.jsonl 继续；`blocking` → 降级主线程 inline 重试。无响应不阻塞主流程——代价是该次同步静默丢失，由幂等性 + 下个 phase / P6 兜底覆盖。
-- **resume 安全**：一次性 subagent 无跨 session 状态；resume 中途丢失顶多丢一次同步（幂等覆盖），无 team / 陈旧字段需清理或重建。
+每个 phase skill 运行 `hat-plugin-hook {task-folder} {hook-point}` 后，编排器对其 **stdout 逐段同步 inline 执行**：每段以注释头 `<!-- plugin:P hook:H on_error:E -->` 开头、后随指令正文，按输出顺序在主线程执行。`hat-plugin-hook` 无状态、不检测任何环境变量——每次按当前 frontmatter config 重新解析路由；所有 hook 均为 inline。`on_error: blocking` 的 hook 失败即中止，`graceful` 记录后继续。
 
 ---
 
@@ -289,7 +215,7 @@ Reason: a dismissed prompt is not a choice — inferring "the user meant the rec
 | 所有 Revise section 均为 DONE/DEFERRED 且 DONE 的 Return 步骤为 `[x]` | 忽略这些 section，继续下方 Phase 路由 |
 
 **编排器层错误处理**：
-- phases.md 格式损坏（无法解析 Revise section）→ AskUserQuestion：手动修复 / 忽略 Revise 继续正常路由
+- phases.md 格式损坏（无法解析 Revise section）→ **[Interactive]** AskUserQuestion：手动修复 / 忽略 Revise 继续正常路由；**[Unattended]** 暂停 + Telegram 通知，等 `/task` 恢复（状态文件损坏属 §9 HARD-STOP：自动「忽略 Revise 续跑」可能丢 IN_PROGRESS 的 revise 半成品，倾向暂停而非 auto-cancel，见 `UNATTENDED_PROTOCOL.md` §8/§9）
 - Revise section 引用的 Return 步骤不存在 → 忽略该 Revise section，按正常 Phase 路由
 
 #### Phase 路由
@@ -314,7 +240,7 @@ Reason: a dismissed prompt is not a choice — inferring "the user meant the rec
 
 <HARD-GATE>
 Before executing any step of any phase, you MUST Read that phase's SKILL.md in the current turn. Never execute a phase from memory or from a conversation summary.
-Reason: each phase SKILL.md carries the hook calls (observability/review/git/linear) that produce the phase's artifacts. Skipping the read silently skips the hooks, and the task archives with missing artifacts — the failure stays invisible until task-end. Real case: bin-unit-tests L866 claimed "read task-end SKILL.md" but never actually read it, so P5/P6 hooks never ran and conversation.md was never generated. This is a HARD-GATE, not a soft rule: a missed read poisons every downstream artifact.
+Reason: each phase SKILL.md carries the hook calls (review/git/linear) that produce the phase's artifacts. Skipping the read silently skips the hooks, and the task archives with missing artifacts — the failure stays invisible until task-end. Real case: bin-unit-tests L866 claimed "read task-end SKILL.md" but never actually read it, so P5/P6 hooks never ran and conversation.md was never generated. This is a HARD-GATE, not a soft rule: a missed read poisons every downstream artifact.
 </HARD-GATE>
 
 **Rationalization 表**（执行任何 phase 前自检——命中任意一条即停下，先 Read 当前 phase SKILL.md）：
@@ -350,9 +276,6 @@ Reason: each phase SKILL.md carries the hook calls (observability/review/git/lin
    - **PASS** → 继续
    - **FAIL** → 尝试 fallback 补齐缺失文件（主 agent 按 task-config 与 design.md 补齐）。补齐后重跑检查。
    - 仍 FAIL → 阻断推进，告知用户缺失的文件列表
-   - **Timing 检查**：脚本校验 timing.jsonl 含 `P{N}` 的 `phase_end`——缺 `phase_end` 为**非阻断警告**（WS-D，不挡推进），缺 `phase_start` 为**硬 FAIL**；observability 关闭时 timing 检查整体 no-op（fail-open）
-
-   > **Timing 语义**：`hat-task-artifact-check` 区分两类——缺 `phase_start` 为**硬 FAIL**（计入 MISSING，阻断推进）；缺 `phase_end` 为**软警告**（不计入 MISSING，仅输出 ⚠️，不阻断）。`observability.enabled = false` 时 timing 整体 fail-open（no-op）。
 2. **Compact 建议**（仅 Plan 完成后、且 Interactive 模式触发）：
    - **前置门（最先判断）**：读取 `{task-folder}/unattended.json`。若 `enabled == true`（已是无人值守），**或** `enabled == false` 且 `activate_after` 匹配当前过渡点（本过渡点步骤 3 即将激活无人值守）→ **完全跳过本步，不输出任何 `/compact` 块**，直接进入步骤 3。这是前置条件判断，不是"先输出再说跳过"。
    - **触发条件**（仅 Interactive）：刚完成的阶段是 Plan
@@ -375,7 +298,7 @@ Reason: a /compact suggestion is a soft stop that waits for a user reply. In una
    - **3-c.** 其余情况（文件存在且 `enabled == true`，或存在但 `activate_after` 不匹配当前过渡点且非 declined）：静默继续，不询问
 
 **[Unattended]** 步骤 3 的激活/询问自身可无人值守推进：activate_after 匹配 → 自动翻 `enabled`（无需人工）；已 `enabled:true` → 静默继续；仅"文件不存在 + 未给无人值守意图"才走 Step 2A.1 的交互询问（Interactive 路径）。
-4. **End 准入检查**：Test 完成后，步骤 1.5 已对 phase 5 跑产物门控（`hat-task-artifact-check {task-folder} 5`，即 P5 门控——确认 Test 阶段产物齐全、Layer 2 timing 痕迹存在）。门控 PASS 后，若 End 仍 PENDING → 硬停，告知用户调用 `/task-end`。门控 FAIL → 先按步骤 1.5 补齐/阻断，不进入 End。仅 unattended self_test 模式允许自动推进。
+4. **End 准入检查**：Test 完成后，步骤 1.5 已对 phase 5 跑产物门控（`hat-task-artifact-check {task-folder} 5`，即 P5 门控——确认 Test 阶段产物齐全）。门控 PASS 后，若 End 仍 PENDING → 硬停，告知用户调用 `/task-end`。门控 FAIL → 先按步骤 1.5 补齐/阻断，不进入 End。仅 unattended self_test 模式允许自动推进。
 5. 否则：加载下一个阶段的 SKILL.md，继续执行
 
 重复直到 Test 完成（End 由用户手动触发）。
@@ -487,6 +410,8 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 
 本 orchestrator `self-evolving: true`，每轮收尾沉淀**编排决策类**经验。完整自进化过程准则（裁决漏斗 / 写入闸 / 整合 / changelog 纪律）由启动时硬注入的受管全局母本 `spec-skill/references/self-evolution-canonical.md` 提供（spec-skill canonical，受管·勿改），此处不再手写以防漂移。
 
+**Changelog 归并**：task 套件全体 skill 的 changelog 已合并进本 orchestrator 的 `references/changelog.md`（按 skill 分节，原各 worker 的 `references/changelog.md` 已删除）。受管准则中通用的 `references/changelog.md` 即指此文件——本 orchestrator 自进化条目写入 `## task (orchestrator)` 节顶部；其余 skill 为编排 worker（非 self-evolving），历史条目在此归档只读。
+
 **task 专属归属补充**：往 `lessons.md` 写一条前，除受管准则的写入闸外，再追问归属——「这条下次会在 task 的哪个编排决策点（路由/分支/无人值守/跨 worker 协调）被读到？」执行细节属对应 worker（task-init/-design/… 各自的 lessons），不放这里；不给编排族另建 series 级公共经验库。
 
 ## Dependencies
@@ -496,4 +421,3 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 - **Scripts**: hat-task-detect, hat-task-artifact-check, hat-plugin-hook
 - **State files**: `{task-folder}/phases.md`, `{task-folder}/task-config.json`
 - **Unattended state**: `{task-folder}/unattended.json`
-- **Subagent dispatch（条件依赖）**: `Agent`（`run_in_background=true` 派发一次性后台 subagent 执行 `subagent:{name}` 模式的 hook，见 Subagent Async Dispatch）——主线程恒可用，无实验特性依赖；无 enabled 插件声明 `subagents` 时不触发

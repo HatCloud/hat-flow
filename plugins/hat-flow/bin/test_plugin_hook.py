@@ -2,11 +2,12 @@
 TDD tests for bin/hat-plugin-hook robustness fixes.
 Run: python3 -m pytest bin/test_plugin_hook.py -x -q
 """
-import os
-import shutil
-import subprocess
 import json
+import os
+import subprocess
 from pathlib import Path
+
+import pytest
 
 HOOK_BIN = Path(__file__).parent / "hat-plugin-hook"
 
@@ -18,31 +19,6 @@ def run_hook(*args, **kwargs):
         capture_output=True,
         text=True,
     )
-
-
-def test_missing_jq_fails_loudly(tmp_path):
-    """jq absent → exit 1 with an actionable error, not silent hook loss.
-
-    Regression for the clean-env packaging defect: jq was an undeclared hard
-    dependency, so a fresh environment lost every plugin hook silently.
-    """
-    task_folder = tmp_path / "task"
-    task_folder.mkdir()
-    (task_folder / "task-config.json").write_text("{}\n")
-    bindir = tmp_path / "nojq-bin"
-    bindir.mkdir()
-    for cmd in ("env", "bash", "dirname", "pwd"):
-        p = shutil.which(cmd)
-        if p:
-            os.symlink(p, bindir / cmd)
-    result = subprocess.run(
-        [str(HOOK_BIN), str(task_folder), "P1.phase-start"],
-        capture_output=True,
-        text=True,
-        env={"PATH": str(bindir)},
-    )
-    assert result.returncode == 1, f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    assert "jq" in result.stderr.lower()
 
 
 def test_insufficient_args():
@@ -109,11 +85,18 @@ def test_valid_no_plugins(tmp_path):
 # --- Happy path integration tests ---
 
 
+def _write_plugin(plugins_dir, name, manifest, md_body):
+    """Write a plugin as a single .md with JSON frontmatter (the migrated format):
+    the manifest lives in a leading `---`-fenced block, the instruction body follows."""
+    fm = json.dumps(manifest, ensure_ascii=False, indent=2)
+    (plugins_dir / f"{name}.md").write_text(f"---\n{fm}\n---\n\n{md_body}", encoding="utf-8")
+
+
 def _setup_plugin_env(tmp_path, hook_point="P1.phase-start"):
     """Create a minimal plugin environment for happy-path testing.
 
     Returns (task_folder, plugins_dir) where plugins_dir contains a
-    test plugin with a manifest and .md instruction file.
+    test plugin whose .md carries the manifest in frontmatter.
     """
     task_folder = tmp_path / "task"
     task_folder.mkdir()
@@ -121,7 +104,6 @@ def _setup_plugin_env(tmp_path, hook_point="P1.phase-start"):
     plugins_dir = tmp_path / "plugins"
     plugins_dir.mkdir()
 
-    # Manifest: single hook registration
     manifest = {
         "name": "testplugin",
         "description": "test",
@@ -133,11 +115,8 @@ def _setup_plugin_env(tmp_path, hook_point="P1.phase-start"):
             }
         },
     }
-    (plugins_dir / "testplugin.manifest.json").write_text(json.dumps(manifest))
-
-    # Instruction file with matching section
-    md_content = "## Test Section\n\nThis is test instruction content.\n\nWith multiple lines.\n\n## Other Section\n\nShould not appear.\n"
-    (plugins_dir / "testplugin.md").write_text(md_content)
+    md_body = "## Test Section\n\nThis is test instruction content.\n\nWith multiple lines.\n\n## Other Section\n\nShould not appear.\n"
+    _write_plugin(plugins_dir, "testplugin", manifest, md_body)
 
     # task-config.json enabling the plugin
     config = {"plugins": {"testplugin": {"enabled": True}}}
@@ -147,42 +126,13 @@ def _setup_plugin_env(tmp_path, hook_point="P1.phase-start"):
 
 
 def _run_hook_with_plugins_dir(task_folder, hook_point, plugins_dir):
-    """Run hat-plugin-hook with a custom PLUGINS_DIR."""
-    import os
-
-    env = os.environ.copy()
-    # Read the script source to understand how to override PLUGINS_DIR.
-    # The script self-locates: SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)",
-    # PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins". We override it for the test.
-    # Simpler: create a wrapper that overrides PLUGINS_DIR.
-    wrapper = task_folder.parent / "hook-wrapper.sh"
-    wrapper.write_text(
-        f'#!/usr/bin/env bash\n'
-        f'export PLUGINS_DIR="{plugins_dir}"\n'
-        f'source "{HOOK_BIN}" "$@"\n'
-    )
-    wrapper.chmod(0o755)
-
-    # Actually, sourcing won't work because hat-plugin-hook calls exit.
-    # Instead, use sed to replace PLUGINS_DIR in a copy of the script.
-    import shutil
-
-    hook_copy = task_folder.parent / "hat-plugin-hook-test"
-    shutil.copy2(HOOK_BIN, hook_copy)
-    hook_copy.chmod(0o755)
-
-    # Replace the PLUGINS_DIR line
-    content = hook_copy.read_text()
-    content = content.replace(
-        'PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins"',
-        f'PLUGINS_DIR="{plugins_dir}"',
-    )
-    hook_copy.write_text(content)
-
+    """Run hat-plugin-hook with a custom PLUGINS_DIR (env override)."""
+    env = {**os.environ, "PLUGINS_DIR": str(plugins_dir)}
     return subprocess.run(
-        [str(hook_copy), str(task_folder), hook_point],
+        [str(HOOK_BIN), str(task_folder), hook_point],
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -238,8 +188,7 @@ def test_happy_path_multiple_plugins_priority(tmp_path):
                 }
             },
         }
-        (plugins_dir / f"{name}.manifest.json").write_text(json.dumps(manifest))
-        (plugins_dir / f"{name}.md").write_text(f"## Hook\n\n{content}\n")
+        _write_plugin(plugins_dir, name, manifest, f"## Hook\n\n{content}\n")
 
     config = {"plugins": {"alpha": {"enabled": True}, "beta": {"enabled": True}}}
     (task_folder / "task-config.json").write_text(json.dumps(config))
@@ -255,8 +204,13 @@ def test_happy_path_multiple_plugins_priority(tmp_path):
     )
 
 
-def test_happy_path_missing_md_file_graceful(tmp_path):
-    """Plugin enabled, manifest exists, but .md file missing: graceful skip."""
+def test_happy_path_missing_section_graceful(tmp_path):
+    """Frontmatter declares a hook section the body lacks: graceful skip, exit 0.
+
+    Post-migration the manifest lives in the .md frontmatter, so 'manifest present
+    but .md missing' is unrepresentable; the surviving graceful path is a declared
+    section with no matching `## ` heading in the body.
+    """
     task_folder = tmp_path / "task"
     task_folder.mkdir()
     plugins_dir = tmp_path / "plugins"
@@ -272,8 +226,8 @@ def test_happy_path_missing_md_file_graceful(tmp_path):
             }
         },
     }
-    (plugins_dir / "broken.manifest.json").write_text(json.dumps(manifest))
-    # Intentionally no broken.md file
+    # Body intentionally lacks the declared `## Hook` heading.
+    _write_plugin(plugins_dir, "broken", manifest, "## Other\n\nUnrelated.\n")
 
     config = {"plugins": {"broken": {"enabled": True}}}
     (task_folder / "task-config.json").write_text(json.dumps(config))
@@ -286,15 +240,12 @@ def test_happy_path_missing_md_file_graceful(tmp_path):
 # --- execution mode filtering tests ---
 
 
-def _setup_execution_env(tmp_path, hooks, plugin_name="execplugin", subagents=None):
+def _setup_execution_env(tmp_path, hooks, plugin_name="execplugin"):
     """Create a plugin env where `hooks` maps hook_point -> hook config.
 
     A hook config may be a single dict (object form) or a list of dicts
-    (array form). Each config may include an `execution` field. `subagents`,
-    if given, is written as the manifest's top-level subagents block (so
-    subagent:NAME hooks can resolve model/subagent_type/context_section for
-    the DISPATCH directive). The .md file gets one section per config's
-    `section` title. Returns (task_folder, plugins_dir).
+    (array form). The .md file gets one section per config's `section`
+    title. Returns (task_folder, plugins_dir).
     """
     task_folder = tmp_path / "task"
     task_folder.mkdir()
@@ -302,9 +253,6 @@ def _setup_execution_env(tmp_path, hooks, plugin_name="execplugin", subagents=No
     plugins_dir.mkdir()
 
     manifest = {"name": plugin_name, "description": "test", "hooks": hooks}
-    if subagents is not None:
-        manifest["subagents"] = subagents
-    (plugins_dir / f"{plugin_name}.manifest.json").write_text(json.dumps(manifest))
 
     md_parts = []
     for value in hooks.values():
@@ -312,7 +260,7 @@ def _setup_execution_env(tmp_path, hooks, plugin_name="execplugin", subagents=No
         for cfg in configs:
             title = cfg["section"]
             md_parts.append(f"{title}\n\nContent for {title}.\n")
-    (plugins_dir / f"{plugin_name}.md").write_text("\n".join(md_parts))
+    _write_plugin(plugins_dir, plugin_name, manifest, "\n".join(md_parts))
 
     config = {"plugins": {plugin_name: {"enabled": True}}}
     (task_folder / "task-config.json").write_text(json.dumps(config))
@@ -320,148 +268,176 @@ def _setup_execution_env(tmp_path, hooks, plugin_name="execplugin", subagents=No
 
 
 def _run_hook_copy(task_folder, plugins_dir, *args):
-    """Run a PLUGINS_DIR-overridden copy of hat-plugin-hook with arbitrary args."""
-    import shutil
-
-    hook_copy = task_folder.parent / "hat-plugin-hook-test"
-    shutil.copy2(HOOK_BIN, hook_copy)
-    hook_copy.chmod(0o755)
-    content = hook_copy.read_text().replace(
-        'PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins"',
-        f'PLUGINS_DIR="{plugins_dir}"',
-    )
-    hook_copy.write_text(content)
+    """Run hat-plugin-hook with a PLUGINS_DIR env override and arbitrary args."""
+    env = {**os.environ, "PLUGINS_DIR": str(plugins_dir)}
     return subprocess.run(
-        [str(hook_copy), str(task_folder)] + list(args),
+        [str(HOOK_BIN), str(task_folder)] + list(args),
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
-def test_execution_inline_in_header(tmp_path):
-    """Hook with execution=inline: comment header shows execution:inline."""
+def test_header_format_has_no_execution_field(tmp_path):
+    """Comment header is `<!-- plugin:P hook:H on_error:E -->` — no execution field."""
     hooks = {
         "P1.phase-start": {
             "priority": 10,
             "section": "## Inline Hook",
             "on_error": "graceful",
-            "execution": "inline",
         }
     }
     task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks)
     result = _run_hook_copy(task_folder, plugins_dir, "P1.phase-start")
     assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert "execution:inline" in result.stdout
+    assert "<!-- plugin:execplugin hook:P1.phase-start on_error:graceful -->" in result.stdout
+    assert "execution:" not in result.stdout
     assert "Content for ## Inline Hook" in result.stdout
 
 
-def test_execution_subagent_emits_dispatch_by_default(tmp_path):
-    """Hook with execution=subagent:* emits a DISPATCH directive (not its body)."""
+def test_stray_execution_field_is_ignored(tmp_path):
+    """A leftover `execution` field is inert: body emitted inline, never a DISPATCH."""
     hooks = {
         "P2.phase-end": {
             "priority": 10,
-            "section": "## Subagent Hook",
+            "section": "## Hook",
             "on_error": "graceful",
             "execution": "subagent:foo",
         }
     }
-    subagents = {"foo": {"model": "haiku", "subagent_type": "general-purpose",
-                         "context_section": "## Foo Context"}}
-    task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks, subagents=subagents)
+    task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks)
     result = _run_hook_copy(task_folder, plugins_dir, "P2.phase-end")
     assert result.returncode == 0, f"stderr: {result.stderr}"
-    # DISPATCH directive emitted; per-hook body NOT emitted inline
-    assert "<!-- DISPATCH" in result.stdout
-    assert "name:foo" in result.stdout
-    assert "Content for ## Subagent Hook" not in result.stdout
-    assert "dispatched async" in result.stderr.lower()
+    assert "Content for ## Hook" in result.stdout
+    assert "DISPATCH" not in result.stdout
 
 
-def test_dispatch_directive_includes_subagent_config(tmp_path):
-    """DISPATCH directive carries model/subagent_type/context_section from manifest."""
+def test_missing_priority_falls_back_to_zero(tmp_path):
+    """A handler without `priority` sorts as 0 (no TypeError); replicates bash `// 0`."""
     hooks = {
-        "P3.phase-end": {
-            "priority": 10,
-            "section": "## P3 Hook",
-            "on_error": "graceful",
-            "execution": "subagent:linear-sync",
-        }
-    }
-    subagents = {"linear-sync": {"model": "haiku", "subagent_type": "general-purpose",
-                                 "context_section": "## Subagent Context"}}
-    task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks, subagents=subagents)
-    result = _run_hook_copy(task_folder, plugins_dir, "P3.phase-end")
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert "model:haiku" in result.stdout
-    assert "subagent_type:general-purpose" in result.stdout
-    assert "section:## Subagent Context" in result.stdout
-    assert "hook:P3.phase-end" in result.stdout
-
-
-def test_no_filter_outputs_subagent_hook_inline(tmp_path):
-    """With --no-filter, subagent hook body is emitted inline (no DISPATCH)."""
-    hooks = {
-        "P2.phase-end": {
-            "priority": 10,
-            "section": "## Subagent Hook",
-            "on_error": "graceful",
-            "execution": "subagent:foo",
-        }
-    }
-    subagents = {"foo": {"model": "haiku", "subagent_type": "general-purpose",
-                         "context_section": "## Foo Context"}}
-    task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks, subagents=subagents)
-    result = _run_hook_copy(task_folder, plugins_dir, "P2.phase-end", "--no-filter")
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert "Content for ## Subagent Hook" in result.stdout
-    assert "<!-- DISPATCH" not in result.stdout
-
-
-def test_missing_execution_defaults_inline(tmp_path):
-    """Hook without execution field defaults to inline (backward compat)."""
-    hooks = {
-        "P1.phase-start": {
-            "priority": 10,
-            "section": "## Legacy Hook",
-            "on_error": "graceful",
-        }
+        "P1.phase-start": [
+            {"priority": 10, "section": "## A", "on_error": "graceful"},
+            {"section": "## B", "on_error": "graceful"},
+        ]
     }
     task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks)
     result = _run_hook_copy(task_folder, plugins_dir, "P1.phase-start")
     assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert "execution:inline" in result.stdout
-    assert "Content for ## Legacy Hook" in result.stdout
+    # B (no priority -> 0) sorts before A (10)
+    assert result.stdout.index("## B") < result.stdout.index("## A")
 
 
-def test_default_mode_routes_by_config_not_env(tmp_path):
-    """Default mode routing depends only on manifest config, not any env var.
-
-    A manifest mixing one inline + one subagent hook at the same hook point
-    (array form) emits the inline body AND a DISPATCH directive for the
-    subagent — but never the subagent hook's body inline.
-    """
-    hooks = {
-        "P2.phase-end": [
-            {
-                "priority": 10,
-                "section": "## Inline Part",
-                "on_error": "graceful",
-                "execution": "inline",
-            },
-            {
-                "priority": 20,
-                "section": "## Subagent Part",
-                "on_error": "graceful",
-                "execution": "subagent:linear-sync",
-            },
-        ]
+def test_blocking_missing_section_exits_1(tmp_path):
+    """on_error=blocking + section absent from .md body -> exit 1 with ERROR on stderr."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    task_folder = tmp_path / "task"
+    task_folder.mkdir()
+    manifest = {
+        "name": "blk", "description": "test",
+        "hooks": {"P6.pre-archive": {"priority": 10, "section": "## Absent",
+                                     "on_error": "blocking"}},
     }
-    subagents = {"linear-sync": {"model": "haiku", "subagent_type": "general-purpose",
-                                 "context_section": "## Subagent Context"}}
-    task_folder, plugins_dir = _setup_execution_env(tmp_path, hooks, subagents=subagents)
-    result = _run_hook_copy(task_folder, plugins_dir, "P2.phase-end")
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    assert "Content for ## Inline Part" in result.stdout
-    assert "<!-- DISPATCH" in result.stdout
-    assert "name:linear-sync" in result.stdout
-    assert "Content for ## Subagent Part" not in result.stdout
+    _write_plugin(plugins_dir, "blk", manifest, "## Present\n\nbody.\n")
+    (task_folder / "task-config.json").write_text(
+        json.dumps({"plugins": {"blk": {"enabled": True}}}))
+    result = _run_hook_copy(task_folder, plugins_dir, "P6.pre-archive")
+    assert result.returncode == 1
+    assert "ERROR" in result.stderr
+    assert "Absent" in result.stderr
+
+
+# --- Frontmatter schema: the migrated manifest lives in each plugin .md ---
+
+_PLUGINS_DIR = Path(__file__).parent.parent / "skills" / "task" / "plugins"
+_PLUGIN_NAMES = ("git", "linear", "retrospective", "review", "tdd")
+
+
+def _read_frontmatter(md_path):
+    """Extract + parse the leading `---`-fenced JSON block (mirrors the engine)."""
+    text = md_path.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    assert lines and lines[0].strip() == "---", f"{md_path.name}: no frontmatter"
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return json.loads("\n".join(lines[1:i]))
+    raise AssertionError(f"{md_path.name}: unterminated frontmatter")
+
+
+def test_no_manifest_json_files_remain():
+    """The migration removed every standalone .manifest.json."""
+    assert list(_PLUGINS_DIR.glob("*.manifest.json")) == []
+
+
+@pytest.mark.parametrize("name", _PLUGIN_NAMES)
+def test_plugin_frontmatter_schema(name):
+    """Each real plugin's frontmatter carries a well-typed manifest and no leftover
+    subagents block (the subagent-async machinery was dropped in migration)."""
+    fm = _read_frontmatter(_PLUGINS_DIR / f"{name}.md")
+
+    assert fm.get("name") == name
+    assert isinstance(fm.get("description"), str) and fm["description"]
+    assert "subagents" not in fm, f"{name}: subagents block should have been dropped"
+    for key in ("recommend_disable_when", "recommend_enable_when"):
+        if key in fm:
+            assert isinstance(fm[key], list)
+            assert all(isinstance(x, str) for x in fm[key])
+
+    hooks = fm.get("hooks")
+    assert isinstance(hooks, dict) and hooks, f"{name}: missing hooks"
+    for point, value in hooks.items():
+        entries = value if isinstance(value, list) else [value]
+        for entry in entries:
+            assert isinstance(entry, dict), f"{name}/{point}: hook entry not a map"
+            assert isinstance(entry.get("priority"), int), f"{name}/{point}: priority not int"
+            assert isinstance(entry.get("section"), str) and entry["section"].startswith("## "), \
+                f"{name}/{point}: section must be a '## ' heading"
+            if "on_error" in entry:
+                assert entry["on_error"] in ("graceful", "blocking")
+            if "execution" in entry:
+                assert isinstance(entry["execution"], str)
+
+
+# --- Golden corpus: byte-identical regression vs the original bash engine ---
+
+_ROOT = Path(__file__).parent.parent
+_GOLDEN_DIR = Path(__file__).parent / "fixtures" / "plugin_hook_golden"
+_ALL5 = ("git", "review", "linear", "tdd", "retrospective")
+
+
+def _norm(text, task):
+    return text.replace(str(_ROOT), "<ROOT>").replace(str(task), "<TASK>")
+
+
+def _golden_cases():
+    return sorted(p.stem for p in _GOLDEN_DIR.glob("*.json"))
+
+
+@pytest.mark.parametrize("case", _golden_cases())
+def test_golden_corpus_byte_identical(case, tmp_path):
+    """Python 引擎对真实 5 插件全部 hook-point + 缺 config/frontmatter 用例，输出
+    （returncode/stdout/stderr）与冻结 golden 逐字节一致。golden 初版由旧 bash 冻结、
+    锁定引擎重写的路由/抽取/排序行为；后续插件正文的有意编辑同步重生（引擎行为不变）。"""
+    golden = json.loads((_GOLDEN_DIR / f"{case}.json").read_text())
+
+    task = tmp_path / "task"
+    task.mkdir()
+    if case == "_missing-config":
+        args = [str(task), "P1.phase-start"]
+    elif case == "_missing-manifest":
+        (task / "task-config.json").write_text(
+            json.dumps({"plugins": {"ghost": {"enabled": True}}}))
+        args = [str(task), "P1.phase-start"]
+    else:
+        (task / "task-config.json").write_text(
+            json.dumps({"plugins": {p: {"enabled": True} for p in _ALL5}}))
+        args = [str(task), case]
+
+    # 不继承外部 PLUGINS_DIR：让引擎自定位到真实 repo plugins（与 golden 生成时一致）
+    env = {k: v for k, v in os.environ.items() if k != "PLUGINS_DIR"}
+    env["LC_ALL"] = "C"
+    r = subprocess.run([str(HOOK_BIN)] + args, capture_output=True, text=True, env=env)
+
+    assert r.returncode == golden["returncode"], f"{case}: rc {r.returncode} != {golden['returncode']}"
+    assert _norm(r.stdout, task) == golden["stdout"], f"{case}: stdout mismatch"
+    assert _norm(r.stderr, task) == golden["stderr"], f"{case}: stderr mismatch"

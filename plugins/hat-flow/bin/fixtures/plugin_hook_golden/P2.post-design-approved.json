@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "stdout": "<!-- plugin:review hook:P2.post-design-approved on_error:graceful -->\n\n### Review Strategy 写入\n\n用户确认设计后，将 Review Strategy 写入 design.md：\n\n```markdown\n## Review Strategy\n- Design review: N 轮（已完成）\n- Code review: {策略}\n- Per-task review: {each | checkpoint}\n- Reviewer type: Claude\n```\n\n> `Per-task review` 取自 task-config.json `plugins.review.per_task_review`（缺省 `each`）。仅在 `Code review ∈ {medium, full}` 时有意义；`skip/light` 下逐 task review 本就不必做，该行可省略或记 `each`（无副作用）。\n\n### 复杂度评估\n\n在 Review Strategy 写入后执行：\n\n| Signal | Low | Medium | High |\n|---|---|---|---|\n| Files involved | 1-2 | 3-6 | 7+ |\n| New modules/arch | None | Local | Cross-module |\n| New APIs/libraries | None | Few | Many |\n| design.md words | <500 | 500-1500 | >1500 |\n\n向用户展示评估。用户可覆盖。\n",
+  "stderr": "",
+  "args": [
+    "<TASK>",
+    "P2.post-design-approved"
+  ]
+}

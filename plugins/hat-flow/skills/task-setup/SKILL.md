@@ -9,8 +9,7 @@ hat-flow 任务工作流的首次配置向导。引导用户配置 Linear 身份
 
 **Announce at start:** "Using task-setup to configure the hat-flow workflow."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 > 本向导为**可跳过**：任一步用户选「跳过」即用缺省（对应能力关闭 / 沿用默认），不阻断。所有问题用 AskUserQuestion，逐项确认。
 
@@ -20,7 +19,7 @@ Write every message you show to the user in the user's configured language (the 
 
 | If you are thinking... | The reality is... |
 |---|---|
-| "`jq` is missing but I'll push on — most steps don't need it" | `jq` missing means every hook (review/linear/git/timing) silently fails: the flow runs but produces nothing. Stop and have the user install it first. |
+| "`python3` is missing but I'll push on — most steps don't need it" | `python3` missing means the hook engine (`hat-plugin-hook`) and the bin scripts can't run: every plugin hook silently fails — the flow runs but produces nothing. Stop and have the user install it first. |
 | "I'll write my own Linear team/project/key into the config so it just works" | Config must hold no author-private values. Write only what the user selects; this skill ships to other people's projects. |
 | "Hardcode the resolved status UUIDs to save a runtime lookup" | State UUIDs are never written here. They resolve at runtime via `get_status_map` by name. Hardcoded UUIDs break across workspaces. |
 | "Put the override in the global `task-defaults.json`" | Overrides go to the project-local `task-defaults.json`, never the global preset file. Global edits leak one project's choices into all others. |
@@ -33,16 +32,15 @@ Write every message you show to the user in the user's configured language (the 
 任务流的 hook 引擎与若干 bin 脚本依赖外部命令。**先跑预检**，缺失则提示安装后再继续：
 
 ```bash
-for c in jq python3; do command -v "$c" >/dev/null 2>&1 && echo "✓ $c" || echo "✗ $c (必需)"; done
+command -v python3 >/dev/null 2>&1 && echo "✓ python3" || echo "✗ python3 (必需)"
 command -v node >/dev/null 2>&1 && echo "✓ node (Linear 集成需要)" || echo "○ node 缺失 (仅启用 Linear 时需要)"
 ```
 
-- **`jq`（必需）**：hook 路由引擎靠它解析 manifest/config；缺失则 review/linear/git/timing 等**所有插件 hook 静默失效**，流程照跑但产物全缺。缺则提示 `brew install jq` / `apt-get install jq`，装好再继续。
-- **`python3`（必需，3.8+）**：部分 bin 脚本与流程辅助逻辑运行其上。
+- **`python3`（必需，3.8+）**：hook 路由引擎（`hat-plugin-hook`，纯 Python、零外部依赖）与门控脚本、bin 脚本均运行其上；缺失则**所有插件 hook 静默失效**，流程照跑但产物全缺。缺则提示 `brew install python` / `apt-get install python3`，装好再继续。
 - **`node`（可选）**：仅 Linear 集成需要（`@hatcloud/linear-mcp` 经 `npx` 拉起）。未启用 Linear 可忽略。
 - **Codex（可选外部插件 `openai-codex`）**：仅当 `plugins.review.reviewer` 或 `execution.engine` 选 `codex` / `auto` 时用于派 Codex 做 design/plan review 或实现执行。**未安装不阻断**——`codex-check` 返回 `FALLBACK:`，流程自动降级 Claude reviewer / executor。
 
-`jq` 或 `python3` 缺失时**不要继续**——先让用户安装。
+`python3` 缺失时**不要继续**——先让用户安装。
 
 ---
 

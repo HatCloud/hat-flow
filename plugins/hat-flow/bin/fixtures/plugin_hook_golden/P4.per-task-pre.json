@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "stdout": "<!-- plugin:tdd hook:P4.per-task-pre on_error:blocking -->\n\n### TDD 循环指令注入\n\n根据 `task-config.json` 的 `plugins.tdd.mode` 决定注入的 TDD 指令：\n\n### Full TDD\n\n在 subagent prompt 中注入：\n```\n遵循 plan.md 中的 RED/GREEN/REFACTOR 步骤：\n1. RED: 先写测试，运行验证失败（测试必须失败）\n2. GREEN: 实现功能，运行验证通过\n3. REFACTOR: 重构代码（保持测试通过）\n\n重要：如果 RED 步骤意外通过（验证命令在实现前就成功），立即停止并报告异常。\n```\n\n### Lite TDD\n\n在 subagent prompt 中注入：\n```\n遵循 Lite TDD 流程：\n1. 运行验收命令，确认当前不满足条件\n2. 实现功能\n3. 运行验收命令，确认满足条件\n4. 重构（保持验收命令通过）\n```\n\n### None\n\n不注入任何 TDD 指令。\n\n### 网页/UI 产物的 TDD（界面交互可测）\n\n**TDD 不再局限于纯逻辑函数。** 对网页类产物，界面与交互行为也可纳入 TDD——用 headless 浏览器（Playwright，见 `webapp-testing` skill）把\"行为/结构\"写成可自动断言的测试，作为 RED/GREEN 的验证命令（Full）或验收命令（Lite）。\n\n- **可程序断言、适合 headless TDD 的**：DOM 结构与分块、点击/hover/拖拽等交互、元素可见性与折叠展开、视图/偏好的 localStorage 持久化（reload 后仍保持）、导航后的 URL/状态、组件渲染出的节点数/属性（如 SVG 图谱节点、opacity）。\n  - 典型 RED→GREEN：先写\"卡片视图默认渲染为分块 / 点击 `<details>` 展开 / hover 浮窗文本无字面 `[^1]`\"的 headless 断言，运行失败（RED）；实现到通过（GREEN）。\n- **仍不适用 TDD、留人工复核的**：像素级视觉、配色/留白等主观美观、导出图\"好不好看\"。\n- **与 per-task 自检结合**：Execute 阶段每完成一个较大的 UI 任务后，跑该任务对应的 headless 行为断言作为 per-task 自检（不必等到 Phase 5 才统一验证），尽早暴露交互回归。\n- 前提：项目能起本地 preview（如 `astro build && astro preview` 或 dev server）供 Playwright 驱动。\n\n### TDD Spec 注入（条件性）\n\n若当前 task 包含 RED 步骤（Full TDD），检查项目 CLAUDE.md `## 测试配置` 是否声明了 `测试规范文件`：\n\n```bash\ngrep '测试规范文件' CLAUDE.md | sed 's/.*`\\(.*\\)`.*/\\1/'\n```\n\n若路径存在，读取该文件内容并附加到 subagent prompt：\n```\nThe following is this project's test-writing specification. Follow it when writing or modifying test files.\n```\n",
+  "stderr": "",
+  "args": [
+    "<TASK>",
+    "P4.per-task-pre"
+  ]
+}

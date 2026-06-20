@@ -10,8 +10,7 @@ description: "Use when executing Phase 5 (Test) of a task. Runs full verificatio
 
 **Announce at start:** "Using task-test for Phase 5: Test."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -32,13 +31,7 @@ Write every message you show to the user in the user's configured language (the 
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 ---
 
@@ -68,14 +61,6 @@ Write every message you show to the user in the user's configured language (the 
 > 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
 
 ---
-
-### P5 起始时间戳（core timing，内联）
-
-内联记录 phase_start（helper 自带顶层 `observability.enabled` 门控，关闭档 → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P5
-```
 
 ### 5a. Full Verification
 
@@ -264,8 +249,6 @@ Reason: premature closure skips user acceptance testing and risks shipping unver
 hat-plugin-hook {task-folder} P5.post-acceptance
 ```
 
-> **Subagent**：linear 在 P5.post-acceptance 为 `subagent:linear-sync` hook。`hat-plugin-hook` 输出 DISPATCH 指令，编排器据此派一次性后台 subagent 异步执行（见 task/SKILL.md Subagent Async Dispatch）。
-
 hook 输出可能包含多段指令，**必须逐段全部执行**（linear: 状态更新为 In Review）。
 
 更新 phases.md，将 `5c. 验收清单` 标记为 `[x]`，Phase 5 `**Status**: DONE`。
@@ -318,6 +301,8 @@ hat-plugin-hook {task-folder} P5.test-feedback
 2. **Defer to a new task** — 本 task 仅做最小兜底（或不做），开新 task 处理
 3. **Patch in place** — 仅限真正的局部修补（无状态追踪，直接改→测→commit），涉及多文件/多步骤时应选 Revise Lite
 
+**[Unattended]** 架构级问题属 `UNATTENDED_PROTOCOL.md` §9 HARD-STOP：不自动选向、不自动 Defer（避免静默吞掉架构偏差），暂停 + Telegram（含问题描述 + 三选项），等 `/task` 恢复人工决策。
+
 **Revise 触发执行**（当用户选择选项 1 时）：
 1. 在 phases.md 中相关验收项后追加 `[→ REVISE R1]`
 2. 在 phases.md 末尾追加 `## Revise R1` section，包含字段：Trigger（5d）、Return（5c）、Depth（用户选择）、Reason（问题描述）、Started（当前时间）、Status（IN_PROGRESS）、按深度生成步骤列表（Partial 深度 R1-design 标记 `[~]`；Lite 深度 R1-design + R1-plan 标记 `[~]`）
@@ -332,6 +317,11 @@ hat-plugin-hook {task-folder} P5.test-feedback
 **用户主动触发**：如果用户在 Phase 5 任意时刻主动提出大 bug 或新需求（超出逐 bug 修复范围），提供 Revise Cycle 作为选项：AskUserQuestion——**触发 Revise Cycle** (Full/Partial/Lite) / **Defer to new task** / **继续逐 bug 修复**
 
 Reason: 架构级问题若在 5d 直接原地修，会出现：commit 序列与 plan.md 脱节；final.md 难以解释偏差；后续相关 task 的 design 失去前置上下文。Revise Cycle 通过结构化子流程让偏差被显式记录而非隐式吞掉。
+</rule>
+
+<rule>
+During Test, track cumulative accepted NEW features (not bug fixes). When the count reaches 3, or the new-feature change volume visibly exceeds this task's Execute phase, STOP and AskUserQuestion: spin a new task (record to next-task-prompt.md) / trigger Revise Cycle / continue. Per-request size is not the only trigger — cumulative creep is. **[Unattended]** This cumulative gate is a §9 HARD-STOP: pause + Telegram (with the running count and volume) and wait for `/task` — do not auto-continue past creep.
+Reason: new requirements in Test often arrive incrementally — each individually below the single-request threshold, yet together they turn Test into a second Execute (real case 2026-06-18-tmux-agent-restore: P5 was 42% of output vs P4's 35%, 3.9h, with naming/status/resume/palette iterated entirely inside P5). A cumulative gate catches the creep that per-request checks miss.
 </rule>
 
 ---
@@ -349,45 +339,29 @@ Reason: phases.md is the cross-session state record. Missing updates mean the ne
 
 ---
 
-### P5 结束时间戳（core timing，内联）
-
-Phase 5 完成时内联记录 phase_end：
-
-```bash
-hat-timing-stamp {task-folder} phase_end P5
-```
-
-<rule>
-P5 timing 经内联 `hat-timing-stamp`（phase_start/phase_end），helper 自带 `observability.enabled` 门控（关闭档 → no-op，不写、不报错）。
-Reason: timing 内联后是确定动作；缺 phase_start 触发 artifact-check 硬 FAIL，缺 phase_end 仅非阻断警告，故 phase_start 内联点须前置。
-</rule>
-
----
-
 ## Test 完成 → 过渡
 
 Test 完成后**不自动推进**。用用户配置的语言简要宣告测试结果（自动化验证状态、Linear 同步状态、用户确认结果），然后声明：**"所有测试已完成，请调用 `/task-end` 关闭任务。"**
 
 <rule>
-Test phase is a hard stop. Never auto-advance to End phase, even when all acceptance tests are automated and passing. The user must explicitly invoke `/task-end`.
-Reason: the user needs a deliberate decision point before closing a task — automated test pass does not equal user acceptance.
+Test phase is a hard stop. Never auto-advance to End phase, even when all acceptance tests are automated and passing. The user must explicitly invoke `/task-end`. **[Unattended] exception**: in unattended self_test mode §6 auto-advances to End (Telegram-notify + return to orchestrator) — the deliberate decision was pre-collected at activation (`end_decisions`); unattended user_test still stops (Telegram-notify) and waits.
+Reason: the user needs a deliberate decision point before closing a task — automated test pass does not equal user acceptance. Under unattended self_test that decision is made up-front (`end_decisions` in unattended.json), so blocking on a `/task-end` no one will type would hang the run.
 </rule>
 
 ---
 
 ## Mandatory Stop Points
 
-| Step | When | What to Ask |
-|------|------|-------------|
-| 5d | 架构级问题确认后 | 触发 Revise Cycle / Defer / Patch in place |
-| 5c 回归 | 回归 review 不通过 | 触发 R(N+1) / 手动修复 / 终止 |
-| Phase 5 Stop | 所有测试完成后 | 硬停，告知用户调用 `/task-end`（不自动推进） |
+| Step | When | What to Ask | Unattended |
+|------|------|-------------|-----------|
+| 5d | 架构级问题确认后 | 触发 Revise Cycle / Defer / Patch in place | §9 HARD-STOP：暂停 + Telegram，等 `/task` |
+| 累计新功能 | 累计 ≥3 或体量超 Execute | 新任务 / Revise / 继续 | §9 HARD-STOP：暂停 + Telegram，等 `/task` |
+| 5c 回归 | 回归 review 不通过 | 触发 R(N+1) / 手动修复 / 终止 | 自动触发 R(N+1)，达上限硬停 + Telegram（不走 A4 续跑，见 review plugin） |
+| Phase 5 Stop | 所有测试完成后 | 硬停，告知用户调用 `/task-end`（不自动推进） | self_test 自动推进 P6；user_test Telegram 停（§6） |
 
 ## Dependencies
 
 - **Reads**: `{task-folder}/design.md`, `{task-folder}/task-config.json`
 - **Writes**: `{task-folder}/phases.md`, `{task-folder}/.last-verified`, `{task-folder}/acceptance-checklist.md`
-- **Hooks**: `P5.post-acceptance`（linear）, `P5.test-feedback`（review: Revise 检测）
-- **Subagent（异步派发）**: `P5.post-acceptance` 的 linear 为 `subagent:linear-sync` hook —— `hat-plugin-hook` 输出 DISPATCH 指令，编排器据此派一次性后台 subagent 异步执行 Linear 状态更新（In Review）。交接契约见 task/SKILL.md「Subagent Async Dispatch」。
-- **Core timing**（内联，非 hook）: phase_start P5（阶段开始）/ phase_end P5（阶段完成）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
-- **Scripts**: hat-plugin-hook, hat-timing-stamp
+- **Hooks**: `P5.post-acceptance`（linear: 状态更新为 In Review）, `P5.test-feedback`（review: Revise 检测）
+- **Scripts**: hat-plugin-hook

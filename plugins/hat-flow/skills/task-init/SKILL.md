@@ -10,8 +10,7 @@ description: "Use when initializing a new task (Phase 1: Setup). Handles git bra
 
 **Announce at start:** "Using task-init for Phase 1: Setup."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -41,13 +40,7 @@ Write every message you show to the user in the user's configured language (the 
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 ---
 
@@ -80,7 +73,7 @@ Write every message you show to the user in the user's configured language (the 
    - 分支决策 → 留在当前分支
    - Linear issue → 自动创建；Linear 失败 → 跳过
 
-> 无人值守模式的激活（unattended.json 创建）有两条入口：① **Quiet 入口**——编排器 Step 0 由显式信号确立 `quiet_mode` 时，由 task-init **1f** 直接物化 `unattended.json`（`_source:"headless"` 的 config + `enabled:true`），使 Init 之后全程无人值守；② **交互延后入口**——非 quiet 时，由编排器 Step 2A.1 / task-design Activation Timing 询问激活时机后创建。各阶段 skill 读取已有状态。
+> 无人值守模式的激活（unattended.json 创建）有两条入口：① **Quiet 入口**——编排器 Step 0 由显式信号确立 `quiet_mode` 时，由 task-init **1f** 直接物化 `unattended.json`（`_source:"headless"` 的 config + `enabled:true`），使 Init 之后全程无人值守；② **交互入口**——非 quiet 时，**主入口为 task-design Step 2e Activation Timing**（询问激活时机后创建），编排器 Step 2A.1 仅为**后备**（Phase 过渡时 unattended.json 仍不存在才询问）。各阶段 skill 读取已有状态。
 
 ---
 
@@ -133,6 +126,11 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 4. 纯文本询问："以上理解是否准确？有需要修改的地方吗？"
 5. 用户说"继续" → 推进到 1b.2
 6. 用户提出建议 → 澄清 → 修复 → 重新展示理解 → 回到步骤 4
+
+**[Unattended/quiet]** quiet_mode（编排器 Step 0 确立，**早于** 1f 物化 unattended.json，故此处按 quiet_mode 判定、不依赖文件存在）下不调 AskUserQuestion：
+- 歧义维度按 prompt 最保守、最小范围的解释自行假设，逐条记入 `{task-folder}/unattended-decisions.md`（文件夹尚未建则暂存内存，1f 落盘）
+- 关键歧义（影响任务方向、无法从 prompt 推导）→ 按 `UNATTENDED_PROTOCOL.md` §8「低置信澄清问题」暂停 + Telegram，等 `/task` 恢复
+- 跳过步骤 4 纯文本确认，以假设的结构化理解直接推进 1b.2
 
 确认后将结构化结果暂存内存（prompt.md 在 1f 中写入文件）。
 
@@ -195,7 +193,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 | 以上均不匹配 | task-defaults.json 的 preset 字段（默认 standard） |
 
 **3. 读取 manifest 建议规则：**
-遍历 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.manifest.json`，读取每个插件的 `recommend_disable_when` 和 `recommend_enable_when` 字段。对比任务描述（prompt.md 的结构化需求），生成逐插件的裁剪建议。例如：
+遍历 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`，读取每个插件顶部 `---` frontmatter 中的 `recommend_disable_when` 和 `recommend_enable_when` 字段。对比任务描述（prompt.md 的结构化需求），生成逐插件的裁剪建议。例如：
 - 任务是纯 SKILL.md 修改 → tdd 的 `recommend_disable_when` 匹配 → 建议关闭 TDD
 - 任务涉及核心业务逻辑 → tdd 的 `recommend_enable_when` 匹配 → 建议开启 TDD（即使 preset 未启用）
 
@@ -217,7 +215,6 @@ hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
 - 脚本输出 = 合并后的 effective config：已叠加 ②③④ 层、已按 quiet_mode 解析 `branch.worktree` 的 `"ask"` 哨兵（quiet→`true`；交互→保持 `"ask"`，待 1d 询问）。脚本**不解析** `"auto"` 值，保留供下面解析。
 - 在脚本输出基础上**应用裁剪覆盖**（用户在第 4 步确认的逐插件禁用/启用调整）。
 - **解析所有 `"auto"` 值为具体值**：`linear.enabled: "auto"` → 检测 Linear MCP 可用性解析为 `true`/`false`；`git.enabled: "auto"` → 检测 git 仓库解析为 `true`/`false`（`execution.engine: "auto"` 等保持运行时解析）。
-- **`observability` 是顶层核心键**（与 `todo_sync`/`phase_merge` 同级，**不在 `plugins.*` 下**——ISSUE 下沉为核心能力）。脚本已正确合并顶层 `observability`——`hotfix` 的顶层 `observability.enabled: false` 经合并解析为 `false`（脚本从模板顶层而非 `plugins.*` 取该键）。
 - 新顶层段 `branch` / `headless` / `end_decisions` 一并进入 effective config，随 1f 写入 task-config.json。
 - 档位与配置在内存确定；`task-config.json` 的实际写盘移到 1f（任务文件夹创建之后），此处不写文件。
 - **Codex capability 预检（首次门控；effective config `plugins.review.reviewer` ∈ {`codex`,`auto`} 或 `execution.engine` ∈ {`codex`,`auto`} 时）**：运行 `codex-check`——
@@ -239,7 +236,7 @@ hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
 
 > **档位建议（分析/元任务拆独立 session）**：若任务含**大体量只读分析/复盘**（dogfooding、deep-research、审计、reading-triage 等），分析阶段宜**独立 session 运行**。原因：大段只读分析会显著推高单 phase token（dogfooding 实证 P2 曾达 38%）、污染主上下文。此为轻量 guidance，不强制、不引入自动检测：识别到此类任务时提示用户分析阶段另开 session 即可。
 
-> **P1 hook 时序**：本阶段全部文件系统写（task-config.json / phases.md / prompt.md）、P1 hook（`P1.phase-start` → `P1.phase-end`）与内联 timing（phase_start/phase_end P1 经 `hat-timing-stamp`）统一在 1f 任务文件夹创建之后运行。`hat-plugin-hook {task-folder} ...` 必须有已存在的 `{task-folder}` 才能解析，故 1b.3 与 1c/1d 阶段不调用任何 P1 hook 或 timing。
+> **P1 hook 时序**：本阶段全部文件系统写（task-config.json / phases.md / prompt.md）与 P1 hook（`P1.phase-start` → `P1.phase-end`）统一在 1f 任务文件夹创建之后运行。`hat-plugin-hook {task-folder} ...` 必须有已存在的 `{task-folder}` 才能解析，故 1b.3 与 1c/1d 阶段不调用任何 P1 hook。
 
 ### 1b.4 Debt Linkage Check (Lightweight)
 
@@ -365,7 +362,7 @@ quiet_mode 经 Step 0 确立时，在此直接物化无人值守状态文件，�
 - `telegram_chat_id` 按 `UNATTENDED_PROTOCOL.md` §3 探测（无则 null，通知静默降级）。
 - `task_type` 缺省 `self_test`（无头自测推进到 task-end）；若 flag/config 指明需用户测试则 `user_test`。
 - 写入后本阶段后续停顿点即按无人值守自动决策。`unattended.json` 已存在（恢复场景）则不覆盖。
-- **非 quiet 模式**：不写 unattended.json（保持原交互流程，激活时机由 Step 2A.1 / task-design Activation Timing 询问）。
+- **非 quiet 模式**：不写 unattended.json（保持原交互流程，激活时机由 task-design Step 2e Activation Timing 主问、编排器 Step 2A.1 后备）。
 
 **[Worktree] 写主仓库指针 stub（仅 1d-wt 启用 worktree 时）：** 此刻 CWD 已在 worktree 内，task 文件写在 worktree 的 `.tasks/open/{task-folder}/`（天然隔离）。为支持跨 session 从主仓库恢复，在**主仓库**留一个 stub 指针（经绝对路径 `$MAIN_ROOT`，不受 CWD 切换影响）：
 
@@ -414,17 +411,9 @@ printf '%s\n' "$WT" > "$MAIN_ROOT/.tasks/open/{task-folder-name}/.worktree"
 
 若 1b.3 被跳过的边界情况（无内存步骤列表），按 task/SKILL.md 的 `phases.md Format Reference` 默认模板创建。
 
-**记录 P1 起始时间戳（core timing，内联）**：
-
-任务文件夹创建完成后（task-config.json + phases.md 已写盘），**先**内联记录 phase_start（须在本 phase 任何 `hat-plugin-hook` 调用之前；helper 自带顶层 `observability.enabled` 门控，关闭档如 hotfix → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P1
-```
-
 **P1.phase-start Hook**：
 
-接着运行：
+任务文件夹创建完成后（task-config.json + phases.md 已写盘）运行：
 
 ```bash
 hat-plugin-hook {task-folder} P1.phase-start
@@ -459,19 +448,13 @@ Reason: without a manual /rename, the session name stays as the default, making 
 
 ### P1.phase-end Hook
 
-1f 完成后，先内联记录 P1 phase_end 时间戳（core timing，须在 hook 调用之前），再运行 linear hook：
+1f 完成后运行 linear hook：
 
 ```bash
-hat-timing-stamp {task-folder} phase_end P1
 hat-plugin-hook {task-folder} P1.phase-end
 ```
 
 hook 输出按段全部执行（linear plugin: issue 创建/状态更新）。
-
-<rule>
-内联 timing 调用（`hat-timing-stamp ... phase_start/phase_end P1`）须排在本 phase 任何 `hat-plugin-hook` 调用之前。helper 自带 `observability.enabled` 门控（关闭档如 hotfix → no-op，不写、不报错）。
-Reason: timing 内联后是确定动作（不再是 hook 多段文本指令中易被漏执行的一段）；但缺 phase_start 会触发 artifact-check 硬 FAIL，故内联点必须前置、先于可能 blocking 的 plugin 段执行。
-</rule>
 
 ---
 
@@ -495,6 +478,7 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 | Step | When | What to Ask | Unattended |
 |------|------|-------------|-----------|
 | 1a | 发现现有任务 | 继续现有 / 创建新任务 | 继续现有任务（对齐编排器单任务恢复） |
+| 1b.1 | 需求有歧义维度 | 澄清问题 + 确认理解 | **[quiet]** 按最保守解释自行假设并记 unattended-decisions.md；关键歧义按 §8 暂停 |
 | 1b.3 | 档位推荐 | 确认 preset 和裁剪建议 | 按推荐自动选择 |
 | 1c | Git 规范不存在 | 定义方式选择 | 自动使用 Conventional Commits |
 | 1f（P1.phase-start hook） | 发现 dirty 文件 | 处理方式（stash/commit/继续） | 忽略继续 |
@@ -506,9 +490,8 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 
 ## Dependencies
 
-- **Scripts**: hat-task-detect, hat-task-scaffold, hat-git-conventions, hat-plugin-hook, hat-timing-stamp, hat-task-config-resolve（三层配置合并）
+- **Scripts**: hat-task-detect, hat-task-scaffold, hat-git-conventions, hat-plugin-hook, hat-task-config-resolve（三层配置合并）
 - **Writes**: `{task-folder}/phases.md`, `{task-folder}/prompt.md`, `{task-folder}/linear.json`, `{task-folder}/task-config.json`, `{task-folder}/session.json`, `{task-folder}/unattended.json`（仅 quiet_mode 物化）
 - **Reads（三层配置）**: `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json`（①默认模板）, `~/.claude/task-defaults.local.json`（②全局用户 local，可选）, `{project-root}/task-defaults.json`（③项目本地，可选）
 - **Worktree（仅 1d-wt 启用时）**: `git worktree add -b task/<folder> <path> HEAD`（创建专用分支隔离工作树，主目录 HEAD 不动）+ 内置 `EnterWorktree(path=...)` 切入；主仓库写 stub 指针 `$MAIN_ROOT/.tasks/open/<folder>/.worktree`
 - **Hooks**（均在 1f 任务文件夹创建之后运行，依次）: `P1.phase-start`（git: dirty check + 处理[Interactive stash/commit/继续 · Unattended 忽略继续] + 规范确认）→ `P1.phase-end`（linear: issue setup）
-- **Core timing**（内联，非 hook）: phase_start P1（1f 文件夹创建后、P1.phase-start hook 之前）/ phase_end P1（1f 完成后、P1.phase-end hook 之前）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控

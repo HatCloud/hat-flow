@@ -9,8 +9,7 @@ description: "Use when the user confirms a task is done and testing has passed. 
 
 **Announce at start:** "Using task-end to close this task."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
 
@@ -45,13 +44,7 @@ Reason: autonomous progression past decision points leads to wasted work when us
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 ---
 
@@ -68,14 +61,6 @@ Reason: autonomous progression past decision points leads to wasted work when us
 > 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
 
 ---
-
-### P6 起始时间戳（core timing，内联）
-
-内联记录 phase_start（须在本 phase 任何 `hat-plugin-hook` 调用之前；helper 自带顶层 `observability.enabled` 门控，关闭档 → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P6
-```
 
 ### Step 0: Mechanical Verification
 
@@ -148,7 +133,7 @@ Reason: phases.md is the cross-session state record. Archiving incomplete state 
 
 对**已完成阶段（P1-P4）** 的产物做脚本式检查。终端产物（final.md/conversation.md 等 P5/P6）此时尚未生成，由 Step 3.3.7 终端门控负责。
 
-逐相位运行（脚本已按插件启用条件化必需清单，如 observability 关则不要求 timing.jsonl）：
+逐相位运行（脚本已按插件启用条件化必需清单）：
 
 ```bash
 for n in 1 2 3 4; do
@@ -159,8 +144,7 @@ done
 处理结果：
 
 - **核心产物缺失**（prompt.md / phases.md / design.md / plan.md）→ **硬阻断**：停下调查，绝不带病归档。
-- **插件产物缺失**（timing.jsonl 等，幂等可再生）→ 先尝试幂等补齐；补不上则在 final.md `## Verification` 记录缺失原因后继续（软警告）。
-- **timing 痕迹警告**（脚本输出 `⚠️ phase 有 start 无 end`）→ **非阻断**：说明某已完成 phase 的 phase-end hook 未触发（中途 phase-end hook 在现系统并非每次都触发）。记入 final.md `## Verification` 作为软提示，不阻断归档。真正的元 bug——hook 完全没跑——表现为**缺 phase_start**，已由脚本硬 FAIL（核心产物缺失同级）拦截。
+- **插件产物缺失**（幂等可再生）→ 先尝试幂等补齐；补不上则在 final.md `## Verification` 记录缺失原因后继续（软警告）。
 
 <HARD-GATE>
 Never archive when a core artifact (prompt.md / phases.md / design.md / plan.md) is missing. Stop and investigate.
@@ -177,7 +161,7 @@ Reason: core docs are the task's identity and cross-session state. Archiving wit
 - `6a. 验证 + final.md` → Step 0 + Step 2
 - `6b. 归档 + Linear Done` → Step 3.0 + Step 3.1 + Step 3.2 + Step 3.3 + Step 3.4 + Step 3.5
 
-Phase 6 DONE 定稿与 P6 phase_end 须在归档 commit 之前完成（权威规则见 Step 3.3.4）。
+Phase 6 DONE 定稿须在归档 commit 之前完成（权威规则见 Step 3.3.4）。
 
 <rule>
 Every step completion MUST update phases.md: mark step [x], update Updated time, update Status when all steps done.
@@ -261,11 +245,9 @@ Step 2 写 final.md 时保留 `[待导出后填充]` 占位符。实际数据由
 hat-plugin-hook {task-folder} P6.pre-archive
 ```
 
-> **Subagent**：linear 在 P6.pre-archive 为 `subagent:linear-sync` hook。`hat-plugin-hook` 输出 DISPATCH 指令，编排器据此派一次性后台 subagent 异步执行（见 task/SKILL.md Subagent Async Dispatch）。归档前的 P6 同步是 Linear 状态的最终兜底——若该 subagent 失败（result 报错），主线程按 graceful 记录后**仍可主线程补做** P6 Linear 收尾（状态 Done + 归档 comment），不可静默漏掉。
+> **P6 兜底**：归档前的 P6 linear 同步是 Linear 状态的最终兜底——主线程 inline 执行，**必须完成、不可静默漏掉**（状态 Done + 归档 comment）；若某步失败，graceful 记录后仍要补做 P6 Linear 收尾。
 
 hook 输出可能包含多段指令，**必须逐段全部执行**（git: pre-commit 安全检查；linear: 状态 Done + 评论 + 文档 + 子 issue 处理）。插件关闭时对应操作跳过。
-
-> 一次性 subagent 无需 shutdown / 清理——派发即自终结，归档前无 team 生命周期收尾步骤。
 
 **3.1 Update Changelog**
 
@@ -304,19 +286,13 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（git: pre-co
 意外变更 → AskUserQuestion：**先单独提交** / **暂存** / **丢弃**。
 **[Unattended]** 意外变更自动加入当前 commit。
 
-**3.3.4 归档前状态定稿（phases.md Phase 6 DONE + P6 phase_end，归档 commit 之前）**
+**3.3.4 归档前状态定稿（phases.md Phase 6 DONE，归档 commit 之前）**
 
-归档 commit 必须捕获完整终态，故在导出/归档**之前**先定稿这两处写操作——修复"归档后才写 phases.md / timing.jsonl、泄漏进后续无关 commit、归档 commit 里任务产物残缺"的时序 bug：
-
-1. 将 `{task-folder}/phases.md` 的 Phase 6 所有步骤标记 `[x]`、`**Status**: DONE`、更新 `**Updated**`。
-2. 内联记录 P6 phase_end 时间戳（须在 3.3.5 导出之前，使 consumption-report 的 P6 时长完整、且随归档 commit 落盘）：
-   ```bash
-   hat-timing-stamp {task-folder} phase_end P6
-   ```
+归档 commit 必须捕获完整终态，故在导出/归档**之前**先定稿 phases.md——修复"归档后才写 phases.md、泄漏进后续无关 commit、归档 commit 里 Phase 6 非 DONE"的时序 bug：将 `{task-folder}/phases.md` 的 Phase 6 所有步骤标记 `[x]`、`**Status**: DONE`、更新 `**Updated**`。
 
 <rule>
-P6 phase_end 与 phases.md Phase 6 DONE 必须在归档 commit 之前（本步）写入，绝不放到 Step 3.4 归档之后。
-Reason: 归档后再写会留下未提交的 timing.jsonl（+ phases.md，共两个文件），泄漏进后续无关 commit（如自动 `chore: update`），且归档 commit 里的任务产物残缺（少最后一条 timing + Phase 6 非 DONE）。前移到归档前让归档 commit 捕获完整终态、归档后工作树干净。P6 时长为归档前快照（少算其后导出/归档动作数秒），可接受。
+phases.md Phase 6 DONE 必须在归档 commit 之前（本步）写入，绝不放到 Step 3.4 归档之后。
+Reason: 归档后再写会留下未提交的 phases.md，泄漏进后续无关 commit（如自动 `chore: update`），且归档 commit 里 Phase 6 非 DONE。前移到归档前让归档 commit 捕获完整终态、归档后工作树干净。
 </rule>
 
 **3.3.5 对话导出**
@@ -330,30 +306,6 @@ Reason: 归档后再写会留下未提交的 timing.jsonl（+ phases.md，共两
 2. 根据数据给出 1-3 条改进建议（面向用户展示，用用户配置语言）
 3. 导出失败时保留 `[待导出后填充]` 占位符并在 `## Verification` 中记录
 
-**3.3.6.5 Plugin Breakdown（归档前写入，consumption-report.md 唯一终写点）**
-
-解析 `{task-folder}/timing.jsonl`，生成 Plugin Breakdown 表**追加到 consumption-report.md 末尾**：
-
-```markdown
-## Plugin Breakdown
-
-| Plugin | Invocations | Errors | Skipped |
-|--------|------------|--------|---------|
-| ...    |   |   |   |
-
-Total timing entries: {N}
-Phase durations: P1={duration}, P2={duration}, ...
-```
-
-**timing.jsonl 各行以 `event` 字段标识、无 `plugin` 字段**——据此区分两类：core timing 事件（`event` ∈ `phase_start`/`phase_end`/`task_start`/`task_end`）计入「Total timing entries」与「Phase durations」、**不进 Plugin 表**；`tdd_cycle` 事件归 tdd plugin 行。Plugin 维度只统计 5 个真 plugin（review/linear/git/tdd/retrospective）——observability 已下沉为核心能力、**不再作为 Plugin 行**（其 timing 仅喂 Total/durations）。
-
-timing.jsonl 不存在（observability 关闭）→ 输出警告并跳过。
-
-<rule>
-consumption-report.md must be finalized here, before archive — this is its only write point past Step 3.3.5.
-Reason: this write previously ran in the post-archive P6.phase-end hook, landing on the already-moved `done/` path and never entering the archive commit. Writing it pre-archive makes consumption-report.md complete when the Step 3.3.7 gate checks it and ensures it is committed with the task. P6 phase_end is now recorded in Step 3.3.4 (before this step), so the P6 duration here is complete; it remains a pre-archive snapshot (excludes the few seconds of export/archive mechanics), which is acceptable.
-</rule>
-
 **3.3.7 终端产物门控（归档前 HARD-GATE）**
 
 归档不可逆。归档前对终端阶段产物（P5+P6）做强门控：
@@ -363,7 +315,7 @@ hat-task-artifact-check {task-folder} 5 --config {task-folder}/task-config.json
 hat-task-artifact-check {task-folder} 6 --config {task-folder}/task-config.json
 ```
 
-必需清单已由脚本按插件条件化（observability→timing.jsonl；conversation.md/consumption-report.md/final.md 始终必需）。
+必需清单已由脚本按插件条件化（conversation.md/consumption-report.md/final.md 始终必需）。
 
 **FAIL → 自动补齐（仅限幂等产物再生）：**
 
@@ -386,14 +338,10 @@ Reason: repair runs in a FAIL path that may execute more than once; re-running l
 
 <HARD-GATE>
 A legitimate export failure (conversation.md / consumption-report.md unrecoverable after re-export) must NOT deadlock the archive; a missing core artifact (final.md, acceptance-checklist.md) must NOT pass the gate.
-Reason: conversation/consumption are observability nice-to-haves — blocking archive on them strands a finished task. Core artifacts are the task record itself — passing without them silently archives a broken task. Different artifacts warrant different blocking strength.
+Reason: conversation/consumption are reporting nice-to-haves — blocking archive on them strands a finished task. Core artifacts are the task record itself — passing without them silently archives a broken task. Different artifacts warrant different blocking strength.
 </HARD-GATE>
 
-**timing 痕迹警告非阻断**：脚本对"已完成 phase 有 phase_start 无 phase_end"输出 `⚠️` 警告但**不计入 FAIL**（中途 phase-end hook 未必每次触发）。此类警告记入 final.md `## Verification` 软提示，不阻断归档；只有"缺 phase_start"（hook 完全没跑）才硬 FAIL。
-
 **[Unattended]** 门控 FAIL（补齐后核心仍缺失）→ **不归档**、停下 + 发送 Telegram 通知 `[task-name] 归档前产物门控失败：[缺失清单]`。
-
-> **已知限制（精简档位）**：observability 关闭时（如 hotfix 档），条件化必需清单收缩至 conversation.md + 核心产物，Layer 2（timing 痕迹校验，见 hat-task-artifact-check）fail-open，元 bug 结构检测退化为仅靠 Layer 1（编排器 HARD-GATE，prose）。该档位需人工留意 hook 是否真正执行。
 
 **3.4 Archive and Commit** (single commit)
 
@@ -497,6 +445,15 @@ hat-plugin-hook {task-folder} P6.post-archive
 
 hook 输出可能包含多段指令，**必须逐段全部执行**（git: 分支合并 + revise tag 清理 + 旧任务归档；retrospective: 流程审查）。插件关闭时对应操作跳过。
 
+**3.6 Retrospective 显式门控（retrospective 启用时）**
+
+post-archive hook 把 git 与 retrospective 两段一起输出，长输出下 retrospective 段易被截断/漏读——故把它提为独立、必过的步骤，不依赖「记得逐段执行」。retrospective 启用时（task-config `retrospective.enabled`），在进入 Step 4 之前必须完成 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/retrospective.md` 的流程审查：① Process Review（workflow/skill + 配置改进提议）经 AskUserQuestion 逐条 Execute now / Record / Skip；② severity-case 评估。改进涉及改 task skill 时，按 CLAUDE.md 先过 `spec-skill`。
+
+<HARD-GATE>
+When retrospective is enabled, the retrospective process review (retrospective.md) must be completed before Step 4, separately from acting on the git segment of the post-archive hook. Do not treat "ran the hook" as "ran the retrospective".
+Reason: the post-archive hook emits git + retrospective together; on long output the retrospective segment gets truncated or skipped while the git (branch-handling) segment is acted on, silently dropping the skill's only self-evolution feedback loop (real miss: 2026-06-18-tmux-agent-restore archived with the retrospective skipped). A separate gate makes the review unmissable.
+</HARD-GATE>
+
 ### Step 4: Confirmation
 
 输出最终清单：
@@ -508,17 +465,12 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（git: 分支
 - [x] 关闭提交中没有泄漏代码变更
 - [x] 任务文件夹已归档到 done/
 - [x] 分支已处理（如适用）
+- [x] Retrospective 流程审查已完成（retrospective 启用时，Step 3.6）
 - [x] Linear issue 已同步（如适用）
 - [x] Linear 子 issue 已处理（如适用）
 - [x] Git 已提交（单次关闭提交）
 
 **[Unattended]** 发送 Telegram 通知 `[task-name] 任务已完成并归档 ✓`。
-
-### P6 结束时间戳（core timing，内联——已前移到归档前）
-
-P6 phase_end 已前移到 Step 3.3.4（权威规则见该步），此处无写操作（本节仅作交叉指引，防止误以为还要在末尾补写）。
-
----
 
 **如果要取消任务：** 使用 `/task-cancel`。
 
@@ -528,5 +480,4 @@ P6 phase_end 已前移到 Step 3.3.4（权威规则见该步），此处无写�
 - **Writes**: `{task-folder}/final.md`, `{task-folder}/phases.md`, `{task-folder}/conversation.md`, `{task-folder}/consumption-report.md`, `docs/unmerged-branches.md`（worktree keep / 冲突时登记）
 - **Worktree teardown（核心，仅 worktree 任务，Step 3.4.4）**: 内置 `ExitWorktree(action="keep")` + `git merge --no-ff` / `git worktree remove` / `git branch -d`；物理 `cp -R` 归档文件夹回主仓库、`rm -rf` 主仓库 stub
 - **Hooks**: `P6.pre-archive`（git + linear）, `P6.post-archive`（git + retrospective）
-- **Core timing**（内联，非 hook）: phase_start P6（阶段开始）/ phase_end P6（**Step 3.3.4，归档 commit 之前**，与 phases.md DONE 一同定稿）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
-- **Scripts**: hat-task-archive, hat-task-detect, hat-plugin-hook, hat-conversation-export, hat-timing-stamp
+- **Scripts**: hat-task-archive, hat-task-detect, hat-plugin-hook, hat-conversation-export

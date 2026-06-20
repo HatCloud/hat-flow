@@ -10,8 +10,7 @@ description: "Use when executing Phase 2 (Design) of a task. Explores code, prop
 
 **Announce at start:** "Using task-design for Phase 2: Design."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -36,18 +35,16 @@ Write every message you show to the user in the user's configured language (the 
 | "The user implied approval, move on" | Implied approval is not approval. Require explicit affirmative ("好", "可以", "LGTM"). |
 | "I'll design features not in the requirements" | YAGNI. Design only what was asked. |
 | "This task is too simple to design" | 简单任务恰是未审假设致返工的高发区。设计可短，但必须展示并获批准（见 DESIGN_PROTOCOL Anti-Pattern）。 |
+| "reviewer=auto，直接派 native design-reviewer 更省事 / 更快" | auto + `codex-check` READY ⇒ 解析为 **codex**（codex-first）。为图快跳到 native 是未授权降级——只有命中 hard fallback（需联网 / 沙盒门槛 / quota / codex 输出 `FALLBACK:`）并向 `fallback-log.jsonl` 记一行后才可降级。"native 更简单 / 更快"不是合法理由。 |
+| "findings 我都改完了，就算收敛、可以进 Step 8" | 收敛判据是 **reviewer 本轮返回 C=0 & I=0**，不是"我改完了"。自己改完后必须**再派一轮**让同一 reviewer 确认（codex 用 `codex-findings-count` 判末行计数）。codex 跨回合（后台派发 + `SendMessage` 复活）尤其易漏掉"再派一轮"——修完顺手当成回合收尾。 |
 
 ---
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。每个 Step 完成后将对应 phases.md 行标记为 `[x]`。
+**task-design 专属**：每个 Step 完成后将对应 phases.md 行标记为 `[x]`。
 
 ---
 
@@ -94,16 +91,6 @@ Reason: Self-Discussion Protocol requires an independent perspective.
 
 ---
 
-## P2 起始时间戳（core timing，内联）
-
-内联记录 phase_start（须在本 phase 任何 `hat-plugin-hook` 调用之前；helper 自带顶层 `observability.enabled` 门控，关闭档 → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P2
-```
-
----
-
 ## Step 2e: 配置精调
 
 design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json 已在 P1 Step 1b.3 写入并据此选定 preset；此处仅在**复杂度与已选 preset 明显偏离时**才弹面板修正，一致则静默沿用。
@@ -129,9 +116,18 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
   | Reviewer 模型 | claude | ... | 按矩阵 |
   | Plan review 模型 | sonnet/opus | ... | 按维度×难度 |
   | Code review 级别 | skip/light/medium/full | ... | 基于复杂度 |
-  | Per-task review 粒度 | each/checkpoint | ... | each 缺省（质量优先）；prose-only 多-task 重构可选 checkpoint 降派发数，仅 medium/full 下有意义 |
+  | Per-task review 粒度 | each/checkpoint | ... | checkpoint 缺省（省派发数、流程更短）；高敏感任务建议升级 each，仅 medium/full 下有意义（见 Step 2e.2b） |
 
   用户确认或调整后执行 2e.3。
+
+**Step 2e.2b: 敏感度升级判断（独立触发，不依赖复杂度偏离）**
+
+仅当 `code_review ∈ {medium, full}` 且当前 `per_task_review == "checkpoint"` 时评估（否则跳过本步）。基于 design.md 判断本任务是否触及**高敏感面**：对外契约/API、认证授权、资金/支付、数据迁移、安全边界、不可逆操作、核心数据 schema。
+
+- **非高敏感** → 不动 `per_task_review`，沿用 checkpoint。
+- **高敏感** → 弹 AskUserQuestion 建议把**整个任务**的 `per_task_review` 升级为 `each`（任务级，对所有 plan task 逐个派 code-reviewer）：选项 `升级 each（逐 task review，质量优先）` / `保持 checkpoint（仅全量兜底）`，并在问题里点明命中的敏感面。用户选 `each` → 并入下方 2e.3 写入 `task-config.json`（per_task_review 变更不改 phases.md 结构，phases.md 重生成对它为 no-op）。
+
+**[Quiet] headless / [Unattended]**：不弹面板，沿用 checkpoint（即使评估为高敏感）——与 2e.2 的 headless 短路一致，无头流程不在此引入交互。
 
 **Step 2e.3: 变更执行**（仅当面板触发且有变更并经用户确认时执行前 2 步）
 
@@ -203,6 +199,11 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
 - **解析为 `claude`/`sonnet`/`opus`** → 走下面 native design-reviewer 收敛循环（并行 R1/R2 矩阵）。
 - **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 改走 review.md codex 分支：经 `/codex:rescue`（read-only）**串行** R1/R2（codex 不并发），输出 `## Critical/Important/Minor` + 末行计数，`codex-findings-count` 判 **C=0 & I=0** 收敛，round≥2 `SendMessage(to: agentId)` 续接。下面第 2–5 步的批判评估/修复/收敛检查逻辑**不变**，仅派发载体（codex vs native）与并发性（串行 vs 并行）不同。中途 `FALLBACK:`/quota → 降级 native design-reviewer（见 review.md，写 `fallback-log.jsonl`）。
 
+<rule>
+When the reviewer resolves to codex (reviewer=auto with `codex-check` READY, or reviewer=codex), you MUST dispatch via the review.md codex branch. Downgrading to a native design-reviewer is permitted ONLY on a hard-fallback trigger (needs network / sandbox gate / quota / codex emits `FALLBACK:`), and EVERY such downgrade MUST append a line to `{task-folder}/fallback-log.jsonl` (`requested_engine:"codex", actual_engine:"claude", reason:<text>`). "Native is simpler/faster" is never a valid reason.
+Reason: dogfooding caught a run that resolved to codex (auto + READY) yet dispatched a native design-reviewer "for speed", silently downgrading review depth — the codex review then surfaced 2 Critical findings the native path would likely have missed. An unlogged downgrade hides that the configured reviewer never actually ran.
+</rule>
+
 **收敛模式核心循环：**
 
 1. **并行派发** R1（结构审查）+ R2（对抗审查），均用 `subagent_type: design-reviewer`（保留 model override，按下方矩阵在派发时指定）：
@@ -272,23 +273,6 @@ hat-plugin-hook {task-folder} P2.post-design-approved
 
 ---
 
-## P2 结束时间戳（core timing，内联）
-
-Step 2e 完成后内联记录 phase_end：
-
-```bash
-hat-timing-stamp {task-folder} phase_end P2
-```
-
-> **B1**：P2.phase-end 的 linear 描述更新已并入 `P3.phase-end`（linear.md），故 P2 不再有 `hat-plugin-hook` 调用——P2 收尾仅内联 timing。
-
-<rule>
-P2 timing 经内联 `hat-timing-stamp`（phase_start/phase_end）。helper 自带 `observability.enabled` 门控（关闭档 → no-op）。
-Reason: 内联是确定动作；缺 phase_start 触发 artifact-check 硬 FAIL，故 phase_start 内联点须前置。
-</rule>
-
----
-
 ## Design 完成 → 过渡
 
 Phase 2 完成，phases.md 已更新。
@@ -308,6 +292,17 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 
 ---
 
+## Visual / Semantic Decisions — Use Previews
+
+设计期遇到**视觉 / 语义选择**（图标 / emoji、命名格式与缩写、键位、文案、布局）时，在 Step 2 澄清里用 AskUserQuestion 的 `preview` 字段把候选**画出来**让用户一次性选定，并写进 design.md 的验收/决策。不要把这类选择留到实现期凭文字描述反复试。
+
+<rule>
+Surface visual/semantic choices (icons/emoji, naming formats & abbreviations, keybindings, copy, layout) during Step 2 clarification using AskUserQuestion previews, and record the decision in design.md. Do NOT defer them to implementation.
+Reason: visual/semantic decisions converge cheaply with a side-by-side preview up front but iterate expensively in prose during implementation — real case 2026-06-18-tmux-agent-restore: emoji/abbreviation/keybinding choices took ~25 AskUserQuestion rounds, mostly inside P5 implementation. Deciding them in design with previews collapses the round-trips.
+</rule>
+
+---
+
 ## Mandatory Stop Points
 
 | Step | When | What to Ask |
@@ -316,6 +311,7 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 | 3 | 提案完成后 | 用户选择方案 |
 | 4 | 每节设计展示后 | 这部分看起来对吗？ |
 | 2e | 复杂度与 preset 明显偏离时 | 配置面板修正 + activate_after 时机 |
+| 2e.2b | 任务高敏感且当前 checkpoint 时 | 建议把 per_task_review 升级为 each（仅 Interactive） |
 | 6.5 | 自我 review 完成后 | Review 轮数、code review 策略、reviewer 模型 |
 | 8 | 所有 review 完成后（仅 Interactive） | 等待用户明确批准 design.md（HARD-GATE） |
 
@@ -327,5 +323,4 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 - **Writes**: `{task-folder}/design.md`, `{task-folder}/task-config.json`, `{task-folder}/phases.md`, `{task-folder}/unattended.json`（activate_after 时）
 - **Pre-injected**: `DESIGN_PROTOCOL.md`（设计流程单一来源）
 - **Hooks**: `P2.post-design-draft`（review: self-review + independent review）, `P2.post-design-approved`（review: strategy write-back）（P2.phase-end 已无 hook——linear 描述更新并入 P3.phase-end，见 B1）
-- **Core timing**（内联，非 hook）: phase_start P2（阶段开始）/ phase_end P2（Step 2e 完成后）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
-- **Scripts**: hat-plugin-hook, hat-timing-stamp
+- **Scripts**: hat-plugin-hook

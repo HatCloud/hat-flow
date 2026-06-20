@@ -55,9 +55,9 @@
       "_design_rounds_note": "auto = 按复杂度决定（Low:0, Medium:1, High:1-2）；数字 = 固定轮次",
       "code_review": "medium",
       "_code_review_values": "skip | light | medium | full",
-      "per_task_review": "each",
+      "per_task_review": "checkpoint",
       "_per_task_review_values": "each | checkpoint",
-      "_per_task_review_note": "per-task review 粒度（仅在 code_review ∈ {medium, full} 生效）。each（缺省）= 每个 plan task 完成后各派一次 code-reviewer，覆盖最细、质量优先。checkpoint = 跳过逐 task 派发，仅靠 P4.post-execute 全量 review 兜底（此时全量 review 不降档、按 full 规模跑）。给 prose-only 多-task 重构降派发数用——契约敏感任务保持 each。",
+      "_per_task_review_note": "per-task review 粒度（仅在 code_review ∈ {medium, full} 生效）。checkpoint（缺省）= 跳过逐 task 派发，仅靠 P4.post-execute 全量 review 兜底（此时全量 review 不降档、按 full 规模跑），省派发数、流程更短。each = 每个 plan task 完成后各派一次 code-reviewer，覆盖最细、质量优先。缺省 checkpoint；task-design Step 2e 评估任务为高敏感（对外契约/API、认证授权、资金/支付、数据迁移、安全边界、不可逆操作、核心 schema）时交互建议升级为 each（无头模式沿用 checkpoint、不询问）。",
       "reviewer": "claude",
       "_reviewer_values": "claude | codex | auto",
       "_reviewer_note": "design/plan review 的执行者。claude = native design/plan-reviewer subagent（缺省）；codex = 经 /codex:rescue read-only 派 Codex 做收敛 review（注入维度规范 + 项目约定，输出 Critical/Important/Minor 计数）；auto = codex-first（codex-check READY 且沙盒门槛未命中时优先 codex，否则降级 claude）。code review（P4 4b）恒 claude，不受此设置影响。",
@@ -85,10 +85,6 @@
       "enabled": false
     }
   },
-  "observability": {
-    "enabled": false
-  },
-  "_observability_note": "核心能力（非 plugin，ISSUE 下沉）：timing 由各 phase SKILL 在 phase 边界内联经 hat-timing-stamp 写入，受此顶层开关门控。与 todo_sync/phase_merge 同级；preset 可覆盖（hotfix 设 false）。",
   "todo_sync": true,
   "phase_merge": [],
   "_phase_merge_note": "数组的数组，如 [[3,4]] 表示 P3→P4 无停顿。P5→P6 永不可合并。当前默认全部不合并（所有 preset 均为 []，每个阶段都重要）。",
@@ -104,7 +100,6 @@
         "review": {
           "enabled": true,
           "code_review": "full",
-          "per_task_review": "each",
           "reviewer": "auto"
         },
         "tdd": {
@@ -116,10 +111,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true,
-      "observability": {
-        "enabled": false
-      }
+      "todo_sync": true
     },
     "standard": {
       "execution": {
@@ -141,10 +133,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true,
-      "observability": {
-        "enabled": false
-      }
+      "todo_sync": true
     },
     "lite": {
       "execution": {
@@ -166,10 +155,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true,
-      "observability": {
-        "enabled": false
-      }
+      "todo_sync": true
     },
     "hotfix": {
       "execution": {
@@ -187,9 +173,6 @@
         "retrospective": {
           "enabled": false
         }
-      },
-      "observability": {
-        "enabled": false
       },
       "phase_merge": [],
       "todo_sync": false,

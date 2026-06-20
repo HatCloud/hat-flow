@@ -9,8 +9,7 @@ description: "Use when the user decides to abandon or defer an in-progress task.
 
 **Announce at start:** "Using task-cancel to close this task."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
 
@@ -41,13 +40,7 @@ Reason: autonomous progression past decision points leads to wasted work when us
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），从 phases.md 重建概览行 + step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 ---
 

@@ -10,8 +10,7 @@ Revise Cycle 处理器。在 Phase 4/5 内部执行一个**自适应单循环**�
 
 **Announce at start:** "Using task-revise for Revise Cycle."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -32,13 +31,7 @@ Write every message you show to the user in the user's configured language (the 
 
 ## TODO Sync
 
-### Bootstrap
-
-`TaskList` 检查当前 Revise 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md 中 Revise section 对应步骤。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。（恢复时同步 phases.md 中 Revise section 对应步骤）
 
 ---
 
@@ -76,6 +69,7 @@ Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → 
 ### Initialization
 
 1. 读取 phases.md，找到 `Status: IN_PROGRESS` 的 `## Revise RN` section（N 为编号，从标题 `## Revise R1` / `## Revise R2` 中提取数字。文档中 `RN` 泛指"当前 revise"，实际执行时替换为具体编号如 R1、R2）
+   > Revise section 的**路由判定**（哪个 section 该执行——多 IN_PROGRESS 取最大编号、DONE 回归、DEFERRED 终结）权威表在 `task/SKILL.md` Revise 路由段；本 skill 只读已选中的 IN_PROGRESS section、不重复该决策。
 2. 解析字段：Trigger, Return, Reason, Started
 3. 读取 `{task-folder}/design.md` 和 `{task-folder}/plan.md` 了解原始设计和计划上下文
 

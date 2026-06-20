@@ -33,7 +33,7 @@ Write every message you show to the user in the user's configured language (the 
 ## Dependencies
 
 - **继承**: `spec-skill`（已预注入上方）
-- **适用范围**: `skills/task*/SKILL.md`（各 phase skill，含生命周期辅助 skill task-reopen）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）+ `bin/hat-task-artifact-check`（门控脚本）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.{md,manifest.json}`（插件指令 + 声明）+ `agents/*.md`（task 工作流派发的 subagent，如 task-executor、各 reviewer）+ `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/*.md`（review 协议）+ 协议文件（`DESIGN_PROTOCOL.md` / `PLAN_PROMPT.md` / `UNATTENDED_PROTOCOL.md` / `IMPLEMENTER_PROMPT.md`）
+- **适用范围**: `skills/task*/SKILL.md`（各 phase skill，含生命周期辅助 skill task-reopen）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）+ `bin/hat-task-artifact-check`（门控脚本）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`（插件指令 + 顶部 frontmatter 声明）+ `agents/*.md`（task 工作流派发的 subagent，如 task-executor、各 reviewer）+ `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/*.md`（review 协议）+ 协议文件（`DESIGN_PROTOCOL.md` / `PLAN_PROMPT.md` / `UNATTENDED_PROTOCOL.md` / `IMPLEMENTER_PROMPT.md`）
 
 ---
 
@@ -42,20 +42,14 @@ Write every message you show to the user in the user's configured language (the 
 Task 流程分两层，必须始终分离：
 
 - **Core**：phase skill（task-init/design/plan/execute/test/end）+ 生命周期辅助 skill（task-cancel/task-revise/task-reopen）+ 编排器 `task/SKILL.md` + 门控脚本 `bin/hat-task-artifact-check`。core 只定义骨架——阶段顺序、状态机、何时触发产物门控。
-- **Plugin**：`plugins/*.md` + `manifest.json`。某项能力的全部逻辑只住在它自己的 plugin 文件里。
+- **Plugin**：`plugins/*.md`（指令正文 + 顶部 `---` frontmatter 声明 hook 路由）。某项能力的全部逻辑只住在它自己的 plugin 文件里。
 
 两层只通过 hook 边界连接：core 在阶段边界调 `hat-plugin-hook {folder} {hook-point}`，逐段执行返回的指令；插件关闭（`task-config.json` 翻 `enabled:false`）时 hook 不返回它的指令段，该能力自然消失。目标——**任一插件都能靠翻 `enabled:false` 干净拔除，无需编辑任何 core 文件**（门控脚本也算 core：它不得为某个具体插件硬编码产物文件名）。
 
 <HARD-GATE>
-Plugin-specific logic MUST NOT be written into any core file (a phase SKILL.md, the orchestrator, or hat-task-artifact-check). A plugin's behavior lives only in its plugins/*.md and manifest.json; core merely invokes the hook and executes whatever instructions come back.
+Plugin-specific logic MUST NOT be written into any core file (a phase SKILL.md, the orchestrator, or hat-task-artifact-check). A plugin's behavior lives only in its plugins/*.md (instruction body + leading frontmatter); core merely invokes the hook and executes whatever instructions come back.
 Reason: when plugin logic leaks into core, flipping enabled:false no longer removes the logic — disabling the plugin then requires surgically editing core files, and the pluggable promise silently breaks. When a stateful plugin's artifacts span phases, its lifecycle logic tends to spread across multiple phase skills and the gate script, turning a one-flag removal into multi-file surgery.
 </HARD-GATE>
-
-> **Carve-out — observability/timing 是核心能力（ISSUE 下沉，双向豁免）**：observability 已从 plugin 下沉为 task 工作流核心能力——timing 由各 phase SKILL 在 phase 边界**内联**经 `hat-timing-stamp` 写入，受顶层 `observability.enabled` 门控。两条豁免**不违反**上方 HARD-GATE：
-> - **(a) observability/timing 写入 core 文件不算「插件逻辑入 core」**——它本就不是 plugin，是横切「埋点/仪表」基础设施；core 内联 timing 是核心能力的正当落点（开关在顶层 `observability.enabled`，关闭时 helper no-op，能力干净消失，无需编辑 core）。
-> - **(b) plugin 消费 core observability 能力不构成 plugin→core 硬耦合**——如 tdd 经 `hat-timing-stamp` 写 `tdd_cycle`，helper 自带门控、plugin 不感知开关位置；翻 tdd 的 `enabled:false` 仍能干净拔除 tdd（不影响 timing helper 自身）。
->
-> 对**真 plugin（review/linear/git/tdd/retrospective）**的「逻辑不得写 core」HARD-GATE **不放宽**——本 carve-out 仅限 observability/timing 这一横切基础设施。
 
 ### Cross-Phase State Litmus
 
@@ -180,20 +174,20 @@ Reason: dogfooding found a strip task whose acceptance grep matched the very scr
 
 ### 8. Hook Manifest Closure
 
-插件通过 manifest 声明的 hook section 与 plugin `.md` 中的 section 标题必须**双向闭合**，否则会出现「声明了但 .md 无此段」或「.md 写了 handler 段但从未被声明、永不 emit」的静默失效。
+插件通过 frontmatter 声明的 hook section 与 plugin `.md` body 中的 section 标题必须**双向闭合**，否则会出现「声明了但 .md 无此段」或「.md 写了 handler 段但从未被声明、永不 emit」的静默失效。
 
-- **① 正向闭合**：每个 manifest 的 `section` 字段值，必须在对应 `.md` 中存在为一个 `## ` 标题。
-- **② 反向闭合**：每个 `.md` 中作为 hook handler 的 `## ` section 标题，必须被某 manifest 的 `section` 字段引用。
-- **③ 闭合判据是 section 字符串的集合包含，不是「hook 点名 == section 名」**：manifest 的 `section` 是任意字符串，允许**一段多 hook 复用**——多个 hook 点可声明同一 `section`（一个 `.md` 段被多个 phase 边界共享）。判据为「manifest 全部 `section` 值 ⊆ `.md` 的 `## ` 标题集」**且**「`.md` 的 hook handler `## ` 标题 ⊆ manifest 全部 `section` 值」。**不得**用「hook 点名等于 section 名」做判据——否则会把合法的泛化复用段误判为未声明，爆假阳性。
-- **④ awk 提取机制（决定哪些标题算 section、正文到哪截断）**：`hat-plugin-hook` 按「`## ` 标题 → 下一个 `^## `」提取段落正文。仅行首恰好「`## ` + 空格」触发截断；段内 `### ` / `#### ` 子标题**不**截断；代码块内（``` fence 之间）的 `## ` 被 fence-aware 忽略、不算 section。（运行时后果——未被任何 manifest 声明的 `## ` section 永不被 emit——见下方 `<rule>` Reason。）
-- **⑤ 校验配方**：对每个 plugin 跑双向 grep——正向遍历 manifest 每个 `section` 在 `.md` 查找标题；反向列 `.md` 的非代码块 `## ` 标题与 manifest `section` 值集求差，差集为空即闭合。
+- **① 正向闭合**：每个 frontmatter hook 的 `section` 字段值，必须在对应 `.md` body 中存在为一个 `## ` 标题。
+- **② 反向闭合**：每个 `.md` body 中作为 hook handler 的 `## ` section 标题，必须被某 frontmatter hook 的 `section` 字段引用。
+- **③ 闭合判据是 section 字符串的集合包含，不是「hook 点名 == section 名」**：frontmatter hook 的 `section` 是任意字符串，允许**一段多 hook 复用**——多个 hook 点可声明同一 `section`（一个 `.md` 段被多个 phase 边界共享）。判据为「frontmatter 全部 `section` 值 ⊆ `.md` 的 `## ` 标题集」**且**「`.md` 的 hook handler `## ` 标题 ⊆ frontmatter 全部 `section` 值」。**不得**用「hook 点名等于 section 名」做判据——否则会把合法的泛化复用段误判为未声明，爆假阳性。
+- **④ 段落提取机制（决定哪些标题算 section、正文到哪截断）**：`hat-plugin-hook` 按「`## ` 标题 → 下一个 `^## `」提取段落正文。仅行首恰好「`## ` + 空格」触发截断；段内 `### ` / `#### ` 子标题**不**截断；代码块内（``` fence 之间）的 `## ` 被 fence-aware 忽略、不算 section。（运行时后果——未被任何 frontmatter 声明的 `## ` section 永不被 emit——见下方 `<rule>` Reason。）
+- **⑤ 校验配方**：对每个 plugin 跑双向 grep——正向遍历 frontmatter 每个 `section` 在 `.md` body 查找标题；反向列 `.md` body 的非代码块 `## ` 标题与 frontmatter `section` 值集求差，差集为空即闭合。
 
 <rule>
-Every manifest `section` string MUST exist as a `## ` heading in the plugin .md, and every hook-handler `## ` heading in the .md MUST be referenced by some manifest `section`. Verify by set-inclusion of section strings in both directions — never by assuming the hook-point name equals the section name.
+Every frontmatter `section` string MUST exist as a `## ` heading in the plugin .md body, and every hook-handler `## ` heading in the .md body MUST be referenced by some frontmatter `section`. Verify by set-inclusion of section strings in both directions — never by assuming the hook-point name equals the section name.
 Reason: an undeclared handler section is silently never emitted (the exact failure where a quality gate's body was written but never reached the agent), and a declared-but-missing section errors at hook time. Section strings are arbitrary and may be reused across hook points, so a name-equality check produces false positives that mask the real closure state.
 </rule>
 
-**与约定 3「Hook Artifact Verification」的边界**：约定 3 管运行时——hook 输出后验证**预期产物**是否生成；本约定管静态结构——manifest ↔ .md 的 **section 声明**是否闭合。两者单一职责，不合并。
+**与约定 3「Hook Artifact Verification」的边界**：约定 3 管运行时——hook 输出后验证**预期产物**是否生成；本约定管静态结构——frontmatter ↔ .md body 的 **section 声明**是否闭合。两者单一职责，不合并。
 
 ### 9. Interaction Front-Loading（交互前置）
 
@@ -249,9 +243,9 @@ Reason: the user's stated workflow is "finish Design/Plan, then leave and let Ex
 
 - [ ] 改动未把任何插件专有逻辑写入 core 文件（phase skill / 编排器 / hat-task-artifact-check）？
 - [ ] 跨阶段产物的插件逻辑全部留在 plugin .md，未溢出到 phase skill？
-- [ ] artifact-check 未新增硬编码的插件产物文件名（应由 manifest 声明）？
-- [ ] Hook Manifest Closure 正向：每个 manifest 声明的 `section` 在对应 plugin `.md` 存在为 `## ` 标题？
-- [ ] Hook Manifest Closure 反向：每个 plugin `.md` 的 hook handler `## ` section 都被某 manifest 的 `section` 字段引用（按集合包含判据，容忍一段多 hook 复用）？
+- [ ] artifact-check 未新增硬编码的插件产物文件名（应由 frontmatter 声明）？
+- [ ] Hook Manifest Closure 正向：每个 frontmatter 声明的 `section` 在对应 plugin `.md` body 存在为 `## ` 标题？
+- [ ] Hook Manifest Closure 反向：每个 plugin `.md` body 的 hook handler `## ` section 都被某 frontmatter `section` 字段引用（按集合包含判据，容忍一段多 hook 复用）？
 - [ ] Transition section 包含"返回编排器 Step 3"指令？
 - [ ] Transition section 有 `<rule>` 禁止提示调用其他 skill？
 - [ ] 过渡描述使用语义名称（Init/Design/Plan...）而非硬编码序号？

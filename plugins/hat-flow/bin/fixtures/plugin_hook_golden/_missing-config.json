@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "stdout": "",
+  "stderr": "[WARN] task-config.json not found in <TASK>, skipping\n",
+  "args": [
+    "<TASK>",
+    "P1.phase-start"
+  ]
+}

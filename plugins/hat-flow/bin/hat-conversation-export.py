@@ -5,16 +5,6 @@ import os
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
-
-
-def parse_timestamp(ts):
-    if not ts:
-        return None
-    try:
-        return datetime.fromisoformat(ts[:19])
-    except (ValueError, TypeError):
-        return None
 
 
 def detect_phase_from_subject(subject):
@@ -38,7 +28,7 @@ def extract_messages_and_stats(jsonl_paths):
         "input_tokens": 0, "output_tokens": 0,
         "cache_read": 0, "cache_create": 0,
         "assistant_turns": 0, "user_turns": 0,
-        "tool_calls": 0, "start_ts": None, "end_ts": None,
+        "tool_calls": 0,
     })
     tool_stats = defaultdict(lambda: {"count": 0, "tokens_after": 0})
     current_phase = (0, "Pre-Init")
@@ -63,7 +53,6 @@ def extract_messages_and_stats(jsonl_paths):
                 continue
 
             timestamp = obj.get("timestamp", "")
-            ts = parse_timestamp(timestamp)
             msg = obj.get("message", {})
             content = msg.get("content", "")
             usage = msg.get("usage", {})
@@ -89,11 +78,6 @@ def extract_messages_and_stats(jsonl_paths):
             else:
                 total_stats["user_turns"] += 1
                 phase_stats[phase_key]["user_turns"] += 1
-
-            if ts:
-                if phase_stats[phase_key]["start_ts"] is None:
-                    phase_stats[phase_key]["start_ts"] = ts
-                phase_stats[phase_key]["end_ts"] = ts
 
             content_parts = []
             if isinstance(content, str):
@@ -184,105 +168,7 @@ def fmt_tokens(n):
     return str(n)
 
 
-def fmt_duration_secs(total_seconds):
-    if total_seconds is None:
-        return "—"
-    mins = total_seconds / 60
-    if mins < 1:
-        return f"{total_seconds:.0f}s"
-    if mins < 60:
-        return f"{mins:.0f}m"
-    return f"{mins / 60:.1f}h"
-
-
-def fmt_duration(start, end):
-    if not start or not end:
-        return "—"
-    return fmt_duration_secs((end - start).total_seconds())
-
-
-def compute_idle_seconds(timestamps, start, end, threshold=1800):
-    """计算窗口 [start, end) 内的 idle gap 总秒数。
-
-    过滤落在半开窗口 [start, end) 内的时间戳；若为空直接返回 0（C1：不插锚点）；
-    否则把 start/end 作为锚点拼入并排序，对相邻间隔 > threshold 的整段 gap 累加。
-
-    参数：
-        timestamps: 已 parse 的 datetime 列表（naive）
-        start, end: 已 parse 的 naive datetime，界定窗口
-        threshold: idle 阈值（秒），默认 1800（30min）
-
-    返回：
-        idle 总秒数（float/int）
-    """
-    window = [t for t in timestamps if start <= t < end]
-    if not window:
-        return 0
-    anchored = sorted(set([start] + window + [end]))
-    idle = 0
-    for i in range(len(anchored) - 1):
-        gap = (anchored[i + 1] - anchored[i]).total_seconds()
-        if gap > threshold:
-            idle += gap
-    return idle
-
-
-def load_phase_brackets(timing_path):
-    """从 timing.jsonl 配对 phase_start/phase_end，返回 {phase_num: (start_dt, end_dt)}。
-
-    文件缺失/损坏时返回 {}。
-    """
-    if not timing_path or not os.path.exists(timing_path):
-        return {}
-    starts, ends = {}, {}
-    try:
-        with open(timing_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                m = re.match(r'P(\d+)', str(ev.get("phase", "")))
-                if not m:
-                    continue
-                pn = int(m.group(1))
-                ts = parse_timestamp(ev.get("ts", ""))
-                if ts is None:
-                    continue
-                event = ev.get("event")
-                if event == "phase_start":
-                    if pn not in starts or ts < starts[pn]:
-                        starts[pn] = ts
-                elif event == "phase_end":
-                    if pn not in ends or ts > ends[pn]:
-                        ends[pn] = ts
-    except OSError:
-        return {}
-    return {pn: (starts[pn], ends[pn]) for pn in starts if pn in ends}
-
-
-def _durations_from_brackets(brackets):
-    """{pn: (start_dt, end_dt)} → {pn: duration_seconds}。bracket→时长 的单一计算来源，
-    供 load_phase_durations 与 main 共用，避免两处各自内联同一公式日后分叉。"""
-    return {pn: (e - s).total_seconds() for pn, (s, e) in brackets.items()}
-
-
-def load_phase_durations(timing_path):
-    """从 timing.jsonl 配对 phase_start/phase_end，返回 {phase_num: duration_seconds}。
-
-    timing.jsonl 由 core timing（各 phase SKILL 在 phase 边界内联经 hat-timing-stamp）记录，是真实 phase 时长（不含
-    compact 后挂起空闲）。消息墙钟差会把 idle gap 错算进 phase——故优先用此数据。
-    文件缺失/损坏时返回 {}，调用方回退到消息墙钟差。
-    """
-    return _durations_from_brackets(load_phase_brackets(timing_path))
-
-
-def write_report(phase_stats, tool_stats, total_stats, report_path, session_id, phase_durations=None, phase_idle=None):
-    phase_durations = phase_durations or {}
-    phase_idle = phase_idle or {}
+def write_report(phase_stats, tool_stats, total_stats, report_path, session_id):
     total_out = max(total_stats["output_tokens"], 1)
     total_in = max(total_stats["input_tokens"] + total_stats["cache_read"] + total_stats["cache_create"], 1)
     total_all = total_in + total_out
@@ -301,39 +187,14 @@ def write_report(phase_stats, tool_stats, total_stats, report_path, session_id, 
         out.write(f"- Tool calls: {total_stats['tool_calls']}\n\n")
 
         out.write("## 阶段消耗\n\n")
-        if phase_durations:
-            out.write("> Duration 来源：timing.jsonl phase bracket，已扣除 >30min 的 idle gap（active 时长）。"
-                      "无 timing 记录的 phase 回退消息墙钟差，标 ~。\n\n")
-        else:
-            out.write("> ⚠️ Duration = phase 内首末消息墙钟差，**不扣 idle**。"
-                      "同目录无 timing.jsonl 时的回退口径，可能把挂起空闲错算进 phase。\n\n")
-        out.write("| Phase | Duration | Output Tokens | Input (uncached) | Cache Read | Tool Calls | Output % |\n")
-        out.write("|-------|----------|---------------|-----------------|------------|------------|----------|\n")
+        out.write("| Phase | Output Tokens | Input (uncached) | Cache Read | Tool Calls | Output % |\n")
+        out.write("|-------|---------------|-----------------|------------|------------|----------|\n")
 
         phase_order = sorted(phase_stats.keys(), key=lambda k: int(re.search(r'P(\d)', k).group(1)) if re.search(r'P(\d)', k) else 0)
         for phase in phase_order:
             s = phase_stats[phase]
-            m = re.search(r'P(\d+)', phase)
-            pn = int(m.group(1)) if m else None
-            if pn is not None and pn in phase_durations:
-                bracket_secs = phase_durations[pn]
-                idle = phase_idle.get(pn, 0)
-                active = bracket_secs - idle
-                if active < 0:
-                    # idle>bracket = 算法 bug；clamp 并给唯一的异常标注（不再叠加正常"扣 idle"，二者互斥）
-                    active = 0
-                    print(f"WARNING: {phase} active<0 (bracket={bracket_secs}s, idle={idle}s) — clamped to 0", file=sys.stderr)
-                    dur = fmt_duration_secs(active) + "（active 已 clamp 0：idle>bracket，数据异常）"
-                else:
-                    dur = fmt_duration_secs(active)
-                    if idle > 0:
-                        dur += f"（扣 idle {fmt_duration_secs(idle)}）"
-            else:
-                dur = fmt_duration(s["start_ts"], s["end_ts"])
-                if phase_durations:
-                    dur += "~"
             pct = s["output_tokens"] / total_out * 100 if total_out else 0
-            out.write(f"| {phase} | {dur} | {fmt_tokens(s['output_tokens'])} | {fmt_tokens(s['input_tokens'])} | {fmt_tokens(s['cache_read'])} | {s['tool_calls']} | {pct:.0f}% |\n")
+            out.write(f"| {phase} | {fmt_tokens(s['output_tokens'])} | {fmt_tokens(s['input_tokens'])} | {fmt_tokens(s['cache_read'])} | {s['tool_calls']} | {pct:.0f}% |\n")
 
         out.write("\n## 工具调用统计\n\n")
         out.write("| Tool | Count | Avg Output Tokens |\n")
@@ -392,12 +253,7 @@ def main():
 
     report_dir = os.path.dirname(os.path.abspath(output_path))
     report_path = os.path.join(report_dir, "consumption-report.md")
-    timing_path = os.path.join(report_dir, "timing.jsonl")
-    brackets = load_phase_brackets(timing_path)
-    phase_durations = _durations_from_brackets(brackets)
-    msg_ts = sorted({t for m in messages if (t := parse_timestamp(m["timestamp"])) is not None})
-    phase_idle = {pn: compute_idle_seconds(msg_ts, s, e) for pn, (s, e) in brackets.items()}
-    write_report(phase_stats, tool_stats, total_stats, report_path, session_id, phase_durations, phase_idle)
+    write_report(phase_stats, tool_stats, total_stats, report_path, session_id)
     print(f"Generated consumption report to {report_path}")
 
 

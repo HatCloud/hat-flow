@@ -4,6 +4,23 @@ All notable changes to hat-flow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions use the plugin's
 `hat-flow--vX.Y.Z` tag scheme.
 
+## [0.4.0]
+
+### Changed
+- Plugin hook engine rewritten from bash + `jq` to single-pass Python. `jq` is
+  no longer a required dependency for the core workflow.
+- Plugin manifests merged into each plugin's SKILL.md frontmatter — one fewer
+  file per plugin, parsed in a single pass.
+
+### Removed
+- Timing / observability instrumentation removed entirely: the
+  `hat-timing-stamp` script and all `observability` config keys are gone.
+- Subagent-async dispatch machinery removed; plugin hooks run inline.
+
+### Notes
+- This distribution ships with the self-evolution (retrospective) capability
+  disabled by default.
+
 ## [0.3.1]
 
 ### Added
@@ -20,8 +37,5 @@ All notable changes to hat-flow are documented here. Format follows
   stop-points (non-converging review, debt reconciliation) continue with a
   recorded trace; irreversible / high-risk points still hard-stop.
 
-### Notes
-- This distribution ships with observability/timing and the self-evolution
-  (retrospective) capability disabled by default.
-
+[0.4.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.4.0
 [0.3.1]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.3.1

@@ -90,8 +90,6 @@ def test_preset_block_applied(tmp_path):
     r = run_resolve(tmp_path, "--preset", "hotfix")
     d = json.loads(r.stdout)
     assert d["preset"] == "hotfix"
-    # hotfix preset sets observability.enabled false at top level
-    assert d["observability"]["enabled"] is False
     assert d["plugins"]["review"]["enabled"] is False
 
 

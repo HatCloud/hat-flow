@@ -10,8 +10,7 @@ description: "Use when executing Phase 4 (Execute) of a task. Runs plan tasks an
 
 **Announce at start:** "Using task-execute for Phase 4: Execute."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -33,9 +32,7 @@ Write every message you show to the user in the user's configured language (the 
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 **Phase 4 的 step 级 task 展开规则**：解析 `{task-folder}/plan.md`，为每个 plan task 创建独立的 step 级 TODO（而非只创建 `4a` 和 `4b` 两项）。格式：
 
@@ -90,14 +87,6 @@ Write every message you show to the user in the user's configured language (the 
 > `task_config` 仅在 Unattended 模式下由 task-execute 直接读取。Interactive 模式下，用户在 Design 阶段 Step 6.5 已基于 `task_config` 推荐值做出选择并写入 `design.md`，task-execute 读取 `design.md` 即可。
 
 ---
-
-### P4 起始时间戳（core timing，内联）
-
-内联记录 phase_start（须在本 phase 任何 `hat-plugin-hook` 调用之前；helper 自带顶层 `observability.enabled` 门控，关闭档 → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P4
-```
 
 ### 4a. Execution
 
@@ -212,10 +201,8 @@ for layer in layers:
 #### 执行循环（每个 plan task）
 
 1. 将当前任务标记为 in_progress（TODO Sync）
-2. **P4.per-task-pre：内联 timing + hook**：
-   先内联记录 task_start（core timing，须在 hook 之前），再运行 hook：
+2. **P4.per-task-pre hook**：
    ```bash
-   hat-timing-stamp {task-folder} task_start P4 task="Task N"
    hat-plugin-hook {task-folder} P4.per-task-pre
    ```
    hook 输出按段全部执行（tdd: TDD 循环指令注入）。tdd 禁用时该点天然输出空、跳过（无需额外条件化逻辑）。
@@ -234,13 +221,11 @@ for layer in layers:
 | **BLOCKED** | 走 **卡壳升级阶梯**（见下）——非立即上报，先经根因调试 |
 
 5. 运行 **Light verification**（Runtime Context 中的 Check (light) 命令）
-6. **P4.per-task-post：内联 timing + hook**：
-   先内联记录 task_end（core timing，`status` 取执行结果 done/error；须在 hook 的 tdd RED 检测之前），再运行 hook：
+6. **P4.per-task-post hook**：
    ```bash
-   hat-timing-stamp {task-folder} task_end P4 task="Task N" status=done   # status 取执行结果：成功 done / 出错或 BLOCKED error
    hat-plugin-hook {task-folder} P4.per-task-post
    ```
-   hook 输出按段全部执行（顺序：tdd: RED 异常检测 + tdd_cycle timing 记录 → review: per-task review → git: formatter → git: commit checkpoint）。obs 的 `task_end` 与 tdd 的 `tdd_cycle` 是两个不同事件，各写一行、不撞名。
+   hook 输出按段全部执行（顺序：tdd: RED 异常检测 → review: per-task review → git: formatter → git: commit checkpoint）。
 7. 将任务标记为 completed
 8. 重复直到所有任务完成
 
@@ -313,19 +298,6 @@ Reason: partial hook execution silently drops the revise-detection segment, so s
 
 完成后（非 revise 触发路径）：更新 phases.md，将 `4b. 代码 review` 标记为 `[x]`。
 
-### P4 结束时间戳（core timing，内联）
-
-返回编排器前内联记录 phase_end：
-
-```bash
-hat-timing-stamp {task-folder} phase_end P4
-```
-
-<rule>
-返回编排器前应内联 `hat-timing-stamp {task-folder} phase_end P4`。helper 自带 `observability.enabled` 门控（关闭档 → no-op）。
-Reason: 内联后是确定动作（不再依赖读 hook 文本指令后手写）；缺 phase_end 仅触发编排器 Step 1.5 产物门控的非阻断警告（不 self-brick），但应执行以保 observability 完整。
-</rule>
-
 ### Execute 完成 → 过渡
 
 Phase 4 完成，phases.md 已更新。
@@ -368,5 +340,4 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 - **References**: `hatflow-dispatching-parallel-agents`（独立批次并行派发纪律）, `hatflow-systematic-debugging`（卡壳升级阶梯根因定位）, `review.md`（engine 解析漏斗与 P2/P3 同序）
 - **Scripts（engine=codex）**: `codex-sandbox-gate`（硬门槛）, `codex-check`（capability 刷新）；测试接缝 `TASK_RESUME_CHOICE` 环境变量
 - **Hooks**: `P4.per-task-pre`（tdd）, `P4.per-task-post`（tdd + review + git）, `P4.post-execute`（review）
-- **Core timing**（内联，非 hook）: phase_start P4（阶段开始）/ task_start P4（每 task 前）/ task_end P4（每 task 后、hook 之前）/ phase_end P4（返回编排器前）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
-- **Scripts**: hat-plugin-hook, hat-timing-stamp
+- **Scripts**: hat-plugin-hook

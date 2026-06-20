@@ -10,8 +10,7 @@ description: "Use when executing Phase 3 (Plan + Commit) of a task. Writes plan.
 
 **Announce at start:** "Using task-plan for Phase 3: Plan + Commit."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -32,13 +31,7 @@ Write every message you show to the user in the user's configured language (the 
 
 ## TODO Sync
 
-### Bootstrap（执行开始时）
-
-`TaskList` 检查当前 Phase 的 step 级 task 是否存在。若不存在（session 恢复或 context compaction），**先**从 phases.md 重建概览行（确保拿到最小 ID 以固定在首行）并**立即** `TaskUpdate(status: "in_progress")`，**再**创建 step 级 task（已完成步骤标记 completed）。
-
-### 执行中更新
-
-每个步骤开始时 `TaskUpdate(status: "in_progress")`，完成时 `TaskUpdate(status: "completed")`，同步更新 phases.md。
+双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
 
 ---
 
@@ -67,14 +60,6 @@ Write every message you show to the user in the user's configured language (the 
 > 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
 
 ---
-
-### P3 起始时间戳（core timing，内联）
-
-内联记录 phase_start（helper 自带顶层 `observability.enabled` 门控，关闭档 → no-op）：
-
-```bash
-hat-timing-stamp {task-folder} phase_start P3
-```
 
 ### 3a. Generate Plan
 
@@ -154,16 +139,13 @@ hook 完成后：在终端输出可视化任务清单：
 
 完成后：更新 phases.md，将 `3b. Plan 忠实度评估` 标记为 `[x]`。
 
-### 3c + 3d: P3.phase-end (Timestamp + Commit + Linear Sync)
+### 3c + 3d: P3.phase-end (Commit + Linear Sync)
 
-先内联记录 P3 phase_end 时间戳（core timing，须在 hook 之前），再由 `P3.phase-end` hook 统一处理 git 提交 + Linear 同步：
+由 `P3.phase-end` hook 统一处理 git 提交 + Linear 同步：
 
 ```bash
-hat-timing-stamp {task-folder} phase_end P3
 hat-plugin-hook {task-folder} P3.phase-end
 ```
-
-> **Subagent**：linear 在 P3.phase-end 为 `subagent:linear-sync` hook。`hat-plugin-hook` 输出 DISPATCH 指令，编排器据此派一次性后台 subagent 异步执行（见 task/SKILL.md Subagent Async Dispatch）。
 
 hook 输出可能包含多段指令，**必须逐段全部执行**（git: 提交任务文档；linear: 同步状态）。插件关闭时对应操作自动跳过。
 
@@ -174,11 +156,6 @@ git plugin 启用时，验证 commit 是否成功创建：`git log --oneline -1`
 <rule>
 P3.phase-end hook 执行后必须验证 commit 产物。若 git plugin 启用但 commit 未创建，主 agent 必须 fallback 手动提交。
 Reason: 未提交的任务文档在 context compact 后会丢失，且 Phase 4 subagent 无法读取未提交的文件。
-</rule>
-
-<rule>
-P3 timing 经内联 `hat-timing-stamp`（phase_start/phase_end），须排在 P3.phase-end hook 调用之前。helper 自带 `observability.enabled` 门控（关闭档 → no-op）。
-Reason: 内联 timing 是确定动作；缺 phase_start 触发 artifact-check 硬 FAIL，故内联点须前置、先于 P3.phase-end 的 git/linear blocking 段。
 </rule>
 
 完成后：更新 phases.md，将 `3c. 提交任务文档` 和 `3d. Linear 同步` 标记为 `[x]`。
@@ -229,5 +206,4 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、un
 - **Writes**: `{task-folder}/plan.md`, `{task-folder}/phases.md`
 - **Pre-injected**: `PLAN_PROMPT.md`（plan 模板单一来源）
 - **Hooks**: `P3.post-plan`（review: 忠实度评估）, `P3.phase-end`（git: 提交, linear: 同步）
-- **Core timing**（内联，非 hook）: phase_start P3（阶段开始）/ phase_end P3（P3.phase-end hook 之前）经 `hat-timing-stamp`，受顶层 `observability.enabled` 门控
-- **Scripts**: hat-plugin-hook, hat-timing-stamp
+- **Scripts**: hat-plugin-hook

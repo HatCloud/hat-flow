@@ -17,7 +17,7 @@ hat-flow 任务工作流的**首次配置向导**（first-run setup）。引导�
 **触发**：新项目首次准备用 task 工作流，或直接 `/task-setup`。
 
 **关键规则**：
-- 依赖预检中 `jq` / `python3` 为必需，缺则不继续（hook 引擎与 bin 脚本靠它）
+- 依赖预检中 `python3` 为必需，缺则不继续（hook 引擎与 bin 脚本靠它）；`node` 仅 Linear 集成需要
 - 配置只写**项目本地**（`CLAUDE.md` / `task-defaults.json`），绝不写入作者私人值或硬编码状态 UUID
 - 全程可跳过；所有问题用 AskUserQuestion 逐项确认
 

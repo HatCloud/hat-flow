@@ -7,6 +7,16 @@ import subprocess
 import pytest
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _scrub_git_env():
+    """移除测试进程的 GIT_*，保证从 git hook（pre-commit）跑 pytest 时，
+    父 git 进程的 GIT_DIR/GIT_INDEX_FILE 不泄漏进子进程——否则 shell 到 git 的
+    脚本会操作真实 repo 而非 tmp 隔离仓库，破坏空项目 fallback / git log 等断言。"""
+    saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+    yield
+    os.environ.update(saved)
+
+
 @pytest.fixture
 def tmp_git_repo(tmp_path):
     """创建隔离的临时 git 仓库，不影响真实 git 历史"""

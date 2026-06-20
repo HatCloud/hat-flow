@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "stdout": "<!-- plugin:linear hook:P5.post-acceptance on_error:graceful -->\n\n### 状态更新为 In Review\n\n验收完成后（`state` 取 `linear.json.statusMap[\"In Review\"]`）：\n```\nmcp__linear__update_issue({ id: \"<issueUuid>\", state: \"<statusMap['In Review']>\" })\n```\n\n### 验收评论（指针式）\n\n状态置 In Review 后，创建**指针式**验收评论（前缀 `## 验收`，不 inline acceptance-checklist 全文）：\n```\nmcp__linear__create_comment({\n  issueId: \"<issueUuid>\",\n  body: \"## 验收\\n\\n验收通过，状态已置 In Review。详见分支 `{branch}` / PR（acceptance-checklist.md）\"\n})\n```\n查重见下方幂等规则（前缀 `## 验收`）。\n",
+  "stderr": "",
+  "args": [
+    "<TASK>",
+    "P5.post-acceptance"
+  ]
+}

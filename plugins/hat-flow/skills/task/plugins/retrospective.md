@@ -1,3 +1,24 @@
+---
+{
+  "name": "retrospective",
+  "description": "归档后流程审查（Part B 交互讨论）",
+  "recommend_disable_when": [
+    "hotfix 类紧急修复",
+    "预计 30 分钟内完成的小任务"
+  ],
+  "recommend_enable_when": [
+    "涉及流程改进或架构决策的任务"
+  ],
+  "hooks": {
+    "P6.post-archive": {
+      "priority": 70,
+      "section": "## P6.post-archive",
+      "on_error": "graceful"
+    }
+  }
+}
+---
+
 # Retrospective Plugin
 
 ## P6.post-archive

@@ -226,6 +226,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 
 | 停止点                    | 自动决策                                                                                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 需求澄清（1b.1）          | quiet 下按最保守解释自行假设并记 `unattended-decisions.md`；关键歧义按 §8「低置信澄清问题」暂停（早于 1f 物化，按 quiet_mode 判定） |
 | Dirty 文件                | 忽略，直接继续                                                                                                                   |
 | 分支决策                  | 留在当前分支                                                                                                                     |
 | 新分支分叉告警（ISSUE） | 仅「创建新分支」路径触发——Unattended 分支决策默认「留在当前分支」故通常不触发；若触发则记录告警、不阻塞（NO_GIT/git 关闭亦跳过） |
@@ -264,6 +265,8 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次 Opus），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判 SHOULD/MAY → deferred 不阻断；全 PASS（含 deferred）→ 更新 phases.md DONE，推进 task-end |
 | 验收清单（user_test） | Telegram 通知，停止                                                                                                                                                                                                                              |
+| 架构级问题判别（5d）  | §9 HARD-STOP：暂停 + Telegram（含问题描述 + 三选项），等 `/task` 恢复——不自动选向、不自动 Defer（避免静默吞掉架构偏差）                                                                                                                            |
+| 累计新功能 STOP（≥3 或体量超 Execute） | §9 HARD-STOP：暂停 + Telegram（含累计计数 + 体量），等 `/task` 恢复——不自动续过蠕变门                                                                                                                                              |
 
 #### task-end（Phase 6）
 
@@ -310,6 +313,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 | Review 策略      | 按 `task_config.plugins.review.*` |
 | Code review 确认 | 自动执行                          |
 | Revise 触发      | 自动选择深度                      |
+| 回归 review 不通过 | 自动触发新 R(N+1)（沿用原深度）；达 `max_rounds` 硬停 + Telegram，**不走 A4 续跑**（回归不通过 = Revise 未修好，不可 accept-with-findings） |
 
 #### tdd plugin (`plugins.tdd.enabled`)
 
@@ -393,7 +397,7 @@ A: [答案]
 
 | 卡点 | `standard`（缺省=现状） | `conservative` | `headless`（后续） |
 |------|------------------------|----------------|--------------------|
-| A4 design/plan review 达 `max_rounds` 不收敛 | 暂停 + Telegram 通知（§6/§8） | **accept-with-findings 续跑**：剩余 findings 原文写 `## Unresolved Review Findings`（design.md / plan.md）+ `unattended-decisions.md`，续跑；**同点同 phase 至多一次**，第二次退回 `standard`（暂停）。兜底：P4 review + P5 验收双网 | 同 conservative + 全局 degrade_budget |
+| A4 design/plan review 达 `max_rounds` 不收敛 | 暂停 + Telegram 通知（§6/§8） | **accept-with-findings 续跑**：剩余 findings 原文写 `## Unresolved Review Findings`（design.md / plan.md）+ `unattended-decisions.md`，续跑；**同点同 phase 至多一次**——判重读 `unattended-decisions.md` 的 `## Headless Degraded Decisions` 段，该「卡点+phase」键已有一条 AUTO-DEGRADE 记录即视为已用过、第二次退回 `standard`（暂停）。design/plan/revise 三处统一用此判重。兜底：P4 review + P5 验收双网 | 同 conservative + 全局 degrade_budget |
 | A3 task-end 债务对账 | 现降级 + 高置信关/低置信留 | 维持现降级 + 关闭动作 / 低置信疑似项汇总进 `unattended-decisions.md`，final.md P6 引用 | 同 conservative + degrade_budget |
 | A2 user_test | 停（按 task_type） | 停 | 转 self_test + deferred（后续） |
 
@@ -401,14 +405,14 @@ A: [答案]
 
 每次 AUTO-DEGRADE 必须留痕：
 
-- `unattended-decisions.md` 追加 `## Headless Degraded Decisions` 段，逐条记「卡点 / 原文 findings / 自动决策 / 同点是否已用过一次」。
+- `unattended-decisions.md` 追加 `## Headless Degraded Decisions` 段，逐条记「卡点+phase 键（判重用）/ 原文 findings / 自动决策 / 时间」。该段即「同点至多一次」的判重载体（A4 第二次撞同键即退回 standard）。
 - final.md（task-end P6）汇总引用这些降级决策，使人工回看可见。
 
 ### HARD-STOP 硬下限（任何 degrade_policy 都不自动续，必停）
 
 <rule>
-The following are HARD-STOP points that NO degrade_policy may auto-continue past: branch PR/Discard decisions, git operation failure, verification command crash, machine-judgeable MUST/SHOULD acceptance FAIL, artifact gate FAIL, and multiple parallel open tasks. These always pause (Telegram notify) and wait for a human.
-Reason: these are irreversible or high-risk — auto-continuing past them can destroy work (discard), ship broken code (verification crash / MUST FAIL), or corrupt task state (artifact gate). Graduated degradation only applies to reversible/degradable points (review non-convergence, debt reconciliation); the hard floor is non-negotiable.
+The following are HARD-STOP points that NO degrade_policy may auto-continue past: branch PR/Discard decisions, git operation failure, verification command crash, machine-judgeable MUST/SHOULD acceptance FAIL, artifact gate FAIL, multiple parallel open tasks, Test-phase architectural-issue triage (5d), the cumulative new-feature creep gate, and orchestrator state-file (phases.md) corruption. These always pause (Telegram notify) and wait for a human.
+Reason: these are irreversible or high-risk — auto-continuing past them can destroy work (discard), ship broken code (verification crash / MUST FAIL), corrupt task state (artifact gate / phases.md corruption), or silently swallow a scope/architecture deviation (5d triage, creep gate) that needs a human to re-scope. Graduated degradation only applies to reversible/degradable points (review non-convergence, debt reconciliation); the hard floor is non-negotiable.
 </rule>
 
 - A4 的「续跑」仅适用于 **design/plan review 不收敛**（可逆——findings 留痕、P4/P5 双网兜底）；**绝不**适用于上方 HARD-STOP 清单。

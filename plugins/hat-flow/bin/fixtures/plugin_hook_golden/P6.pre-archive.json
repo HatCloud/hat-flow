@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "stdout": "<!-- plugin:git hook:P6.pre-archive on_error:blocking -->\n\n### Pre-commit 安全检查\n\n归档前确认：\n1. 所有变更已提交（`git status --porcelain` 为空或仅有 `.tasks/` 变更）\n2. 当前分支与预期分支一致\n3. 无未解决的 merge conflict\n\n---\n\n<!-- plugin:linear hook:P6.pre-archive on_error:graceful -->\n\n### 归档前 Linear 操作\n\n1. 状态设为 Done（`state` 取 `linear.json.statusMap[\"Done\"]`）：\n```\nmcp__linear__update_issue({ id: \"<issueUuid>\", state: \"<statusMap['Done']>\" })\n```\n\n2. 归档 comment——**摘要 + 指向**（不再 inline final.md 全文）：\n\n   用 **final.md 的摘要**（最终状态 + 3-5 行摘要 + 关键 changelog，从 final.md 提取），并指向 final.md 全文所在位置（git 分支 + 归档目录），构建 comment body（Markdown、用户配置语言）：\n   ```\n   mcp__linear__create_comment({\n     issueId: \"<issueUuid>\",\n     body: \"## 任务归档：{task-name}\\n\\n**最终状态**：{Done / Canceled / ...}\\n\\n{3-5 行摘要}\\n\\n完整报告见 final.md：分支 `{branch}` / 归档目录 `.tasks/done/{task-name}/final.md`\"\n   })\n   ```\n\n   **为何摘要+指向而非全文 inline**：final.md 全文 inline 会在 P6 重复写一遍大段文本（dogfooding 实测 End 阶段 token 大头之一）；final.md 已落盘在 git（分支 + 归档目录），Linear comment 只需做指针。摘要恒短，无超长问题，故无需 create_document 兜底。\n\n   若 `create_comment` 失败（网络/权限），记录错误并在 final.md 中汇总（遵循 P1 错误处理原则，不中止主流程）。\n\n3. 子 issue 同步（如 `sync_sub_issues` 启用）：关闭关联的子 issue\n\n### Comment Guidelines\n\n1. 使用用户配置的语言\n2. Markdown 格式\n3. 各 phase 评论统一**指针式**：事实（提取的 Overview/状态/摘要）+ 指向（分支 / PR / 归档目录的 design.md/plan.md/final.md/acceptance-checklist.md），**不 inline 大文档全文**（P3 设计+计划 / P5 验收 / P6 归档同此原则）\n",
+  "stderr": "",
+  "args": [
+    "<TASK>",
+    "P6.pre-archive"
+  ]
+}

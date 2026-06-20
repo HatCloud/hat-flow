@@ -1,3 +1,37 @@
+---
+{
+  "name": "linear",
+  "description": "Linear 集成：issue 创建/更新、描述同步、文档上传、状态管理",
+  "recommend_disable_when": [
+    "项目 CLAUDE.md 无 ## Linear 配置（无 Team/Project id）且无 linear.json"
+  ],
+  "recommend_enable_when": [
+    "项目 CLAUDE.md 含 ## Linear 配置 或 Linear MCP 可用"
+  ],
+  "hooks": {
+    "P1.phase-end": {
+      "priority": 30,
+      "section": "## P1.phase-end",
+      "on_error": "graceful"
+    },
+    "P3.phase-end": {
+      "priority": 30,
+      "section": "## P3.phase-end",
+      "on_error": "graceful"
+    },
+    "P5.post-acceptance": {
+      "priority": 30,
+      "section": "## P5.post-acceptance",
+      "on_error": "graceful"
+    },
+    "P6.pre-archive": {
+      "priority": 30,
+      "section": "## P6.pre-archive",
+      "on_error": "graceful"
+    }
+  }
+}
+---
 # Linear Plugin
 
 ## P1.phase-end
@@ -74,22 +108,22 @@ MCP 出错 → 记录错误（操作名 + 错误信息），继续执行，**不
 
 ## P3.phase-end
 
-> B1：原 P2.phase-end 的「更新 Issue 描述」已并入此处——P3 一次 subagent 完成「描述更新 + 发评论」两步。
+P3.phase-end 一次完成两步：更新 Issue 描述 + 上传文档评论。
 
 ### 1. 更新 Issue 描述（不受 upload_docs gate）
 
 1. `mcp__linear__get_issue({ id: "<issueUuid>" })` 取当前 description 长度。
-2. 仅当 description **少于 30 字符**时更新：用**派发 prompt 中已注入的 Overview 文本**（事实来源由主线程从 design.md 提取后注入，subagent **不 Read design.md**）：
-   `mcp__linear__update_issue({ id: "<issueUuid>", description: "<注入的 Overview 文本>" })`
+2. 仅当 description **少于 30 字符**时更新：从分支 `design.md` 提取 Overview 文本作为描述：
+   `mcp__linear__update_issue({ id: "<issueUuid>", description: "<design.md Overview 文本>" })`
 3. description ≥30 字符 → 整步 no-op（幂等）。
 
 ### 2. 上传文档到 Linear（评论，指针式）
 
-当 `task-config.json` 的 `plugins.linear.upload_docs` 为 true 时，创建**指针式**评论——事实取**派发 prompt 注入的 Overview 1-2 行**，指向分支文档，**不 inline design/plan 全文**；前缀 `## 设计+计划摘要`：
+当 `task-config.json` 的 `plugins.linear.upload_docs` 为 true 时，创建**指针式**评论——事实取 **design.md 的 Overview 1-2 行**，指向分支文档，**不 inline design/plan 全文**；前缀 `## 设计+计划摘要`：
 ```
 mcp__linear__create_comment({
   issueId: "<issueUuid>",
-  body: "## 设计+计划摘要\n\n{注入的 Overview 1-2 行}\n\n设计+计划已提交，详见分支 `{branch}`：design.md / plan.md"
+  body: "## 设计+计划摘要\n\n{design.md Overview 1-2 行}\n\n设计+计划已提交，详见分支 `{branch}`：design.md / plan.md"
 })
 ```
 
@@ -124,7 +158,7 @@ mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['Done']>" })
 
 2. 归档 comment——**摘要 + 指向**（不再 inline final.md 全文）：
 
-   用**派发 prompt 注入的 final.md 摘要**（最终状态 + 3-5 行摘要 + 关键 changelog——主线程从 final.md 提取后注入，subagent **不 Read final.md**），并指向 final.md 全文所在位置（git 分支 + 归档目录），构建 comment body（Markdown、用户配置语言）：
+   用 **final.md 的摘要**（最终状态 + 3-5 行摘要 + 关键 changelog，从 final.md 提取），并指向 final.md 全文所在位置（git 分支 + 归档目录），构建 comment body（Markdown、用户配置语言）：
    ```
    mcp__linear__create_comment({
      issueId: "<issueUuid>",
@@ -142,50 +176,4 @@ mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['Done']>" })
 
 1. 使用用户配置的语言
 2. Markdown 格式
-3. 各 phase 评论统一**指针式**：事实（注入的 Overview/状态/摘要）+ 指向（分支 / PR / 归档目录的 design.md/plan.md/final.md/acceptance-checklist.md），**不 inline 大文档全文**（P3 设计+计划 / P5 验收 / P6 归档同此原则）
-
-## Subagent Context
-
-> 本 section 由编排器在派发 `linear-sync` 一次性后台 subagent 时注入（manifest `subagents.linear-sync.context_section` 指向此处）。编排器读到 `hat-plugin-hook` 输出的 `<!-- DISPATCH ... hook:{point} ... -->` 指令后，`Agent(run_in_background=true)` 派发该 subagent。subagent 按本 section 执行对应 hook 的 Linear 同步，结束即自终结。`--no-filter`（强制 inline）时主线程读上方各 `## P{N}.*` section 直接执行，不走本 section。
-
-### 角色
-
-你是被派发的一次性 `linear-sync` subagent，负责某个 Linear hook（P3/P5/P6 之一）的异步执行。派发 prompt 已**注入**本次 `## {hook_point}` section 与本 `## Subagent Context` 的正文——**直接按注入的正文执行，不要 Read `linear.md` / design.md / plan.md / final.md**（仅 Read `{task-folder}/linear.json` 取 issueUuid；P3 描述/评论的事实取派发 prompt 注入的 Overview 文本）。成功即结束，失败按下方重试；终态失败在你的 result 文本里写明（你**没有** SendMessage，无法主动回报——主线程靠 completion notification 被动感知，按 graceful 吸收）。
-
-### MCP 依赖前提
-
-你从 user/project settings 继承 Linear MCP（`mcp__linear__*`），与主 session 一致——manifest 的 `subagent_type: general-purpose` 不携带 mcpServers，工具靠继承获得。若 `mcp__linear__*` 不可用，在 result 文本写明"MCP 不可用、同步跳过"后结束（无法降级自救）。
-
-### MCP 工具调用模式
-
-| 操作 | 调用 |
-|---|---|
-| 读 issue | `mcp__linear__get_issue({ id: "<issueUuid 或 PROJ-123>" })` |
-| 更新状态/描述 | `mcp__linear__update_issue({ id: "<issueUuid>", state: "<状态 UUID>", description: "..." })` |
-| 创建评论 | `mcp__linear__create_comment({ issueId: "<issueUuid>", body: "<用户配置语言的 Markdown>" })` |
-
-`issueUuid` 从 `{task-folder}/linear.json` 的 `issueUuid` 字段读取。
-
-### 状态 UUID 来源
-
-状态 `state` 的 UUID 从 `{task-folder}/linear.json` 的 `statusMap` 字段按 name 读取（如 `statusMap["In Review"]`），由主线程在 P1 经 `mcp__linear__get_status_map` 填充——**subagent 不内嵌任何固定状态 UUID**。若 `statusMap` 缺失对应 name，subagent 自行调 `mcp__linear__get_status_map({ teamId })`（team id 来自派发 prompt 注入或 `linear.json`）解析后再用。
-
-### 幂等规则（重复派发 / 重试不得产生重复副作用）
-
-- **create_comment 前查重**：先 `mcp__linear__list_comments({ issueId })`，**按前缀全量过滤所有评论**（遍历全部评论、不限于近期窗口——B1 合并 + 收敛轮重跑下旧评论易被挤出近期窗口致重复，故全量过滤根治），若已存在同 hook 语义的 comment（按标题前缀 `## 设计+计划摘要`、`## 验收`、`## 任务归档` 三者之一判断）则跳过，不重复发。
-- **create_issue 前查 linear.json**：若 `linear.json` 已有 `issueUuid` 则复用，绝不重复创建 issue。
-- **update_issue 幂等天然安全**：状态/描述更新可重复执行，以最后一次为准。
-
-### 重试策略
-
-MCP 调用失败 → 指数退避重试：100ms → 200ms → 400ms，最多 3 次。仍失败则在 result 文本写明失败（操作 + 错误 + 建议），结束本轮，不阻塞主流程。
-
-### 终态失败的 result 格式
-
-```
-[linear-sync] {hook_point} {操作} 失败，已重试 3 次。
-错误: {error}
-建议: 跳过或手动处理（Linear 操作幂等，下个 phase / P6 会兜底覆盖）。
-```
-
-主线程收到 completion notification 后按 `on_error: graceful` 处理——记入 timing.jsonl 继续，不重试、不阻断。
+3. 各 phase 评论统一**指针式**：事实（提取的 Overview/状态/摘要）+ 指向（分支 / PR / 归档目录的 design.md/plan.md/final.md/acceptance-checklist.md），**不 inline 大文档全文**（P3 设计+计划 / P5 验收 / P6 归档同此原则）

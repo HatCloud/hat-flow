@@ -1,202 +1,208 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""Task plugin hook 引擎：解析 task-config 启用的插件，收集某 hook-point 注册的
+handler，按 priority + after 约束排序，从各插件 .md 抽取 section 正文拼接输出。
+所有 handler 均 inline——输出注释头 + 指令正文，由编排器在主线程逐段同步执行。
+无 handler 时 exit 0、stdout 为空。
 
-# A 类（插件内部资源）：相对脚本自身定位，不依赖固定 $HOME 路径。
-# bin/ 与 skills/ 同父平级（~/.claude 与打包后 plugin 根布局同构），故 dirname/.. 解析到仓库根。
-SKILL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGINS_DIR="$SKILL_ROOT/skills/task/plugins"
+PLUGINS_DIR 默认相对脚本自身定位（bin/ 与 skills/ 同父平级，dirname/.. 解析到仓库根），
+可经 PLUGINS_DIR 环境变量覆盖（测试用）。
+"""
+import json
+import os
+import sys
 
-usage() {
-  echo "Usage: hat-plugin-hook <task-folder> <hook-point> [--no-filter]"
-  echo ""
-  echo "Resolves enabled plugins for a task, collects handlers registered"
-  echo "at <hook-point>, sorts by priority + after constraints, and outputs"
-  echo "the concatenated instruction text from each plugin's .md file."
-  echo ""
-  echo "By default, handlers whose execution mode is not 'inline'"
-  echo "(e.g. subagent:NAME) do not emit their instruction body; instead a"
-  echo "machine-readable '<!-- DISPATCH ... -->' directive is written to stdout"
-  echo "so the orchestrator can dispatch a one-shot background subagent. Pass"
-  echo "--no-filter to force all handlers' instruction bodies inline instead."
-  echo ""
-  echo "Exit 0 with empty stdout when no handlers are registered."
-  exit "${1:-0}"
-}
+USAGE = """Usage: hat-plugin-hook <task-folder> <hook-point>
 
-[[ $# -lt 2 ]] && usage 1
+Resolves enabled plugins for a task, collects handlers registered
+at <hook-point>, sorts by priority + after constraints, and outputs
+the concatenated instruction text from each plugin's .md file.
 
-task_folder="$1"
-hook_point="$2"
+Every handler is inline: a comment header plus its instruction body,
+executed in order by the orchestrator on the main thread.
 
-no_filter=false
-for arg in "$@"; do
-  [[ "$arg" == "--no-filter" ]] && no_filter=true
-done
+Exit 0 with empty stdout when no handlers are registered."""
 
-if [[ ! -d "$task_folder" ]]; then
-  echo "Error: task folder not found: $task_folder" >&2
-  exit 1
-fi
 
-config_file="$task_folder/task-config.json"
-if [[ ! -f "$config_file" ]]; then
-  echo "[WARN] task-config.json not found in $task_folder, skipping" >&2
-  exit 0
-fi
+def usage(code=0):
+    print(USAGE)
+    sys.exit(code)
 
-# 依赖预检：本脚本的 hook 路由引擎依赖 jq 解析 manifest/config。缺失则全部 hook
-# 静默失效（review/linear/git/timing 等插件不注入），故此处响亮报错而非静默退出。
-if ! command -v jq >/dev/null 2>&1; then
-  echo "Error: 'jq' is required but not installed. The plugin hook system cannot" >&2
-  echo "       route handlers without it (all task-workflow plugins would silently" >&2
-  echo "       fail to fire). Install jq: brew install jq / apt-get install jq" >&2
-  exit 1
-fi
 
-enabled_plugins=$(jq -r '
-  .plugins // {} | to_entries[]
-  | select(.value.enabled == true or .value.enabled == "auto")
-  | .key
-' "$config_file" 2>/dev/null) || {
-  echo "Error: failed to parse $config_file" >&2
-  exit 1
-}
+def err(msg):
+    print(msg, file=sys.stderr)
 
-[[ -z "$enabled_plugins" ]] && exit 0
 
-# Collect handlers: name, priority, section, on_error, after[]
-handlers_json="[]"
+def plugins_dir():
+    override = os.environ.get("PLUGINS_DIR")
+    if override:
+        return override
+    skill_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(skill_root, "skills", "task", "plugins")
 
-while IFS= read -r plugin_name; do
-  manifest="$PLUGINS_DIR/${plugin_name}.manifest.json"
-  [[ -f "$manifest" ]] || continue
 
-  hook_value=$(jq -r --arg hp "$hook_point" '.hooks[$hp] // empty' "$manifest" 2>/dev/null) || continue
-  [[ -z "$hook_value" ]] && continue
+def coalesce(value, default):
+    """null 合并：仅当 value 为 null/false 时取默认（沿用旧引擎的 `// default` 语义）。"""
+    return default if value is None or value is False else value
 
-  hook_type=$(echo "$hook_value" | jq -r 'type' 2>/dev/null)
 
-  if [[ "$hook_type" == "array" ]]; then
-    count=$(echo "$hook_value" | jq 'length')
-    for ((i = 0; i < count; i++)); do
-      entry=$(echo "$hook_value" | jq --arg pn "$plugin_name" --argjson idx "$i" '
-        .[$idx] + {"plugin": $pn}
-      ')
-      handlers_json=$(echo "$handlers_json" | jq --argjson e "$entry" '. + [$e]')
-    done
-  elif [[ "$hook_type" == "object" ]]; then
-    entry=$(echo "$hook_value" | jq --arg pn "$plugin_name" '. + {"plugin": $pn}')
-    handlers_json=$(echo "$handlers_json" | jq --argjson e "$entry" '. + [$e]')
-  fi
-done <<< "$enabled_plugins"
+def extract_section(text, pat):
+    """复刻旧版 awk：从整行 == pat 的标题行之后，抽到下一个 `## ` 标题或 EOF。
+    fence-aware（``` 切换围栏，围栏内的 `## ` 不算标题、照常输出）。标题行本身不输出。"""
+    if text.endswith("\n"):
+        text = text[:-1]
+    in_fence = False
+    printing = False
+    out = []
+    for line in text.split("\n"):
+        if line.startswith("```"):
+            in_fence = not in_fence
+        if not in_fence and line == pat:
+            printing = True
+            continue
+        if printing and not in_fence and line.startswith("## "):
+            printing = False
+        if printing:
+            out.append(line)
+    # 旧版 section_content=$(awk ...) 经命令替换去掉所有尾部换行
+    return "\n".join(out).rstrip("\n")
 
-handler_count=$(echo "$handlers_json" | jq 'length')
-[[ "$handler_count" -eq 0 ]] && exit 0
 
-# Validate after dependencies
-registered_plugins=$(echo "$handlers_json" | jq -r '[.[].plugin] | unique | .[]')
+def load_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
-echo "$handlers_json" | jq -r '.[] | select(.after != null) | .after[] // empty' 2>/dev/null | sort -u | while IFS= read -r dep; do
-  [[ -z "$dep" ]] && continue
-  if ! echo "$registered_plugins" | grep -qx "$dep"; then
-    echo "[!] hat-plugin-hook: after dependency '$dep' not registered at hook '$hook_point' or plugin disabled" >&2
-  fi
-done
 
-# Sort by priority, then enforce after constraints by bumping position
-sorted_handlers=$(echo "$handlers_json" | jq '
-  sort_by(.priority)
-  | # Enforce after constraints: if handler A has after:[B], ensure A appears after B
-    # Iterate and move any handler that appears before its dependency to just after it
-    reduce range(length) as $i (.;
-      (if .[$i].after then .[$i].after else [] end) as $deps |
-      if ($deps | length) == 0 then .
-      else
-        # Find max index of all dependencies
-        . as $arr |
-        (reduce $deps[] as $dep (
-          -1;
-          ([ range($arr | length) ] | map(select(. as $j | $arr[$j].plugin == $dep)) | max // -1) as $dep_idx |
-          if $dep_idx > . then $dep_idx else . end
-        )) as $max_dep_idx |
-        if $max_dep_idx > $i then
-          # Move handler from $i to after $max_dep_idx
-          .[$i] as $h |
-          del(.[$i]) |
-          .[:$max_dep_idx] + [$h] + .[$max_dep_idx:]
-        else .
-        end
-      end
-    )
-')
+def parse_frontmatter(text):
+    """从 .md 顶部 `---` 围栏解析 manifest。frontmatter 体为 JSON（JSON 是 YAML 1.2
+    子集，用 stdlib json 解析、零外部依赖）。无 frontmatter / 解析失败 → None。"""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            try:
+                return json.loads("\n".join(lines[1:i]))
+            except ValueError:
+                return None
+    return None
 
-# Extract sections from .md files and output
-# Use process substitution to avoid pipe subshell scoping issues
-first=true
-while IFS= read -r handler; do
-  plugin_name=$(echo "$handler" | jq -r '.plugin')
-  section_title=$(echo "$handler" | jq -r '.section // empty')
-  on_error=$(echo "$handler" | jq -r '.on_error // "graceful"')
-  execution=$(echo "$handler" | jq -r '.execution // "inline"')
 
-  [[ -z "$section_title" ]] && continue
+def main(argv):
+    if len(argv) < 3:
+        usage(1)
 
-  # Non-inline handlers (subagent:NAME) are not executed in the main thread.
-  # In default mode, emit a machine-readable DISPATCH directive to stdout so
-  # the orchestrator can dispatch a one-shot background subagent; the subagent
-  # reads its context_section + the per-hook section itself, then continues
-  # fire-and-forget. --no-filter forces the per-hook instruction inline instead
-  # (degraded / force-inline escape hatch). inline handlers always emit their
-  # instruction regardless of --no-filter.
-  if [[ "$no_filter" == false && "$execution" != "inline" ]]; then
-    sub_name="${execution#*:}"
-    sub_manifest="$PLUGINS_DIR/${plugin_name}.manifest.json"
-    sub_cfg=$(jq -c --arg n "$sub_name" '.subagents[$n] // {}' "$sub_manifest" 2>/dev/null || echo '{}')
-    sub_model=$(echo "$sub_cfg" | jq -r '.model // "haiku"')
-    sub_type=$(echo "$sub_cfg" | jq -r '.subagent_type // "general-purpose"')
-    sub_section=$(echo "$sub_cfg" | jq -r '.context_section // empty')
-    echo "[subagent] ${plugin_name}: ${hook_point} → ${sub_name} (dispatched async, not inline)" >&2
-    echo "<!-- DISPATCH plugin:${plugin_name} hook:${hook_point} name:${sub_name} model:${sub_model} subagent_type:${sub_type} section:${sub_section} -->"
-    continue
-  fi
+    task_folder = argv[1]
+    hook_point = argv[2]
 
-  md_file="$PLUGINS_DIR/${plugin_name}.md"
-  if [[ ! -f "$md_file" ]]; then
-    if [[ "$on_error" == "blocking" ]]; then
-      echo "[ERROR] ${plugin_name}: instruction file not found: $md_file" >&2
-      exit 1
-    fi
-    echo "[!] ${plugin_name}: instruction file not found, skipped" >&2
-    continue
-  fi
+    if not os.path.isdir(task_folder):
+        err(f"Error: task folder not found: {task_folder}")
+        sys.exit(1)
 
-  # Extract section content: from matching ## title to next ## or EOF
-  # Code-block aware: track ``` fences to avoid matching ## inside code blocks
-  section_content=$(awk -v pat="$section_title" '
-    BEGIN { found=0; printing=0; in_fence=0 }
-    /^```/ { in_fence = !in_fence }
-    !in_fence && $0 == pat { found=1; printing=1; next }
-    printing && !in_fence && /^## / { printing=0 }
-    printing { print }
-  ' "$md_file")
+    config_file = os.path.join(task_folder, "task-config.json")
+    if not os.path.isfile(config_file):
+        err(f"[WARN] task-config.json not found in {task_folder}, skipping")
+        sys.exit(0)
 
-  if [[ -z "$section_content" ]]; then
-    if [[ "$on_error" == "blocking" ]]; then
-      echo "[ERROR] ${plugin_name}: section '${section_title}' not found in $md_file" >&2
-      exit 1
-    fi
-    echo "[!] ${plugin_name}: section '${section_title}' not found, skipped" >&2
-    continue
-  fi
+    try:
+        config = load_json(config_file)
+    except (ValueError, OSError):
+        err(f"Error: failed to parse {config_file}")
+        sys.exit(1)
 
-  if [[ "$first" == true ]]; then
-    first=false
-  else
-    echo ""
-    echo "---"
-    echo ""
-  fi
+    plugins = config.get("plugins") or {}
+    enabled = [
+        name for name, v in plugins.items()
+        if isinstance(v, dict) and (v.get("enabled") is True or v.get("enabled") == "auto")
+    ]
+    if not enabled:
+        sys.exit(0)
 
-  echo "<!-- plugin:${plugin_name} hook:${hook_point} on_error:${on_error} execution:${execution} -->"
-  echo "$section_content"
-done < <(echo "$sorted_handlers" | jq -c '.[]')
+    pdir = plugins_dir()
+
+    # 收集 handler：保持 enabled 插件顺序 × 数组内顺序。manifest 住在 {name}.md 的
+    # 顶部 frontmatter，.md 一次读取后既用于 manifest 解析也用于 section 抽取。
+    md_texts = {}
+    handlers = []
+    for name in enabled:
+        md_file = os.path.join(pdir, f"{name}.md")
+        if not os.path.isfile(md_file):
+            continue
+        try:
+            with open(md_file, encoding="utf-8") as f:
+                md_text = f.read()
+        except OSError:
+            continue
+        manifest = parse_frontmatter(md_text)
+        if manifest is None:
+            continue
+        md_texts[name] = md_text
+        hook_value = manifest.get("hooks", {}).get(hook_point)
+        if hook_value is None or hook_value == "":
+            continue
+        entries = hook_value if isinstance(hook_value, list) else [hook_value]
+        for entry in entries:
+            handlers.append({**entry, "plugin": name})
+
+    if not handlers:
+        sys.exit(0)
+
+    # after 依赖校验
+    registered = {h["plugin"] for h in handlers}
+    deps = sorted({d for h in handlers if h.get("after") for d in h["after"]})
+    for dep in deps:
+        if dep not in registered:
+            err(f"[!] hat-plugin-hook: after dependency '{dep}' not registered "
+                f"at hook '{hook_point}' or plugin disabled")
+
+    # priority 稳定升序排序，再按 after 约束重排（缺 priority 兜底 0，复刻旧 bash `// 0`；
+    # 不能用 `or 0`——合法的 priority=0 会被 falsy 误伤）
+    ordered = sorted(handlers, key=lambda h: h["priority"] if h.get("priority") is not None else 0)
+    # after 重排：单遍移位（与旧 bash 等价）——仅保证每个 handler 排在其直接依赖之后；
+    # 链式 after（A→B→C）不保证全序。当前无插件使用 after，故不引入拓扑排序。
+    n = len(ordered)
+    for i in range(n):
+        cur_deps = ordered[i].get("after") or []
+        if not cur_deps:
+            continue
+        max_dep_idx = -1
+        for dep in cur_deps:
+            idxs = [j for j in range(len(ordered)) if ordered[j].get("plugin") == dep]
+            dep_idx = max(idxs) if idxs else -1
+            if dep_idx > max_dep_idx:
+                max_dep_idx = dep_idx
+        if max_dep_idx > i:
+            h = ordered.pop(i)
+            ordered.insert(max_dep_idx, h)
+
+    # 抽取 section 并输出
+    first = True
+    for h in ordered:
+        plugin = h["plugin"]
+        section_title = coalesce(h.get("section"), "")
+        on_error = coalesce(h.get("on_error"), "graceful")
+
+        if not section_title:
+            continue
+
+        section_content = extract_section(md_texts[plugin], section_title)
+
+        if not section_content:
+            if on_error == "blocking":
+                err(f"[ERROR] {plugin}: section '{section_title}' not found in {plugin}.md")
+                sys.exit(1)
+            err(f"[!] {plugin}: section '{section_title}' not found, skipped")
+            continue
+
+        if first:
+            first = False
+        else:
+            print()
+            print("---")
+            print()
+
+        print(f"<!-- plugin:{plugin} hook:{hook_point} on_error:{on_error} -->")
+        print(section_content)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
