@@ -1,33 +1,9 @@
-# Task Design Skill
+# task-design
 
-## 目的
+Phase 2（Design）worker：探索上下文、澄清需求、方案比选、逐节确认并产出 design.md，经 reviewer subagent review 后等待用户明确批准。由 `/task` 编排器在 Phase 1 完成后派发，也可单独调用。完整流程以 `SKILL.md` 及其嵌入的协议为准。
 
-Phase 2（Design）阶段 skill。探索代码上下文、提出方案、逐节展示设计、编写 design.md、运行 review 轮次。
+## 补充信息
 
-## 触发条件
-
-- 通过 `/task` 编排器在 Phase 1 完成后自动调用
-- 直接调用 `/task-design`（手动进入设计阶段）
-
-## 核心流程
-
-1. 探索项目上下文（优先 Explore subagent）
-2. 提出澄清问题（合并提问，最多 4 个，优先选择题）
-3. 展示 2-3 个方案，等待用户选择
-4. 逐节展示设计，每节确认
-5. 编写 design.md
-6. 自我 review（占位符扫描、一致性、范围、歧义）
-7. 确认 review 策略（轮数、code review 级别、模型）
-8. 独立 reviewer subagent review（Medium 1 轮，High 2 轮）
-9. 等待用户明确批准
-
-## 关键规则
-
-- 澄清问题合并提问，最多 4 个
-- 明确批准 = 用户回复 "好"/"可以"/"LGTM"，不接受沉默或"收到"
-- Medium/High 复杂度必须自动触发 reviewer subagent，不等用户提醒
-
-## 产物
-
-- `.tasks/open/YYYY-MM-DD-topic/design.md`
-- 更新 `phases.md`（Phase 2 各步骤）
+- **薄层架构**：SKILL.md 本身只是编排薄层（announce / runtime context / hooks / resume / 配置精调 / 过渡），设计流程的步骤、模板、复杂度矩阵、原则的单一来源是运行时 `!cat` 嵌入的 `task/DESIGN_PROTOCOL.md`——改设计流程要改协议文件，不是改本 skill（spec-task-skill 的 Protocol File as Single Source 约定）。
+- **visual companion**：需要像素级 mockup 确认时 just-in-time 起浏览器伴随页（仅 Interactive 路径，无头跳过），实现见 `visual-companion/visual-companion.md`。
+- **联网调研接线**：Step 1.5 可选调 `web-research` 引擎（quick 档）补外部信息，verified 结论折进 design 探索段；无人值守保守档默认跳过。

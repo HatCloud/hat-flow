@@ -1,7 +1,9 @@
 ---
 name: task-design
 user-invocable: false
-description: "Use when executing Phase 2 (Design) of a task. Explores code, proposes solutions, writes design.md. Can be called standalone or via /task orchestrator. 触发词: \"开始设计\", \"task design\", \"设计阶段\", \"进入设计\""
+self-evolving: inbox
+description: "Use when executing Phase 2 (Design) of a task. Can be called standalone or via /task orchestrator. Do NOT use before Init or to revise an approved design (use task-revise). 触发词: \"开始设计\", \"task design\", \"设计阶段\", \"进入设计\""
+word-budget: 2000
 ---
 
 # Task Design — Phase 2: Design
@@ -9,8 +11,6 @@ description: "Use when executing Phase 2 (Design) of a task. Explores code, prop
 任务设计阶段的**编排薄层**：announce、加载 runtime context、嵌入 DESIGN_PROTOCOL、调用 hooks、TODO sync、resume、配置精调、过渡。完整设计流程（步骤、模板、复杂度矩阵、原则）的单一来源是下方 `!cat` 嵌入的 DESIGN_PROTOCOL.md——本文件不重述其内容。
 
 **Announce at start:** "Using task-design for Phase 2: Design."
-
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -22,29 +22,17 @@ description: "Use when executing Phase 2 (Design) of a task. Explores code, prop
 
 设计流程的步骤、模板、复杂度矩阵、原则全部定义在此协议中。按 Step 1-8 顺序执行。
 
+- **设计范围限于需求本身（YAGNI）**：只设计 prompt.md 已要求的内容，不主动加入需求外的功能 / 扩展点。
+
 <DESIGN_PROTOCOL>
 !`cat ${CLAUDE_PLUGIN_ROOT}/skills/task/DESIGN_PROTOCOL.md`
 </DESIGN_PROTOCOL>
 
-## Red Flags
-
-| If you think... | Reality |
-|---|---|
-| "I know enough to design without exploring" | Explore first. Unknown unknowns are the most dangerous. |
-| "Skip design review, the design looks fine" | Self-assessment bias is real. Medium/High complexity requires reviewer subagent. |
-| "The user implied approval, move on" | Implied approval is not approval. Require explicit affirmative ("好", "可以", "LGTM"). |
-| "I'll design features not in the requirements" | YAGNI. Design only what was asked. |
-| "This task is too simple to design" | 简单任务恰是未审假设致返工的高发区。设计可短，但必须展示并获批准（见 DESIGN_PROTOCOL Anti-Pattern）。 |
-| "reviewer=auto，直接派 native design-reviewer 更省事 / 更快" | auto + `codex-check` READY ⇒ 解析为 **codex**（codex-first）。为图快跳到 native 是未授权降级——只有命中 hard fallback（需联网 / 沙盒门槛 / quota / codex 输出 `FALLBACK:`）并向 `fallback-log.jsonl` 记一行后才可降级。"native 更简单 / 更快"不是合法理由。 |
-| "findings 我都改完了，就算收敛、可以进 Step 8" | 收敛判据是 **reviewer 本轮返回 C=0 & I=0**，不是"我改完了"。自己改完后必须**再派一轮**让同一 reviewer 确认（codex 用 `codex-findings-count` 判末行计数）。codex 跨回合（后台派发 + `SendMessage` 复活）尤其易漏掉"再派一轮"——修完顺手当成回合收尾。 |
-
----
-
 ## TODO Sync
 
-双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
 
-**task-design 专属**：每个 Step 完成后将对应 phases.md 行标记为 `[x]`。
+本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；每个 Step 完成后将对应 phases.md 行标记 `[x]`（`full` 另 `TaskUpdate(completed)`）。
 
 ---
 
@@ -53,7 +41,7 @@ description: "Use when executing Phase 2 (Design) of a task. Explores code, prop
 如果 phases.md 存在且 Phase 2 已有已完成的步骤（`[x]`），跳过这些步骤直接从第一个未完成步骤继续。
 
 **phases.md 中 Phase 2 步骤对应（DESIGN_PROTOCOL 的 Step）：**
-- `探索项目上下文` → Step 1
+- `探索项目上下文` → Step 1 + 1.5（联网调研折叠在本地探索之后执行，phases.md 无独立步——从本步恢复即覆盖 1.5）
 - `澄清问题` → Step 2
 - `提案` → Step 3
 - `逐节展示设计` → Step 4
@@ -72,22 +60,7 @@ description: "Use when executing Phase 2 (Design) of a task. Explores code, prop
 2. **若 enabled == true**：执行 `Read ${CLAUDE_PLUGIN_ROOT}/skills/task/UNATTENDED_PROTOCOL.md`，加载完整协议，后续所有停止点按协议自动决策
 3. **若文件不存在或 enabled != true**：正常交互流程
 
-> 无人值守模式的激活（unattended.json 创建）：当前阶段在配置精调 / 过渡处询问 activate_after（见下方 Activation Timing）；其余创建路径由 `/task` 编排器处理。各阶段 skill 读取已有状态。
-
-### Step 2/3/4 的 Unattended 分支
-
-DESIGN_PROTOCOL 的交互停止点在无人值守模式下的处理：
-
-- **Step 2（澄清问题 + 确认循环）**：按 UNATTENDED_PROTOCOL.md 第 7 节（Self-Discussion Protocol）执行——派发 Requirements Analyst subagent（Agent tool，general-purpose，非后台），将问题和答案写入 `{task-folder}/unattended-decisions.md`，通过 Telegram 通知关键假设后继续；跳过纯文本确认循环的等待。
-
-<rule>
-Unattended mode MUST get clarification answers from an external source (subagent). Main agent inline answers are PROHIBITED, even if the answer seems obvious.
-Reason: Self-Discussion Protocol requires an independent perspective.
-</rule>
-
-- **Step 3（提案）**：按推荐选项自动选择（标注 "Recommended" 的，或综合判断的最优组合），发送 Telegram 通知"自动选择方案：[方案名]"，不等待用户响应。
-- **Step 4（逐节展示）**：跳过每节的用户确认，自我检查通过即继续下一节。
-- **Step 8（确认设计）**：reviewer 通过（Critical = 0 且 Important = 0）后自动批准。
+> 无人值守的激活入口与契约（quiet→task-init 1f / 交互主入口→编排器 Step 2A.1 / standalone 后备→本 skill Step 2e Activation Timing；activate_after 与 declined 语义）见 UNATTENDED_PROTOCOL.md §5。各阶段 skill 读取已有状态。
 
 ---
 
@@ -101,7 +74,7 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 **Step 2e.2: 偏离判断（轻量化条件触发）**
 
-**[Quiet] headless 短路（最先判断）**：读取 `{task-folder}/task-config.json` 的 `_source` 字段。若 `_source == "headless"`（由无头入口在 1f 物化）→ **永不弹面板**，静默沿用现有 task-config.json，复杂度评估仍照常跑（结果写入下面 2e.3 的 design.md 策略段），直接进入 2e.3。无头流程不在此引入交互。
+**[Quiet] headless 短路（最先判断）**：读取 `{task-folder}/task-config.json` 的 `_source` 字段。若 `_source == "headless"`（由无头入口在 1f 物化）→ 不弹面板，静默沿用现有 task-config.json；复杂度评估仍照常跑（结果写入下面 2e.3 的 design.md 策略段），直接进入 2e.3。无头流程在此不引入交互。
 
 将评估出的复杂度与 P1 Step 1b.3 已选 preset 对应的复杂度对比：
 
@@ -127,19 +100,16 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 - **非高敏感** → 不动 `per_task_review`，沿用 checkpoint。
 - **高敏感** → 弹 AskUserQuestion 建议把**整个任务**的 `per_task_review` 升级为 `each`（任务级，对所有 plan task 逐个派 code-reviewer）：选项 `升级 each（逐 task review，质量优先）` / `保持 checkpoint（仅全量兜底）`，并在问题里点明命中的敏感面。用户选 `each` → 并入下方 2e.3 写入 `task-config.json`（per_task_review 变更不改 phases.md 结构，phases.md 重生成对它为 no-op）。
 
-**[Quiet] headless / [Unattended]**：不弹面板，沿用 checkpoint（即使评估为高敏感）——与 2e.2 的 headless 短路一致，无头流程不在此引入交互。
-
 **Step 2e.3: 变更执行**（仅当面板触发且有变更并经用户确认时执行前 2 步）
 
 1. 就地更新 `{task-folder}/task-config.json`
 2. 重生成 `{task-folder}/phases.md` 步骤列表（使用与 P1 Step 1b.3 相同的动态生成逻辑：按 `phase_merge` 合并 Phase 节、按 `plugins.*.enabled` 裁剪步骤）
 3. 无论是否弹面板，将 `## Execution Strategy` + `## Review Strategy` 写入 design.md
 4. **验证命令前置**（约定 9 Interaction Front-Loading）：把 Acceptance Tests 阶段确认的 light / full 验证命令写入 `{task-folder}/task-config.json` 的 `check` 字段（如 `"check": {"light": "...", "full": "..."}`），供 Execute 直接读、无需再问。无可自动验证项则写空/省略，Execute 视为「无 light 验证」静默跳过。
+   落盘前按产物语言归类校验器：bash 脚本→shellcheck、python 脚本→py_compile/pytest（按扩展名/shebang 判），勿把 python 脚本列进 shellcheck 段——否则 Phase 5 完整验证报 SC1071 白扣一轮。
 
 **配置校验**（变更时执行）：
 - `tdd.mode != "none"` 自动设置 `tdd.enabled = true`
-
-**[Unattended]** 合理时自动沿用，明显偏离时按推荐值自动修正，不询问。
 
 **Step 2e.4: Codex capability 持久化**（reviewer/engine 含 codex/auto 时，**不依赖面板是否触发**）
 
@@ -155,11 +125,11 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 ### Activation Timing（unattended activate_after，与编排器共享契约 SC3）
 
-在 Step 2e（及下方过渡处）询问无人值守激活时机。
+**standalone 后备入口**：交互主入口是编排器 Step 2A.1（经编排路径进入 Design 时必已先问过并写入文件）；本节仅在 task-design 被独立调用、`unattended.json` 尚不存在时兜底询问。
 
-**守卫（先判，与"已激活时跳过"并列）**：读取 `{task-folder}/unattended.json`。若文件存在且 `declined == true`（用户此前已拒绝无人值守）→ 跳过激活时机询问，静默继续、不进激活分支（declined 短路优先于 activate_after，见 `UNATTENDED_PROTOCOL.md` §5）。若已 `enabled:true`（已激活，**含 quiet 入口在 1f 物化的 headless 状态**）→ 同样跳过询问。
+**守卫（先判）**：读取 `{task-folder}/unattended.json`。**文件已存在即跳过询问**——无论 `declined == true`（已拒绝，短路优先于 activate_after）、`enabled:true`（已激活，含 quiet 入口在 1f 物化的 headless 状态）还是 `enabled:false` 带 `activate_after`（延后激活已选定，重复询问即双问），各状态语义见 `UNATTENDED_PROTOCOL.md` §5。
 
-否则用 AskUserQuestion 提供四个选项：
+文件不存在时用 AskUserQuestion 提供四个选项：
 
 | 选项 | 含义 | 动作 |
 |------|------|------|
@@ -169,8 +139,6 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 | 否 | 全程交互 | 写拒绝哨兵 `unattended.json`（`{"enabled": false, "declined": true}`），使后续过渡点不再重复询问 |
 
 `unattended.json` 字段 `activate_after: "now" | "design" | "plan"`（缺省视为 `now`）。激活动作（把 `enabled` 翻为 true）由编排器在对应阶段过渡时按 `activate_after` 触发。
-
-**[Unattended]** 已激活时跳过此询问。
 
 ---
 
@@ -184,12 +152,12 @@ DESIGN_PROTOCOL 的 Step 6 / 6.5 通过 hook 委托 review plugin；Step 7 独�
 hat-plugin-hook {task-folder} P2.post-design-draft
 ```
 
-hook 输出可能包含多段指令，**必须逐段全部执行**（review plugin: 自我审查 + 独立 review）。**review plugin 关闭时**：执行最小化自我检查（placeholder scan + internal consistency），跳过独立 review。
+hook 输出可能含多段指令，逐段全部执行（review plugin：自我审查 + 独立 review）；遗漏任一段会让该 hook 的对应检查静默失效。review plugin 关闭时：执行最小化自我检查（placeholder scan + internal consistency），跳过独立 review。
 
 ### Step 7 — Independent Review 循环
 
 <rule>
-design_rounds > 0 时必须派发至少一个 reviewer subagent。不能仅标记步骤 [x] 而不执行实际 review。
+design_rounds > 0 时，至少派发一个 reviewer subagent。未实际跑 review 就把该步骤标记为 [x] 会让此 gate 形同虚设。
 Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致设计缺陷流入执行阶段。
 </rule>
 
@@ -200,8 +168,8 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
 - **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 改走 review.md codex 分支：经 `/codex:rescue`（read-only）**串行** R1/R2（codex 不并发），输出 `## Critical/Important/Minor` + 末行计数，`codex-findings-count` 判 **C=0 & I=0** 收敛，round≥2 `SendMessage(to: agentId)` 续接。下面第 2–5 步的批判评估/修复/收敛检查逻辑**不变**，仅派发载体（codex vs native）与并发性（串行 vs 并行）不同。中途 `FALLBACK:`/quota → 降级 native design-reviewer（见 review.md，写 `fallback-log.jsonl`）。
 
 <rule>
-When the reviewer resolves to codex (reviewer=auto with `codex-check` READY, or reviewer=codex), you MUST dispatch via the review.md codex branch. Downgrading to a native design-reviewer is permitted ONLY on a hard-fallback trigger (needs network / sandbox gate / quota / codex emits `FALLBACK:`), and EVERY such downgrade MUST append a line to `{task-folder}/fallback-log.jsonl` (`requested_engine:"codex", actual_engine:"claude", reason:<text>`). "Native is simpler/faster" is never a valid reason.
-Reason: dogfooding caught a run that resolved to codex (auto + READY) yet dispatched a native design-reviewer "for speed", silently downgrading review depth — the codex review then surfaced 2 Critical findings the native path would likely have missed. An unlogged downgrade hides that the configured reviewer never actually ran.
+Reviewer 解析为 codex（reviewer=auto 且 `codex-check` READY，或 reviewer=codex）时，派发走 review.md 的 codex 分支。只有在 hard-fallback 触发条件下（需要 network / sandbox gate / quota / codex 输出 `FALLBACK:`）才允许降级到 native design-reviewer，且每次降级都向 `{task-folder}/fallback-log.jsonl` 追加一行（`requested_engine:"codex", actual_engine:"claude", reason:<text>`）。"native 更简单 / 更快" 不构成 fallback 触发条件。
+Reason: dogfooding 抓到一次运行解析为 codex（auto + READY）却"为了快"派发了 native design-reviewer，静默降低了 review 深度——随后那次 codex review 暴露出 2 个 Critical 发现，native 路径很可能会漏掉。一次未记录的降级会掩盖"配置的 reviewer 其实从未真正运行过"这一事实。
 </rule>
 
 **收敛模式核心循环：**
@@ -215,7 +183,7 @@ Reason: dogfooding caught a run that resolved to codex (auto + READY) yet dispat
 
    R2 prompt 追加"对抗审查员"角色说明 + R1 findings + design.md diff。
 
-2. **主 agent 批判性评估**所有发现：逐条 Accept/Reject，每条必须附理由。不得全盘接受也不得无理由拒绝。
+2. **主 agent 批判性评估**所有发现：逐条 Accept/Reject，每条附理由——Accept 与 Reject 均需具体理由支撑，逐条独立裁决。
 3. 对接受的问题修复 design.md，对拒绝的问题记录反驳理由。
 4. **检查收敛**：分别记录 R1 和 R2 是否仍有未解决的 C/I：
    - 两者都无 C/I → 收敛完成，进入 Step 8
@@ -224,10 +192,7 @@ Reason: dogfooding caught a run that resolved to codex (auto + READY) yet dispat
    - 两者都有 → 下轮并行重跑两者
 5. **下轮 prompt** 注入上轮 findings + 修复/反驳清单（防止已反驳问题反复出现）。
 6. 循环直到收敛或达 `max_rounds`。
-7. **max_rounds 退出**时：
-   - **[Interactive]** 展示剩余 findings + AskUserQuestion 确认是否接受当前状态推进。
-   - **[Unattended · `degrade_policy` standard 或缺省]** 不询问，发送 Telegram 通知后暂停（任务保留，等待 `/task` 恢复人工决策）。
-   - **[Unattended · `degrade_policy` conservative / headless]** 走 §9 **A4 accept-with-findings**：把剩余未解决 findings 原文写入 design.md 的 `## Unresolved Review Findings` 段 + `unattended-decisions.md` 的 `## Headless Degraded Decisions`，续跑推进；**同点同 phase 至多一次**——若本 phase 已因 A4 续跑过一次（unattended-decisions.md 已有该记录），第二次退回 standard（暂停 + Telegram）。兜底：P4 code review + P5 验收双网。
+7. **max_rounds 退出**时：展示剩余 findings + AskUserQuestion 确认是否接受当前状态推进。
 
 轮次数量由 `review.design_rounds` 决定（auto 按复杂度：Low:0, Medium:1, High:2），`max_rounds` 上限兜底（**reviewer-aware**：`max_rounds` 为标量则两 reviewer 共用；为对象 `{claude:N, codex:M}` 时 claude 取 `.claude`、codex 取 `.codex`，缺省 claude 3 / codex 8——codex 更严、收敛更慢）。`design_rounds: 0` 时跳过本步骤。
 
@@ -241,16 +206,11 @@ hat-plugin-hook {task-folder} P2.post-design-approved
 
 ### Step 8 — User Review 确认循环
 
-**[Unattended] 前置分支（不依赖是否执行 Step 7）**：
-- 若存在 reviewer 结果且 `Critical = 0` 且 `Important = 0` → 自动批准并推进。
-- 若无 reviewer 轮次（Low 复杂度跳过 Step 7）→ 直接自动批准并推进。
-- 上述两种情况均**不输出**“是否有补充/回复继续”的纯文本确认。
-
 1. Step 7 reviewer 收敛后（无 Critical/Important），展示**本轮 review 修改的变更差异**（仅本轮修改，非累积差异）
 2. 纯文本询问用户是否有补充："以上是本轮 review 的修改内容，是否有补充？回复「继续」推进到 Plan 阶段。"
 3. 用户说"继续" → 推进（须满足 DESIGN_PROTOCOL 顶部 HARD-GATE）
 4. 用户给建议 → 澄清建议 → 修改 design.md → 判断是否重跑 Step 7：
-   - 修改涉及架构决策、模块职责、接口定义 → 必须重跑 Step 7
+   - 修改涉及架构决策、模块职责、接口定义 → 重跑 Step 7
    - 仅措辞/格式调整 → 可跳过 reviewer
    - 若重跑：展示新一轮差异 → 回到步骤 2
    - 若跳过：展示修改差异 → 回到步骤 2
@@ -260,8 +220,6 @@ hat-plugin-hook {task-folder} P2.post-design-approved
 **无 review 轮次时（Low 复杂度跳过 Step 7，仅 Interactive）**：直接询问："设计各节已确认，是否有补充？回复「继续」推进到 Plan 阶段。"
 
 **变更差异显示规则**：每轮重置，只展示从上次确认点到现在的改动。
-
-**[Unattended]** 已在本节前置分支短路：不进入本确认循环。
 
 ---
 
@@ -281,25 +239,31 @@ Phase 2 完成，phases.md 已更新。
 
 用用户配置的语言简要宣告设计结果（design.md 位置、复杂度评估），然后声明：**"Design 完成。"** 此处停止输出，返回编排器 Step 3 执行过渡逻辑。
 
-**[Unattended]** 若无人值守模式激活：发送 Telegram 通知 `[task-name] Phase 2 完成`。
-
 如果独立调用（非编排器），提示用户："请调用 `/task` 继续。"
 
 <rule>
-Phase skill 完成后必须返回编排器 Step 3。不得在 transition section 中提示用户调用任何其他 skill。过渡路由是编排器的职责。
-Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、compact、unattended 等），自行发出过渡指示会跳过这些检查。
+phase skill 完成后将控制权交回 orchestrator Step 3。过渡路由归属 orchestrator；phase skill 若提示用户去调用另一个 skill，就绕过了 orchestrator 的过渡检查。
+Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、新会话交接、unattended 等），自行发出过渡指示会跳过这些检查。
 </rule>
 
 ---
 
 ## Visual / Semantic Decisions — Use Previews
 
-设计期遇到**视觉 / 语义选择**（图标 / emoji、命名格式与缩写、键位、文案、布局）时，在 Step 2 澄清里用 AskUserQuestion 的 `preview` 字段把候选**画出来**让用户一次性选定，并写进 design.md 的验收/决策。不要把这类选择留到实现期凭文字描述反复试。
+设计期遇到**视觉 / 语义选择**（图标 / emoji、命名格式与缩写、键位、文案、布局）时，在 Step 2 澄清里用 AskUserQuestion 的 `preview` 字段把候选**画出来**让用户一次性选定，并写进 design.md 的验收/决策。这类选择在设计期用 preview 一次性定下，归属设计期决策。
 
 <rule>
-Surface visual/semantic choices (icons/emoji, naming formats & abbreviations, keybindings, copy, layout) during Step 2 clarification using AskUserQuestion previews, and record the decision in design.md. Do NOT defer them to implementation.
-Reason: visual/semantic decisions converge cheaply with a side-by-side preview up front but iterate expensively in prose during implementation — real case 2026-06-18-tmux-agent-restore: emoji/abbreviation/keybinding choices took ~25 AskUserQuestion rounds, mostly inside P5 implementation. Deciding them in design with previews collapses the round-trips.
+视觉 / 语义选择（图标 / emoji、命名格式与缩写、keybindings、文案、布局）在 Step 2 澄清阶段经 AskUserQuestion preview 呈现并记入 design.md。一旦推迟到实现阶段，它们在纯文字往返中迭代代价高昂。
+Reason: 视觉 / 语义决策在前期用并排 preview 能廉价收敛，但若拖到实现阶段在纯文字里反复迭代则代价高昂——已有真实案例：emoji / 缩写 / keybinding 的选择耗费约 25 轮 AskUserQuestion，且大多发生在实现阶段内。在设计期用 preview 定下它们能大幅压缩这些往返。
 </rule>
+
+### 浏览器 Visual Companion（像素级 mockup）
+
+AskUserQuestion preview 适合终端内的 ASCII / 语义选择；当问题需要**真实像素级渲染**（UI 线框图、布局对比、架构图）时 preview 表达不出，改用浏览器 visual companion——纯 node（零 npm）本地 server 把 HTML mockup 推到用户浏览器、用户点选、选择写回事件文件。
+
+just-in-time 提供：第一次真正遇到「画出来比说出来清楚」的视觉问题时，单独发一条消息征询（不与澄清问题或其它内容捆绑），用户同意后再起 server；整个设计期没有视觉问题就不提。逐问决定通道——内容本身是视觉的（mockup / 线框 / 布局对比 / 架构图）走浏览器，内容是文字的（需求 / 概念选择 / 取舍清单 / 文字 A/B/C）走终端。仅 Interactive；无头 / 无人值守模式跳过（无浏览器）。
+
+详细使用指南（起 server / 写 HTML 片段 / 读取选择 / session-key 安全）见 `visual-companion/visual-companion.md`，用户同意后再读。
 
 ---
 
@@ -307,6 +271,7 @@ Reason: visual/semantic decisions converge cheaply with a side-by-side preview u
 
 | Step | When | What to Ask |
 |------|------|-------------|
+| 1.5 | 本地探索完成后（仅 Interactive） | 是否联网调研补充外部信息？是 / 否 |
 | 2 | 需要澄清问题 | 合并提问（最多 4 个）+ 末尾纯文本确认补充 |
 | 3 | 提案完成后 | 用户选择方案 |
 | 4 | 每节设计展示后 | 这部分看起来对吗？ |
@@ -315,12 +280,14 @@ Reason: visual/semantic decisions converge cheaply with a side-by-side preview u
 | 6.5 | 自我 review 完成后 | Review 轮数、code review 策略、reviewer 模型 |
 | 8 | 所有 review 完成后（仅 Interactive） | 等待用户明确批准 design.md（HARD-GATE） |
 
-**[Unattended]** Step 8 不询问：有 reviewer 时按 C/I 门槛自动批准；无 reviewer 轮次（Low）时直接自动批准。
+> 无人值守下各停点的自动决策见 UNATTENDED_PROTOCOL.md §6（经上方 Unattended State 加载器进入）。
+> 停点状态信号（外部驱动可机读）由编排器停点 rule 统一写入，契约见 task/references/headless-driving.md。
 
 ## Dependencies
 
 - **Reads**: `{task-folder}/prompt.md`, `{task-folder}/task-config.json`（P1 已写入）, `{task-folder}/unattended.json`
 - **Writes**: `{task-folder}/design.md`, `{task-folder}/task-config.json`, `{task-folder}/phases.md`, `{task-folder}/unattended.json`（activate_after 时）
 - **Pre-injected**: `DESIGN_PROTOCOL.md`（设计流程单一来源）
+- **On-demand read**（用户同意后，仅 Interactive）: `visual-companion/visual-companion.md` + `visual-companion/scripts/`（浏览器像素级视觉确认工具，源自 Superpowers brainstorming 6.0.3，脚本逐字保留便于安全更新）
 - **Hooks**: `P2.post-design-draft`（review: self-review + independent review）, `P2.post-design-approved`（review: strategy write-back）（P2.phase-end 已无 hook——linear 描述更新并入 P3.phase-end，见 B1）
 - **Scripts**: hat-plugin-hook

@@ -23,8 +23,8 @@ Full 模式下，task skill 按 diff 自适应并行派发 **1-4 个** reviewer 
 | plan.md task section | plan.md 中对应当前 task 的段落 |
 
 <rule>
-Check all required inputs before starting review. If diff or plan section is missing, output error and terminate immediately.
-Reason: reviewing code without knowing what it should do (plan) leads to style-only review that misses functional gaps.
+review 开始前先检查所有必要输入，缺失 diff 或 plan section 即以报错终止。
+Reason: 不知道代码该做什么（plan）就做 review，会沦为只看 style 的 review，漏掉功能性缺口。
 </rule>
 
 ### Checklist
@@ -54,11 +54,11 @@ Reason: reviewing code without knowing what it should do (plan) leads to style-o
 | Dimension | PLAN_ALIGNMENT / CODE_QUALITY / ARCHITECTURE / TESTING |
 
 <rule>
-Check all required inputs and validate dimension parameter. If any input is missing or dimension is invalid, output error and terminate immediately.
-Reason: each dimension requires the full context to assess cross-cutting concerns accurately.
+review 开始前先检查所有必要输入并校验 dimension 参数，输入缺失或 dimension 非法即以报错终止。
+Reason: 每个 dimension 都需要完整上下文才能准确评估 cross-cutting concerns。
 </rule>
 
-Execute ONLY the checklist for the specified dimension. Do not mix dimensions. Output 的 Type 字段格式为 `CODE-FULL-{DIMENSION}`，如 `CODE-FULL-PLAN_ALIGNMENT`。Light 模式使用 `CODE-LIGHT`。
+仅执行指定维度的 checklist，不混合维度。Output 的 Type 字段格式为 `CODE-FULL-{DIMENSION}`，如 `CODE-FULL-PLAN_ALIGNMENT`；Light 模式使用 `CODE-LIGHT`。
 
 ### 维度合并 Reviewing（小 diff 档）
 
@@ -124,7 +124,7 @@ Execute ONLY the checklist for the specified dimension. Do not mix dimensions. O
 | **Important (Should Fix)** | 架构问题、缺失功能、错误处理缺失、明确的 plan 偏离、测试缺口 | "plan 要求创建 X 文件但 diff 中未出现"；"外部调用无错误处理" |
 | **Minor (Nice to Have)** | 代码风格、优化机会、文档润色、命名建议、纯推测性顾虑 | "函数名 `process` 不够描述性" |
 
-**Not everything is Critical.** 滥用 Critical 会让真正的 Critical 失去信号。校准判据：能导致运行期错误 / 数据损坏 / 安全漏洞 / 核心功能不可用的才是 Critical；"应该改进但不改也能正常工作"是 Important；"锦上添花"是 Minor。原先低置信度桶（纯推测、风格偏好）并入 Minor。
+校准判据：能导致运行期错误 / 数据损坏 / 安全漏洞 / 核心功能不可用的才是 Critical；"应该改进但不改也能正常工作"是 Important；"锦上添花"是 Minor。滥用 Critical 会让真正的 Critical 失去信号。原先低置信度桶（纯推测、风格偏好）并入 Minor。
 
 结构化的升级规则（pattern → effect）见同目录 `severity-escalation.yaml`；判定犹豫时对照其 `rules` 与 `coverage_thresholds`。
 
@@ -142,13 +142,13 @@ Reasoning: [1-2 句技术判断]
 ```
 
 <rule>
-Distrust the implementer. Verify every claim line-by-line against the diff; never accept "it works" without reading the code that makes it work.
-Reason: review exists to catch what the implementer missed or rationalized away. Trusting the implementer's narrative defeats the purpose — the reviewer's value is independent verification, not agreement. This is a standing rule for every review, Light and Full.
+每条论断都逐行对照 diff 核实；「它能工作」只有在读过让它工作的代码之后才成立。这对每次 review 都适用，Light 和 Full 皆然。
+Reason: review 存在的意义是抓出 implementer 漏掉或自我合理化掉的问题。reviewer 的价值在于独立核实，而非附和 implementer 的叙述。
 </rule>
 
 <HARD-GATE>
-A genuine Critical issue blocks merge. Never downgrade a Critical to Important to let an automated flow proceed.
-Reason: the bin-unit-tests incident — a severe issue was judged Important, and the auto-flow treated Important as skippable, shipping broken work. Severity drives gating, so misclassifying it silently ships the bug. When unsure between Critical and Important, default to Critical for anything that can cause runtime failure, data loss, or leaves core logic untested.
+真正的 Critical issue 阻断 merge。Critical 始终保持 Critical——不为了让自动化流程放行而降级成 Important。在 Critical 与 Important 之间拿不准时，凡是可能导致 runtime failure、data loss，或让 core logic 处于未测试状态的，一律默认归为 Critical。
+Reason: bin-unit-tests 事件——一个严重问题被判为 Important，auto-flow 把 Important 当作可跳过，结果有缺陷的成果被发布。severity 驱动门控，所以一次静默的错误分级就会把 bug 放行出去。
 </HARD-GATE>
 
 ## Coverage Assessment
@@ -168,8 +168,8 @@ Reason: the bin-unit-tests incident — a severe issue was judged Important, and
 界面代码用独立（更低）阈值，因为 UI 自动化测试成本高、单位收益低于逻辑代码；但关键交互仍需测试。
 
 <rule>
-Pure-logic new code with no test for its core path is a Critical issue, not Important.
-Reason: untested core logic is where silent breakage lives. UI code gets a separate, lower bar because UI tests cost more per unit of assurance — core logic has no such excuse.
+core path 没有测试覆盖的纯逻辑新代码归为 Critical，而非 Important。
+Reason: 未测试的 core logic 正是静默崩坏的藏身处。UI 代码适用另一条更低的标准，因为 UI 测试每单位保障的成本更高——core logic 没有这种借口。
 </rule>
 
 ---

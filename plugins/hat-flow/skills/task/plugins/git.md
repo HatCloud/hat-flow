@@ -2,8 +2,6 @@
 {
   "name": "git",
   "description": "Git 提交纪律：dirty file 检查、Commit Checkpoint、分支合并、tag 清理",
-  "recommend_disable_when": [],
-  "recommend_enable_when": [],
   "hooks": {
     "P1.phase-start": {
       "priority": 20,
@@ -106,7 +104,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
   5. 提交节奏 / 是否需用户确认提交，**前置到 Design/Plan 一次性决定**（spec-task-skill 约定 9 Interaction Front-Loading：Execute 零阻塞交互）。
 - **无 Checkpoint**：跳过，继续下一 task
 
-### 8 条 Commit 规则
+### Commit 规则
 
 1. **Follow project conventions** — Conventional Commits、Angular style 等
 2. **Commit by logical unit, not by file** — 相关变更归为一个 commit
@@ -116,16 +114,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
 6. **Target 3-8 commits per task** — Phase 4 典型 3-5 个 commit
 7. **Confirm before committing during test phase** — 分析→修复→用户测试→确认→commit
 8. **Format before commit (conditional)** — 见上方 Formatter 清理
-
-### Common Anti-Patterns
-
-| Anti-pattern | Problem |
-|---|---|
-| One commit per file | Breaks logical units |
-| Leaving debug/console.log | Pollutes history |
-| Committing during review without confirmation | Unverified fixes |
-| Messages like "fix" or "update" | Cannot understand intent |
-| Separate formatting commits | Should format before feature commit |
+9. **No debug leftovers** — 提交前清理 `console.log` / 注释掉的代码
 
 ## P6.pre-archive
 
@@ -157,15 +146,17 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
    - `base` 非空、且是 HEAD 的祖先（`git merge-base --is-ancestor $base HEAD`）；
    - 提交数 `N = git rev-list --count $base..HEAD` ≥ 2（N≤1 无需压缩）；
    - 区间无 merge commit（`git rev-list --merges $base..HEAD` 为空）；
-   - 区间提交**全部未推送**（`git rev-list $base..HEAD --remotes | wc -l` 为 0）——已推送绝不改写；
-   - **未被打断**：`.tasks/open/` 下只有本任务（无并发的其它 open task），作为「无其它需求插入提交」的保守代理。
+   - 区间提交**全部未推送**：未推送数 = 区间总数（`--not --remotes` 排除远端可达提交；无 remote 的仓库两数天然相等、不误报）——已推送绝不改写；
+   - **区间无他任务提交**：`git log --format=%s $base..HEAD` 中不出现其它任务名的 `docs(task): add task documents for <其它任务>` 或 `[<其它任务>]` 标记——命中即说明并发任务的提交混入区间（即使该任务已归档、open ≤1 守卫拦不住），跳过；
+   - **未被打断**：`.tasks/open/` 下只有本任务（无并发的其它 open task）。
    - 通过 → `git reset --soft $base && git commit -m "{conventional msg 概括本任务} [{task}]"`（保留全部文件改动，仅压历史）。
    ```bash
    base=$(cat "{task-folder}/.git-base-ref" 2>/dev/null)
    if [ -n "$base" ] && git merge-base --is-ancestor "$base" HEAD 2>/dev/null \
       && [ "$(git rev-list --count "$base"..HEAD)" -ge 2 ] \
       && [ -z "$(git rev-list --merges "$base"..HEAD)" ] \
-      && [ "$(git rev-list "$base"..HEAD --remotes | wc -l | tr -d ' ')" = 0 ] \
+      && [ "$(git rev-list --count "$base"..HEAD --not --remotes)" = "$(git rev-list --count "$base"..HEAD)" ] \
+      && ! git log --format=%s "$base"..HEAD | grep -vE "\[{task}\]" | grep -qE "docs\(task\): add task documents for |\[20[0-9-]+" \
       && [ "$(find .tasks/open -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -le 1 ]; then
        git reset --soft "$base" && git commit -m "<msg> [{task}]"
    fi
@@ -174,6 +165,6 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
 3. 旧任务归档目录中的 `.tasks/archive/done/` 清理（保留最近 10 个）
 
 <rule>
-The on-main squash (step 1.5) MUST skip — never rewrite history — whenever any guard is uncertain: no recorded base_ref, base not an ancestor of HEAD, a merge commit in range, any commit already pushed to a remote, or more than one open task. When skipping, record the reason in final.md; do NOT `git reset` on doubt.
-Reason: squashing rewrites main's commit history. Rewriting a pushed commit corrupts shared history; folding a concurrent task's commit into this one mislabels someone else's work. The "其他需求插入的提交打断则不压缩" intent demands erring toward NOT squashing — a missed squash is harmless, a wrong rewrite is not. The guards (unpushed + single open task + no merges) make the range provably this task's local work before any reset.
+on-main squash（第 1.5 步）在任一守卫不确定时一律跳过、绝不改写历史：base_ref 缺失、base 非 HEAD 祖先、区间含 merge commit、任一提交已推送远端、区间混入他任务提交、或存在多个 open task。跳过时把原因记入 final.md；存疑不 `git reset`。
+Reason: squash 改写 main 历史——改写已推送提交会污染共享历史，把并发任务的提交折进本任务会错标他人工作。漏压无害、错压不可逆，故一切守卫都向「不压」倾斜；守卫组合（全部未推送 + 无他任务标记 + 单 open task + 无 merge）使区间可证明为本任务的本地工作后才允许 reset。
 </rule>

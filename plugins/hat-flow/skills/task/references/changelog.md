@@ -6,7 +6,206 @@ task 套件全体 skill 的修订/回溯日志（合并自原各 skill 的 `refe
 
 ---
 
+## 2026-07-08 Plan→Execute compact 软停改新会话交接 + P4 阻塞交互收口（skill-revise 定向修订）
+
+**为何**：用户反馈 ① compact 软停体验差——compaction 有损且残留上下文继续计费，任务状态本已全量落盘，新会话恢复更干净；② plan 之后应尽量不再问用户（spec-task-skill 约定 9），但 review/tdd 插件在 P4 仍留有 3 处阻塞交互；③ full 档 P4 逐 plan task TODO 展开在 resume 后退化为 4a/4b 两行。
+
+- **task (orchestrator) SKILL.md**：Step 3 步骤 2「Compact 建议」整块替换为「新会话交接建议」——触发条件 / 前置门 / Hotfix 例外 / phase_merge 降级原样保留，输出可复制命令块 `cd {项目根} && claude -n "{task-folder-name}" "/task 继续任务…先读 phases.md 与 task-config.json…"`，回「继续」仍可留在当前会话（软停语义不变）；过渡类型表、HARD-GATE、[Unattended] 段措辞同步。Step 1 多 open tasks 分支新增 `$ARGUMENTS` 子串唯一命中 → 直选不询问（交接命令自带任务名，新会话恢复不多问）。
+- **UNATTENDED_PROTOCOL.md §6**：两行停止点措辞 compact→交接，自动决策语义不变。
+- **plugins/review.md 收敛循环**：触发判据两模式统一（≥1 Critical 或 ≥2 Important 自动修复进循环，不弹 AskUserQuestion，修复内容 session 内可见）；达 max_rounds 改「可见停下 + 报告」终态（对齐 task-execute escalate A2 先例），处置菜单挪到 `/task` 恢复时经 4b 分诊触发。删除了 Interactive「修复前 AskUserQuestion 确认」（约定 9 P4 零阻塞合规修复）。
+- **plugins/tdd.md RED 异常**：[Interactive] AskUserQuestion 阻塞问改所有模式统一「可见停下 + 异常报告」，处置经 `/task` 恢复决定，Telegram 保持 best-effort 叠加。
+- **references/todo-sync.md Bootstrap 行**：full 档加 Execute 例外——step 重建按 task-execute 的 plan.md 逐 task 展开规则，不用 phases.md 4a/4b 粒度（修复 resume 后 step 级进度退化；新会话交接落地后 P4 常从 resume 进入，此走样会常态化）。
+
+波及机械换词：task-init/design/plan/test/execute 的 transition rule 与 spec-task-skill 约定 1/2 中「compact」机制名 → 「新会话交接」（各技能自有 changelog 各记一条）。指「上下文被压缩」这一客观事件的 compaction 引用（task-plan 提交 rule、task-execute 4b 分诊、review.md agentId 恢复）不属本机制，保留。
+
+## 2026-07-07 word-budget 档位声明回填（2026-07-07 预算三档制）
+
+依据 2026-07-07 Length Budget 三档声明制回填 task 套件各 skill 的 frontmatter `word-budget`：`task`（编排器）声明 `exempt`；`task-init`/`task-execute`/`task-end`/`task-design`/`task-test`（多阶段流程 + 生命周期一体型）声明 `2000`；`task-plan`/`task-revise`/`task-cancel`（多阶段流程但下沉已做完）声明 `1000`。均属既定 WARN 瘦身队列成员，声明不改变正文内容。
+
+## 2026-07-07 ISSUE：机读状态信号 state.json + 外部驱动契约（headless-state-signal 任务）
+
+经完整 6-phase 任务流落地（design 1 轮 R1/R2 review：10 Accept 1 Reject；plan review codex 真跑 1 轮）：
+
+- **新增 `bin/hat-task-state`（+11 pytest）**：任务级 `state.json` 写入器——三态（running/waiting_input/terminal）+ `resume_hint` 机械消费枚举 + `outcome`；原子写、schema 自校验；`stamp` 子命令作 Stop hook 按 session_id 匹配盖 `stopped_at`（实证：交互与 `-p` 无头模式均实时触发）
+- **新增 `references/headless-driving.md`**：外部驱动契约唯一权威（schema、五分支判定算法、stopped_at 必要不充分语义、900s/600s 坑、resume 循环、stream-json、回退路径、stop_point 开放词表）
+- **编排器接线**：Step 2B/Step 3 戳 running；新增全 phase 共用停点写入 `<rule>`（等待用户输入的回合结束前先戳 waiting）；task-end/cancel 归档前戳 terminal（先戳后移）
+- **8 个 phase skill 停点表下各一行薄指针**；UNATTENDED_PROTOCOL 头部指针；settings.json hooks.Stop 注册 stamp
+- 来源：E2E 首跑 friction 1/4（ISSUE）
+
+## 2026-07-07 E2E 首跑后固化：无头模式两处协议语义补全（skill-revise 直改例外，实测证据 + 用户确认）
+
+来源：E2E 回归首跑（`plans/e2e-run-1/`）实测发现，经主会话核实实现后固化：
+
+- **§3 chat_id 探测新增「显式关闭短路」**：项目本地 `telegram_chat_id: null/false` = 显式禁用、短路整条探测链（区分「显式禁用」与「字段缺失」）。实测：探测链第 2 步直读 personal local、不经三层 resolver，项目层 null 压不住——测试床无法屏蔽真实 Telegram 通知。
+- **§6 task-end 补 `branch=keep` 验证口径**：事后/外部验收须在任务分支/worktree 内执行，主分支目录会假阴性。实测：E2E-2 断言 grep subtract 在主床 miss、切任务分支才 PASS。
+- 另两条 E2E 发现（无头状态信号 + 外部驱动契约文档）属新功能设计，转独立任务处理（见 task lessons 建议出口=新任务条）。
+
+- **hook 引擎（bin/hat-plugin-hook）**：删 `after` 依赖校验与重排机制（~27 行）——零插件使用、零测试覆盖、代码自注「当前无插件使用 after」；handler 排序只按 priority。golden 零变化。
+- **git 插件**：删 frontmatter 空 `recommend_disable_when`/`recommend_enable_when` 占位键（其余插件均有实值，空列表无消费意义）。
+- **保留（偏离诊断，理由记 plans §5）**：hotfix 档位（声明式 preset 数据、公开 4 档契约）；degrade_policy headless 档「后续」标注（诚实标注的未实现项）。诊断中另一处规则错配项经查已在前批清零。3c review JOIN 协议实测并入最终 E2E 阶段。
+
+## 2026-07-06 批次 2b：lessons 固化（实验子集，2 条候选双双中性，正文零改动）
+
+skill-revise Phase 3.5 对比实验（基线/改前/改后三臂 × 3 模型 × 3 轮，Opus+Sonnet+MiniMax-M3 池化，总费 $9.51）——改造后机制 B（基线臂预检）/C（候选老化计数）/E1 首次实战：
+
+- **编排器「新任务信号路由分支」（ISSUE F1）**：三臂 9/9 全 pass——现行「1 open task→Resume」文本在 fresh-context 下不误导任何 worker，**中性×2 → 移入 lessons-archive**（不再重测；真实事故证据保留，可依协议例外手动强制固化）。ISSUE 的误续属长上下文注意力稀释，非文本缺陷。
+- **task-init「rubric 判定锚点」（ISSUE F3）**：基线臂 0.33 fail（题有区分度）、改前/改后均 9/9——无锚点 rubric 对明显糟糕的 prompt 同样稳定，**中性×1 → 留 lessons 待重设计**（需换贴判定边界的 borderline prompt 才测得出锚点增量）。
+- **中性复盘表**：
+
+| 候选 | 首次中性原因猜测 | 重设计后结果 |
+|---|---|---|
+| 编排器新任务路由分支 | ×1 轮疑选项泄漏；×2 轮实景路由题仍中性——模型基线已覆盖该判断 | 中性×2，归档 |
+| task-init rubric 锚点 | 测例 prompt 离判定边界太远（明显糟糕），两臂天花板 | 待重测（borderline prompt） |
+
+- 有区分度的 B 题沉入 skill-test prompt-bank（含「对锚点增量无区分度」教训注记）。
+- 顺手修真实 bug：claude CLI 新版把 ⚠ auth 横幅打进输出、事件数组形态——claude-dispatch 收集器解析失败致全批报错；修复 + 回归测试（bin/test_claude_dispatch.py +1）。
+
+## 2026-07-06 批次 2b：lessons 固化（直改子集，13 条事故实证 + 2 条移出）
+
+来源：7 份 lessons.md 积压 17 条，经用户确认走「真实事故 > 测题区分度」直改例外（批次 0 先例）。剩 2 条（编排器新任务路由、init rubric 锚点）走 skill-revise 实验路径。
+
+- **task-init**：1f 补 scaffold 勿传 --help；1d-wt 增同树并发守卫（≥2 open task 共享树 → ask 分支推荐翻转为 worktree 隔离，ISSUE 三处串扰实证）
+- **task-design**：2e.3 落盘 check 命令按产物语言归类校验器（ISSUE SC1071）
+- **PLAN_PROMPT**：File Structure 预置改 skill 任务的 changelog 产物项（ISSUE F6）；Self-Review 增确定性断言噪声源检查（ISSUE）
+- **task-execute**：执行循环第 7 步补 plan.md checkbox 同步（ISSUE）；4b 增全量套件判据（改名/跨模块/触 golden 源，ISSUE）
+- **task-test**：蔓延闸补 feature-sized 追加不进 revise 的分流护栏（ISSUE）；验收分类补「契约可验 vs 需 dogfooding」两档标注（ISSUE F7）
+- **task-end**：3.3 增共享文件归属核验（并发 session，ISSUE debt.md 串扰实证）
+- **spec-task-skill**：约定 6 补薄引用纪律（只列触发点名+指回权威，ISSUE F-E）
+- **激活入口序订正（O2，代码证实的双问 bug）**：2A.1 确立为交互主入口（编排路径必先触发、四选项都写文件）；task-design 2e Activation Timing 降为 standalone 后备，守卫改「文件已存在即跳过」——原守卫漏掉 `enabled:false + activate_after`（延后激活）状态、会被再问一遍。§5 入口序改三层表述，编排器/各 loader 脚注同步
+- **归属修正**：golden 重生规则写入 `.claude/CLAUDE.md` 验证命令节（仓库级约定非通用技能规则）；「盲写 TUI 模板锚点」「Go iota 越界」两条属 ISSUE 项目级经验，移出技能 lessons（任务归档留底）
+
+## 2026-07-06 批次 1：结构精简（诊断报告 B 组，用户两方向落地）
+
+来源：`plans/task-slim-diagnosis.md` 批次 1（B1/B3/B4/B5/B7 + 1d）。结构重组不降能力，四项核心能力承载点未动。
+
+- **B1（8 个 phase skill + UNATTENDED_PROTOCOL）**：无人值守渐进式披露——各 SKILL.md 的 `[Unattended]` 内联分支、停点表 Unattended 列、过渡备注全部收敛进 UNATTENDED_PROTOCOL §6（自动决策唯一来源；task-init 补 5 停点、task-design 补联网门/敏感度升级、task-end 补债务对账/产物门控/worktree 冲突、task-cancel 补 4 行、新增 task-revise 整节）；phase skill 只留 Unattended State 加载器 + 一行 §6 指针。Self-Discussion 的「主 agent 不 inline 作答」规则移入 §7 `<rule>`。
+- **B3（激活契约收敛）**：UNATTENDED_PROTOCOL §5 为激活契约唯一权威；8 个 loader 脚注统一为薄引用——其中 6 份原写「统一由编排器 Step 2A.1 处理」与双入口设计（quiet→1f / 主入口→design 2e / 2A.1 后备）矛盾，已订正；删 task-init loader 内联复写的 4 行 §6 决策（其触发条件无视 declined 哨兵，属 bug）。
+- **B4（11 份 README）**：按新 README 定位（摘要 + 增量信息，不镜像正文）收窄，402→98 行。
+- **B5（删展示性双写）**：删 `task/LIFECYCLE.md`（134 行镜像流程图）与 task-execute 卡壳阶梯 dot 图（正文文字阶梯为权威）；指针清零（task/README、task/SKILL Dependencies、.claude/CLAUDE.md、hat-task-package excludes + 测试断言）。
+- **B7**：worker description 排除条件（批次 0 已修）、init/execute transition 统一、停点表薄索引化——三项确认已消解。
+- **1d（导出去侵入，窄修）**：task-execute 与 review plugin 两处「分发安全」括注改环境健壮性表述；review plugin「分发版经 ${CLAUDE_PLUGIN_ROOT} 解析」改「勿写绝对路径」；`task-defaults.json` `_telegram_chat_id_note` 去分发叙事（安全语义保留、指 §3）。诊断中 path-placeholder.md / `_note` 「可纯移打包器」分类经实物核查不成立（均为运行时消费物），不移，理由记 `plans/task-slim-diagnosis.md` §5。golden corpus 重生（1 例）。
+
+## 2026-07-05 批次 0：修复级缺陷（诊断报告 A 组，用户确认后直改）
+
+来源：`plans/task-slim-diagnosis.md` A 组四项功能性缺陷。均有真实事故证据（ISSUE/523/546），按对比协议「真实事故 > 测题区分度」例外经用户确认强制固化，未走两臂测试；对应 lessons 条目已移除。
+
+- **A1（orchestrator）**：新增 `<rule>`——经 Read 加载的 phase SKILL.md 中动态注入行不展开，遇字面 `!`cat`` 当场 Read、字面 `!`命令`` 当场 Bash 执行。修复「DESIGN_PROTOCOL / PLAN_PROMPT 协议正文与 Runtime Context 探测在编排路由下静默缺失」（ISSUE F5，task-design lessons 固化上移至此——加载机制是编排决策，归 orchestrator）。
+- **A4（orchestrator）**：新增 `<rule>`——一切 subagent / codex / headless worker 派发带超时上限（缺省 10 分钟），超时/瞬时 infra 错误退避 ≤1 次即转 fallback 并留痕（固化 task lessons 两条：ISSUE 529 空转 25min、ISSUE codex 续接挂起）。
+- **A3（git plugin P6.post-archive）**：squash 守卫两处修复——①「全部未推送」判法改为 `--not --remotes` 计数比对（原 `--remotes` 在无 remote 仓库把全部本地提交计入、守卫误报，ISSUE）；②新增「区间无他任务提交」守卫（按他任务 `docs(task)`/`[task]` 标记判定，堵「并发任务也归档后 open≤1 守卫误通过」的洞，ISSUE/501）。守卫 `<rule>` 顺手由英文 ALL-CAPS 改为陈述式中文。golden corpus 经新工具重生。
+- **A2（task-execute）**：codex dirty-conflict escalate 的 [Interactive] AskUserQuestion 阻塞菜单移除——所有模式统一为「可见停下+报告 + 经 /task resume resolution menu 决定」，兑现 P4 零阻塞交互（spec-task-skill 约定 9）；[Unattended] 的远程通知保留为 best-effort 叠加。
+- **A4 补充（bin/codex-sandbox-gate）**：新增「验证依赖模拟器」机器判据（`xcrun simctl` / `maestro` / `xcodebuild …simulator…` → hard-fallback），修「gate 判 eligible 但沙盒无 CoreSimulatorService、能写不能验」（ISSUE，task-execute lessons 固化为代码）；配套 pytest 用例。
+- **新工具 `bin/hat-plugin-golden-regen`**（+5 pytest）：按 golden 测试的等价构造重生 golden corpus，替代手抄 JSON；首跑即统一了 6 个手抄文件缺 `args` 键的格式漂移。
+- **顺手（10 个 worker frontmatter）**：description 补排除条件（Do NOT use…），修合规审查 F4。
+
+---
+
+## 2026-06-22 TODO Sync 三档可配置 + 确定性触发契约（ISSUE）
+
+经 continue-task 实施（用户显式选择继续跑 task；改既有 skill 正文前 inline 遵循 spec-skill，双盲验证折叠进 P4 code review，非走 skill-revise）。
+
+- **config（task-defaults.json / .example）**：`todo_sync` 由 boolean 改枚举 `off | overview | full`；顶层 + 4 preset（full/standard/lite=`full`，hotfix=`off`）+ 枚举注释。
+- **bin/hat-task-config-resolve**：规范化 legacy boolean（`true→full` / `false→off`）、非法/缺失→`full`；新增 `--todo-sync` 第④层 flag（非法值告警回落 config 值）。单测 `bin/test_task_config_resolve.py` +8 例。
+- **bin/hat-task-package**：打包内嵌中英配置表 `todo_sync` bool→enum，避免分发版 README 发布旧契约。
+- **references/todo-sync.md（改写）**：删旧「生命周期规则」#1（Phase1 开始建）/#5（Bootstrap 旧版）+ 末尾 `<rule>`；补三档语义 + **确定性触发点表（7 行，唯一权威）** + 4 命名模板（update_overview / update_step / transition_phase / cleanup）。overview 锚从「Phase1 开始」改到「**1f 末**」（name/config 已定），修用户报告的「建 todo 不稳定」时机倒挂根因。
+- **task (orchestrator) SKILL.md**：compact 门 `todo_sync == false`→`== "off"`（语义等价）；`## TODO Sync` section 薄化为引用 + orchestrator 触发点（phase 切换 / Bootstrap 重建·刷新）。
+- **9 worker SKILL.md（init/design/plan/execute/test/end/cancel/reopen/revise）**：`## TODO Sync` section 统一收敛为薄引用 + 各自触发点；删各自重复的双层契约段落。grep 一致性：10 section 均引用 `references/todo-sync.md`。
+
+---
+
+## 2026-06-21 接入 brainstorm 低分补完门控（ISSUE，经 revise-skill 双盲）
+
+- **task-init（新增 1b.2b 头脑风暴补完）**：在 1b.2 与 1b.3 之间加恒执行门控评估步。触发判据沿用 1b.2 现有门槛（`2+ ❌` 或 `❌/⚠️≥3`）或用户主动；低分 [Interactive] AskUserQuestion 进入/跳过、[Unattended] 默认进入。进入则 `Read brainstorm/SKILL.md` inline、收敛回流到**内存态**结构化需求（prompt.md 仍由 1f 落盘）、重跑 1b.2 评分再进 1b.3。两态步、不引第三态。同步更新 Resume 步骤名映射、1b.3 第6步步骤生成、Mandatory Stop Points 表。为何：此前对模糊/初级需求无主动扩充机制，模糊需求带病进 Design。
+- **task (orchestrator)**：phases.md Format Reference 默认模板 Phase 1 加 `1b.2b 头脑风暴补完` 行（与 task-init 生成逻辑步骤名一致）。
+- 验证：经 revise-skill Phase 3.5 双盲 A/B（因 sonnet 不可用，改用 DeepSeek 无头进程作答/盲判）N=4 轮全有效（改后提议头脑风暴、改前仅建议重描述）。
+
+---
+
+## 2026-06-21 压测 Round 3 修复（同日）
+
+- **task-design README**：「产物」段补齐 `task-config.json`（Step 2e 就地更新）与 `unattended.json`（activate_after 时），与 SKILL Dependencies 写入清单对齐（原漏列）。
+
+## 2026-06-21 压测 Round 2 修复（同日）
+
+- **task-design**：Step 1.5 调 web-research 补对称的 `contract_version: "1.0"` + 折叠前 major 断言（Round 1 只修了 dive 侧、漏了 task-design 这个对称调用方）。
+- **task-end**：Step 2.6 Interactive 打回补状态回退机制（phases.md Phase 5→IN_PROGRESS、Phase 6→PENDING、FAIL 项标待复验），否则重跑 /task 会回环卡在 task-end。
+
+## 2026-06-21 压测修复（同日，承上条）
+
+- **task-design**：Resume 映射补「Step 1 + 1.5」折叠注记（防中断恢复跳过联网调研步）；DESIGN_PROTOCOL 折叠规则把 `verification==opinion` 显式纳入「仅备注、不作决策依据」、并区分 findings 字段值与 filtered_out 数组的层级。
+- **task-end**：Step 2.6 打回条件 `[MUST] FAIL` → `[MUST] 或 [SHOULD] FAIL`（正文 + Mandatory Stop Point 表 + `<rule>` 三处），消除与 Phase 5 门控（task-test:172）的 drift。
+- **task-test**：acceptance-checklist 模板图例登记 `DEFERRED` 为无人值守自动预填的第三种 `→` 取值（原为隐式约定）。
+
+## 2026-06-21 联网调研接入 + 无人值守人工测试后移
+
+- **task-design（DESIGN_PROTOCOL Step 1.5，新增）**：本地探索后、澄清前插入可选「联网调研」门。Interactive 询问是否联网（bug/0→1/建技能/陌生依赖默认建议是），是则调 `web-research` 引擎（`depth: quick`，`local_context`=已探查结论）；`findings[verified]` 折进 design 探索段、`tentative`/`filtered_out` 仅作「需实现期验证」备注、`coverage_gaps` 转澄清候选。无人值守保守档默认跳过（除非 prompt 显式要求），跑时传 `unattended:true`（成本封顶）。task-design SKILL.md 加 Step 1.5 无人值守分支 + Mandatory Stop Point 行。
+- **task-test（Phase 5c，D1）**：无人值守 `self_test` 不再跳过/丢弃人工测试项——手动区域照常生成，人工项 `→` 预填 `DEFERRED（待 task-end 后人工验收）` 持久留痕；无人工项则手动区为空、同现状。
+- **task-end（Step 2.6，新增 D2）**：归档前检测 acceptance-checklist.md 的 DEFERRED 人工项。Interactive 停下等用户验收（MUST FAIL 打回不归档）、回写 final.md Verification；无人值守不阻断归档，DEFERRED 清单写入 final.md「待人工验收」+ Telegram 通知。无 DEFERRED 项整步跳过、同现状。final.md 模板 Verification 段加 deferred 注释；Mandatory Stop Point 加 Step 2.6 行。
+- **UNATTENDED_PROTOCOL**：§6 task-test self_test 行改为 deferred 留痕、新增 task-end「人工验收交还」行；§9 补「人工验收交还非 HARD-STOP」条（仅可机判 MUST/SHOULD FAIL 才硬停）。
+
+## 2026-06-21 task 编排族 spec-skill 合规订正（hat-doctor Phase 1.7）
+
+族模式 revise-skill 对 11 个 task 技能逐一审 + 族级综合，剔除族设计假阳性后落地合规修复：
+- **description 去流程化**（7 worker：task-init/design/plan/execute/test/revise/reopen）：删掉 description 里的 workflow 步骤枚举，只留触发条件 + 触发词（spec：description 概述流程会被当捷径跳过正文）。
+- **`<rule>` 英文散文 → 陈述式中文**：task-execute（2 条：未识别 mode 回落、P4.post-execute 两段执行）、task-setup（python3 缺失）。
+- **变更记录式 / time-sensitive 注释清理**：删 task-execute「行为修正说明」、task-test/task-init/DESIGN_PROTOCOL「仅保留触发入口」；泛化 task-end/task-test/task-design 三处 Reason 里硬编码的任务 ID。
+- **DESIGN_PROTOCOL 删残留 per-skill LANGUAGE RULE**（语言由全局 CLAUDE.md 固定）。
+- **task-reopen 步骤重编号** Step 6.5 → 7/8/9 连续整数。
+- **orchestrator lessons.md 补「建议出口」列**（对齐 spec 自进化表格式）。
+- **Dependencies 补声明**：task（todo-sync/review-workflow/DESIGN_PROTOCOL/PLAN_PROMPT/LIFECYCLE）、task-revise（task/SKILL.md Revise 路由表）、task-cancel（UNATTENDED_PROTOCOL/todo-sync）。
+- **README 同步**：task-design（步骤号对齐 + visual companion）、task-end（Step 3.6 独立 HARD-GATE）、task-init（补无人值守/档位/worktree/产物清单）、task-test（强否定式改陈述式）。
+- **裁决为族设计、不改**：worker 缺 changelog.md（刻意合并进 orchestrator）、worker 缺 lessons.md（刻意集中式自进化）、硬编码 `~/.claude` 路径（个人版单一来源，分发由 hat-task-package rewrite_paths 承担）。
+- 本轮无 lessons 固化候选（orchestrator lessons 表为空），故不触发双盲 A/B 测试。
+
+## 2026-06-21 task-design 补回 visual companion 接线（hat-doctor Phase 1.7）
+
+hat-doctor 体检发现 `task-design/visual-companion/`（ISSUE 从 Superpowers brainstorming「视觉脚本搬入」）落地 25 天全仓零引用——改编时只搬了资产、丢了接线。经核为漂移而非死代码，补回：
+- **脚本升级到 Superpowers 6.0.3**（我们旧版停在 6.0.0 era）：替换 server.cjs(11→26KB)/helper.js/frame-template.html/start-server.sh/stop-server.sh，逐字保留以便未来安全更新。关键得到 **session-key 安全加固**（`?key=…` gating HTTP+WebSocket，旧版无此防护、同网任意浏览器可读屏/注入）+ `--open` + WebSocket 重连 + idle 30min→4h。仍纯 node 零 npm（新增 `crypto`）。
+- **接线进 SKILL.md**：`## Visual / Semantic Decisions` 增「浏览器 Visual Companion」子节——just-in-time 提供、逐问决定浏览器/终端通道、仅 Interactive 无头跳过、指向 `visual-companion/visual-companion.md`；Dependencies 补 on-demand 声明；README 补提及 + 修步骤编号对齐 SKILL（6 → 6.5 → 7 → 8）。
+- **顺带**：泛化该节 rule Reason 里硬编码的任务 ID（time-sensitive，optimization-rubric #7）；`.gitignore` 加 `.superpowers/`（companion 临时目录）。
+- node --check + shellcheck 全过。
+
+## 2026-06-21 去掉「codex 同仓库不并发」规定 + codex review/execute 并行
+
+实测验证后移除「codex 同 repo 不并发」串行约束（之前从 codex execute 写冲突假设过度套用到 review）：
+- **codex review 并行**（review.md）：P2 design R1/R2 由串行改并行——codex review 只读、同 repo 实测不串扰（broker busy 自动 spawn 独立子进程、state/broker 按 workspace-root 隔离），与 native R1/R2 并行对齐；收敛续接改**定向** `SendMessage(to: agentId)`、不依赖 `--resume-last`「最新 thread」。P3 单 reviewer 收敛轮本质顺序、澄清非同仓库限制。
+- **codex execute per-worktree 并行**（task-execute）：C 段「强制串行」改「per-worktree 并行」——codex 写同树会 dirty-state 串扰，故可隔离 layer 经 git worktree 隔离并行（**实测**两个并发 codex 各落各 worktree、互不污染、不串主 repo）；D 段 dirty-state baseline/`CODEX_GIT_ROOT`/归因全部 per-worktree 锚定。worktree 生命周期+合并落 `execute-workflow.md` codex 变体。
+- golden P2.post-design-draft / P3.post-plan 重生；192 pass、打包 [OK]。
+
+## 2026-06-21 P4 Execute 接入可选 Workflow 后端（探测回落）
+
+hat-flow × Workflow 审计的第二个结合点（推荐度中）。现状 parallel-agents 已是「`await_all` barrier + `handle_hooks_and_checkpoints` 主 session 收口」，故 Workflow 接入只换并行引擎、**不改 hook/commit 语义**：
+- **task-execute SKILL.md** auto/parallel-agents 分层调度加「执行后端：可选 Workflow」节——默认主 session 并行派发（≤3）；仅 `execution.dispatch_backend:workflow` + 探测到 Workflow 工具时改用 Workflow `parallel()` barrier（并发可 >3），results 交回主 session 收口。三守卫：不写 phases.md / 不触发 hook / 缺失回落。
+- 适用边界：engine≠codex、Files 不重叠故不需 worktree、TDD/RED 同现状。
+- 新增 `task-execute/references/execute-workflow.md` 脚本骨架 + 主 session 收口 + A/B 对账。
+
+## 2026-06-21 P4 full-review 接入可选 Workflow 后端（探测回落）
+
+为 review 层最佳试点（hat-flow × Workflow 审计结论）接入 Workflow：
+- **review.md `## P4.post-execute/full-review`** 加「执行后端：可选 Workflow」子节——默认主 session 派发；仅 `review.workflow_backend:true` + 探测到 Workflow 工具时，改用 Workflow 并行扇出 reviewer + 逐 finding 对抗验证，barrier 收齐 findings 交回主 session。三守卫：不写 phases.md / 不触发 hook / 缺失静默回落（分发安全）。
+- 新增 `references/review-workflow.md`：Workflow 脚本骨架（`pipeline(review→verify)` + schema）+ 主 session 收口 + A/B 对账方法。
+- golden `P4.post-execute.json` 同步重生；192 tests pass。
+
+## 2026-06-21 自进化闭环改造 批次1：入口守卫（retrospective + task-end）
+
+落地两段式自进化的「唯一固化入口」（诉求6）：
+- **retrospective 插件**（`plugins/retrospective.md`）：Execute-now 的 Workflow/Skill 类改进降级为「沉淀为对应技能 `lessons.md` 候选 + 提醒走 revise-skill」，不再直改 skill 文件；新增 `<rule>` 禁本插件直改技能正文；Project 配置类（CLAUDE.md 等非技能文件）照旧。配套 `bin/fixtures/plugin_hook_golden/P6.post-archive.json` 同步重生。
+- **task-end Step 3.6**：门控提示同步——Workflow/Skill 改进只沉淀 lessons、固化改用 `revise-skill`（改既有技能正文的唯一入口，带双盲测试门）。
+
 ## task (orchestrator)
+
+### 2026-06-22 lessons 候选「open task 与新 prompt 冲突询问」对比实验中性、保留 lessons（skill-revise）
+
+候选（重要度 7，拟落 Step 1 路由正文加分支）经 skill-test 两臂对比：改前 / 改后 mid 池均 5/6 pass → 中性，改后无增量。「建议出口」标注为「正文（测试中性·留待重测）」、留 lessons 不固化。本轮 experiment 措辞偏引导、未拉开区分度，下次重设计更隐蔽 criteria 再测。
+
+### 2026-06-20 描述范式级联：11 个 task skill 删 Red Flags 表 + 软禁止式陈述化（ISSUE）
+
+设计哲学转变（ISSUE / `plans/3-skill-paradigm-shift.md`）从 spec 层（spec-skill / spec-task-skill / spec-git）spillover 到执行层。11 个 task skill 全部经并行 cascade 改造：
+
+- **删各自的 `## Red Flags` 表**（11 张）——逐行核对：已被本文件 `<rule>` / 正文 / checklist 覆盖的直接删；独有指导先硬化成陈述式规则再删，**零指导丢失**。硬化项例：task-design YAGNI、task-plan「review 不因 plan 看着好而跳过」+「手动提交只 add 具体文件」、task-execute「review 修复 commit 须后置于用户确认」、task-revise「revise 不嵌套」、task-reopen「git mv 原子暂存」、task-setup「override 落项目本地非全局预设」、task-end「final.md 写全」「doc-only 仍跑 pre-commit 检查」。
+- **软禁止式 → 陈述式**（surgical）：如 task-design `不得全盘接受`→`逐条独立裁决`、task-test `Do NOT commit`→`commit 前置条件是用户确认`、task-init `do NOT create directory yet`→`目录创建推迟到 1f`、task-execute「一卡就上报/换模型」→「上报与换模型后置于根因定位」。
+- **保留全部正当硬 `<rule>` / `<HARD-GATE>`**（带 Reason、守不可逆 / 静默失效）；`task/SKILL.md` 的 Step-2B「Rationalization 表」识别为 HARD-GATE 自检的一部分、非 Red Flags，**未删**。
+- 字数 18325→16855（**−1470 ≈ −8%**）。未触碰 frontmatter / hook 调用 / `!cat` 预注入 / phase 逻辑（git 验证：`!cat` 0 触碰、frontmatter 0 触碰）。
+- **待人工一瞥**（非阻断）：① task-execute 的「TDD RED 异常→停下报告」留在 tdd 插件 hook、未在正文复述（避免重复插件逻辑，仅 tdd 插件关闭时才无正文兜底）；② task-design「explore-first 的 unknown-unknowns 理由」在预注入的 `DESIGN_PROTOCOL.md`（本 pass 不可编辑）。
 
 ### 2026-06-17 Telegram 通知发送链路修正 + chat_id 配置分层（个人隐私护栏）
 
@@ -139,6 +338,14 @@ task 套件全体 skill 的修订/回溯日志（合并自原各 skill 的 `refe
 
 ## task-execute
 
+### 2026-06-22 固化「外部 CLI 脚本须 P4 开发期真实冒烟」（skill-revise，经对比实验通过）
+
+P4「执行循环」Light verification 段后新增 `<rule>`：包裹外部 CLI 的脚本（调 claude/claude-hl 等）在 P4 开发期跑一次真实冒烟、不延到 Phase 5——stub 单测只验调用方传参、建模不了外部 CLI 真实语义（变长参数贪婪吞位 / IFS 空白折叠 / PATH 解析），契约层全绿端到端全挂。来源 ISSUE lessons（重要度 9）。经 skill-test 两臂对比实验：改前 pool 6/6 全误判「stub 够用即推进」(fail)、改后 6/6 全选「先跑真实冒烟」(pass) → 判有效，固化进正文并从 task-execute lessons 移除。池 = deepseek-v4-pro + MiniMax-M3（各 3 轮；glm-5.2 strong 档本轮整组不可用，已排除以免同等压垮两臂）。
+
+### 2026-06-22 接第四执行后端 engine=headless-provider（ISSUE）
+
+在 engine 派发漏斗（codex 分支同序位置）加 `execution.engine == "headless-provider"` 分支：经 `claude-dispatch`（headless-scheduler 底座）把实现 task 下放给第三方 provider worker。engine 维度第四值（与 auto/sonnet/opus/codex 并列），非 dispatch_backend 扇出维度。边界：仅 mid+ 档、产出仍过 P4 code review（恒 claude）、守卫参照 codex 后端（不写 phases.md / 不触发 hook / 缺失静默回落）。现有 auto 模型分流与 codex 分支未改。
+
 ### 2026-06-16 设 user-invocable: false（隐藏出 / 斜杠菜单）
 
 由 task orchestrator 路由派发、不单独跑，无需暴露在 / 斜杠菜单。隐藏后仍可被编排器/派发激活。
@@ -153,6 +360,10 @@ task 套件全体 skill 的修订/回溯日志（合并自原各 skill 的 `refe
 ---
 
 ## task-test
+
+### 2026-06-22 transition 补「返回编排器 Step 3」指令（skill-revise 合规订正）
+
+`## Test 完成 → 过渡` 原仅含宣告 + 提示 `/task-end`（约定1 Test 例外），缺 sibling（task-plan/task-execute）一致的「停止输出，返回编排器 Step 3 执行过渡逻辑」结构指令——补上，使过渡逻辑（artifact check / compact / unattended check）归编排器（spec-task-skill 约定1 通用要求）。`/task-end` 硬停提示按约定1 Test 例外保留。
 
 ### 2026-06-19 5d 增「累积范围守卫」rule
 

@@ -10,19 +10,6 @@ description: "Use when committing code, creating branches, writing commit messag
 
 **Announce at start:** "Using spec-git for commit/branch conventions."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
-
-## Red Flags
-
-| Rationalization | Reality |
-|-----------------|---------|
-| "Just `git add -A`, it's faster." | Bulk adds risk including unrelated changes; add specific files so each commit is one logical unit. |
-| "`fix: fix bug` is clear enough." | Vague messages waste reviewers' time; state intent + scope (`fix(auth): prevent crash when token expires`). |
-| "I'll commit the formatting separately as `style:`." | Format before the feature commit; a standalone format commit fragments history. |
-| "One commit per file keeps things tidy." | Group logically-related files; one commit = one logical change, not one file. |
-| "I'll commit now, the user will see the fix works." | Confirm the fix works with the user before committing during review. |
-
 ## Commit Format
 
 使用 [Conventional Commits](https://www.conventionalcommits.org/)：
@@ -35,20 +22,21 @@ Write every message you show to the user in the user's configured language (the 
 
 ### Type
 
-| type | Purpose |
+| type | 用途 |
 |------|---------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `refactor` | Refactor (no behavior change) |
-| `docs` | Documentation |
-| `chore` | Maintenance (dependencies, config) |
-| `style` | Formatting (no logic change) |
-| `test` | Tests |
-| `build` | Build/CI |
+| `feat` | 新功能 |
+| `fix` | Bug 修复 |
+| `refactor` | 重构（不改变行为） |
+| `docs` | 文档 |
+| `chore` | 杂务（依赖、配置） |
+| `style` | 格式（不改逻辑） |
+| `test` | 测试 |
+| `build` | 构建 / CI |
+| `merge` | 合并提交 |
 
 ### Scope
 
-可选，用括号包裹，表示影响范围：`feat(audio): add BGM support`
+可选，用括号包裹，表示影响范围：`feat(audio): 新增 BGM 支持`
 
 ### Description
 
@@ -60,7 +48,7 @@ Write every message you show to the user in the user's configured language (the 
 
 如果关联了 Linear issue，在末尾追加 issue ID：
 ```
-feat(audio): add BGM support (ISSUE)
+feat(audio): 新增 BGM 支持 (ISSUE)
 ```
 
 ## Branch Naming
@@ -75,25 +63,24 @@ hotfix/<description>              ← 热修复
 ## Commit Discipline
 
 <rule>
-Each commit must correspond to one logical change. Never use `git add -A` or `git add .` — add specific files by name.
-Reason: logical unit commits enable clean cherry-picks, reverts, and code review. Bulk adds risk including unrelated changes.
+每个 commit 对应一个逻辑变更；按文件名逐个 stage（不用 `git add -A` / `git add .`）。
+Reason: 逻辑单元提交让 cherry-pick、revert 和 code review 都更干净；批量 add 有把无关改动一并纳入的风险。
 </rule>
 
-1. **Logical unit commits** — 每次提交对应一个逻辑变更，而非按文件提交
-2. **No debug leftovers** — 提交前清理 `console.log` 和注释掉的代码
-3. **Meaningful messages** — 仅凭 message 就能传达变更目的
-4. **Target 3-8 commits/task** — 超过 10 个考虑 squash
-5. **Don't commit formatting separately** — 在功能提交前格式化，不要单独创建 `style: format` 提交
-6. **Confirm before committing during review** — 用户确认修复有效后才提交
+1. **逻辑单元提交** — 见上方 `<rule>`：每个 commit 对应一个逻辑变更、按文件名逐个 stage
+2. **不留调试残余** — 提交前清理 `console.log` 和注释掉的代码
+3. **消息可独立达意** — 仅凭 message 就能传达变更目的
+4. **每个任务目标 3-8 个 commit** — 超过 10 个时考虑 squash
+5. **Review 期间确认后再提交** — 用户确认修复有效后才提交
 
 ## Task Lifecycle Commit Templates
 
 任务管理提交使用固定格式：
 
 ```
-docs: 添加任务文档 [YYYY-MM-DD-topic] (HAT-XXX)
-docs: 完成并归档任务 [YYYY-MM-DD-topic] (HAT-XXX)
-docs: 取消并归档任务 [YYYY-MM-DD-topic]
+docs: add task documents [YYYY-MM-DD-topic] (HAT-XXX)
+docs: complete and archive task [YYYY-MM-DD-topic] (HAT-XXX)
+docs: cancel and archive task [YYYY-MM-DD-topic]
 ```
 
 ## Version Number Commits
@@ -106,24 +93,24 @@ build(ios): bump X.Y.Z:N
 
 ## Worktree Testing Flow
 
-某些项目的原生构建/运行命令无法在 worktree 里直接跑（构建产物、本地工具链或 dev server 依赖主目录环境）。典型如 RN：`yarn ios` / `yarn android`（native build artifacts 和 Metro 依赖主目录）；其它技术栈替换为各自对应的构建/运行命令。**下面第 3 步的命令仅为 RN 示例，由项目按自己的栈替换。**
+某些项目的原生构建/运行命令无法在 worktree 里直接跑（构建产物、本地工具链或 dev server 依赖主目录环境）。典型如 RN：`yarn ios` / `yarn android`（native build artifacts 和 Metro 依赖主目录）；其它技术栈替换为各自对应的构建/运行命令。下面第 3 步的命令仅为 RN 示例，由项目按自己的栈替换。
 
 当 `task` Phase 4 检测到 worktree 且项目存在此类约束时，引导用户：
 
-1. **Remove worktree**：释放任务分支
-2. **Switch to task branch in main directory**：`git checkout <branch-name>`
-3. **Test**：跑项目的原生构建/运行命令（RN 示例：`yarn ios` / `yarn android`；其它栈替换为对应命令）
-4. **Fix issues**：直接在任务分支上提交修复
-5. **Complete**：测试通过后调用 `/task-end`
+1. **移除 worktree**：释放任务分支
+2. **在主目录切到任务分支**：`git checkout <branch-name>`
+3. **测试**：跑项目的原生构建/运行命令（RN 示例：`yarn ios` / `yarn android`；其它栈替换为对应命令）
+4. **修复问题**：直接在任务分支上提交修复
+5. **完成**：测试通过后调用 `/task-end`
 
-## Common Mistakes
+## Patterns
 
-| Mistake | Correct Approach |
-|---------|-----------------|
-| `fix: fix bug` | `fix(auth): prevent crash when token expires` |
-| 每个文件一个 commit | 将逻辑相关的文件一起提交 |
-| 发现问题后创建 `fix: fix previous commit` | `git commit --amend`（同一会话，无中间提交） |
-| 独立的 `style: run prettier` 提交 | 在功能提交前格式化 |
+| 场景 | 默认做法 |
+|------|---------|
+| 描述变更 | 带 scope 且说明意图：`fix(auth): 防止 token 过期时崩溃`（而非 `fix: fix bug`） |
+| 多文件变更 | 将逻辑相关的文件一起提交（而非每个文件一个 commit） |
+| 修正刚提交的内容 | 同一会话、无中间提交时用 `git commit --amend`（而非新建 `fix: fix previous commit`） |
+| 格式化 | 在功能提交前完成（而非单独的 `style: run prettier` 提交） |
 
 ## Dependencies
 

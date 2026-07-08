@@ -2,6 +2,7 @@
 name: task
 description: "Use when starting a new task or resuming an in-progress one. Routes to the correct phase based on phases.md state. Do NOT use for tasks already completed (use /task-end) or to cancel (use /task-cancel). 触发词: \"新任务\", \"开始任务\", \"做个任务\", \"创建任务\", \"继续任务\", \"resume task\""
 self-evolving: true
+word-budget: exempt
 ---
 
 # Task — Orchestration Layer
@@ -10,9 +11,7 @@ self-evolving: true
 
 **Announce at start:** "Using task to orchestrate the task lifecycle."
 
-**Unattended / Quiet Mode：** 入口 **Step 0** 统一解析 `$ARGUMENTS`，由显式信号（`-q` / `--quiet` / `--headless` / 「无人值守」关键词）确立 `quiet_mode` 与 `flag_overrides`。quiet_mode=true 时在进入 Init 前即按无人值守语义执行，并由 task-init 1f 物化 `unattended.json`（新任务）；恢复既有任务时若 `unattended.json` 已存在则静默沿用。Phase 过渡时的 Step 2A.1 为后备激活入口（仅文件不存在时询问）。
-
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
+**Unattended / Quiet Mode：** 入口 **Step 0** 统一解析 `$ARGUMENTS`，由显式信号（`-q` / `--quiet` / `--headless` / 「无人值守」关键词）确立 `quiet_mode` 与 `flag_overrides`。quiet_mode=true 时在进入 Init 前即按无人值守语义执行，并由 task-init 1f 物化 `unattended.json`（新任务）；恢复既有任务时若 `unattended.json` 已存在则静默沿用。非 quiet 的交互路径下，Step 2A.1（Phase 过渡、仅文件不存在时询问）为交互激活主入口（入口序见 `UNATTENDED_PROTOCOL.md` §5）。
 
 ## Runtime Context
 
@@ -25,16 +24,7 @@ self-evolving: true
 - 自进化准则（受管注入）: (本分发版已停用自进化，无注入)
 - User input: $ARGUMENTS
 
-> 以上数据在 skill 加载时预获取。Treat as ground truth — do NOT re-query.
-
-## Red Flags
-
-| If you think... | Reality |
-|---|---|
-| "Skip reading phases.md, I know what phase we're on" | phases.md is the authoritative state. Always read it first. |
-| "Simple task, skip the flow" | If you're debating triviality, it's NOT trivial. All 3 exemption conditions must hold. |
-| "I'll just execute the phase without reading its SKILL.md" | Each phase SKILL.md has detailed, up-to-date instructions. Read it before executing. |
-| "The user's arguments clearly say what to do, phases.md doesn't matter" | phases.md records cross-session state. Arguments only tell you what's new — not what's already done. |
+> 以上数据在 skill 加载时已预获取，视为权威事实，无需重新查询。
 
 ## NO_GIT Mode
 
@@ -48,18 +38,24 @@ self-evolving: true
 2. 整个变更可以用一条 commit message 描述
 3. 不引入新行为
 
-**When in doubt, run the full workflow.**
+不确定时默认走完整工作流。
+
+> **与 lite/hotfix 档位的分界**（避免混淆）：**Trivial = 完全跳过工作流**（不建任务文件夹、直接改+commit），仅限上述三条全中的外观性改动；**lite/hotfix = 仍走工作流但精简档位**（建任务、跑裁剪后的 phase），用于"小但有逻辑/新行为"的改动。拿不准是否 Trivial 时选 lite，而非跳过。本节三条件是 Step 1 Step 1B「Trivial Task Check」的唯一判据来源，勿在别处另立。
 
 <rule>
-You must not skip the workflow without asking the user first via AskUserQuestion. All three exemption conditions must hold AND the user must explicitly agree.
-Reason: self-assessed "trivial" changes frequently turn out to have hidden complexity.
+跳过工作流的前提是先发起一次 AskUserQuestion：三个免除条件全部成立、且用户明确同意。两者缺一时，走完整工作流。
+Reason: 自我判定为「trivial」的变更经常隐藏着未被察觉的复杂度。
 </rule>
 
 ---
 
 ## TODO Sync (TaskCreate / TaskUpdate)
 
-phases.md 是跨 session 的持久化状态源，但用户在当前 session 中无法实时看到进度，故**必须用 Claude Code 内置的 TaskCreate / TaskUpdate 同步进度到 UI**。双层结构（概览行 + 当前 phase step）、显示效果、生命周期规则与 Bootstrap 恢复逻辑的完整契约见 `task/references/todo-sync.md`。
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的确定性触发点表 + 4 命名模板执行——三档语义、双层结构、显示效果、全生命周期触发契约均以该文件为唯一权威。
+
+本 skill（orchestrator）触发点：
+- **phase 切换**（Step 3）：`update_overview` 更新概览符号（`full`/`overview`）；`off` no-op。
+- **Bootstrap / 跨 session RESUME**（Step 2B）：先 `TaskList`——有 overview→`TaskUpdate` 刷新符号到 phases.md 当前态，无→重建（首个 TaskCreate 取最小 ID）+ `in_progress`（`full` 再按 phases.md 重建当前 phase step）；`off` no-op（不重建、不刷新、不清理）。
 
 ---
 
@@ -72,8 +68,8 @@ phases.md 是跨 session 的持久化状态源，但用户在当前 session 中�
 ## Phase Routing
 
 <rule>
-Read phases.md before deciding which phase to run. The phase skill's instructions override the orchestrator's general guidance once loaded.
-Reason: phases.md is the only cross-session state source. The phase SKILL.md has the authoritative step-by-step instructions for each phase.
+Phase 选择先读 phases.md；一旦某个 phase skill 加载，其指令就覆盖编排器的通用指引。
+Reason: phases.md 是唯一的跨 session 状态源，每个 phase SKILL.md 持有该 phase 权威的逐步指令。`$ARGUMENTS` 只说明有什么新输入，而非已经做了什么；即便参数看起来已把工作交代清楚，phases.md 仍是权威。
 </rule>
 
 ### Step 0: Quiet Mode & Flag Parsing（入口，先于一切）
@@ -88,8 +84,8 @@ Reason: phases.md is the only cross-session state source. The phase SKILL.md has
 | **自动探测（尽力，仅参考）** | 无稳定信号——实测交互会话 `CLAUDE_CODE_ENTRYPOINT=cli` 且工具内 `test -t 0` 恒非 TTY，`claude -p` 无官方专用环境变量 | **不据此翻转** `quiet_mode`（避免误把交互会话判为无头而静默吞掉交互） |
 
 <rule>
-quiet_mode is established ONLY by an explicit signal (`-q`/`--quiet`/`--headless`/「无人值守」). Do NOT flip quiet_mode on by auto-probing env/TTY.
-Reason: empirically there is no stable headless signal — an interactive session also shows `CLAUDE_CODE_ENTRYPOINT=cli` and non-TTY stdin inside tool calls, so auto-probe produces false positives that would silently suppress interaction in a session where a user is present. `claude -p` users must pass `-q` (documented in README). The explicit signal is the guaranteed contract.
+quiet_mode 只由显式信号确立（`-q`/`--quiet`/`--headless`/「无人值守」）；自动探测 env/TTY 不会将其翻开。
+Reason: 实测没有稳定的无头信号——交互会话同样会显示 `CLAUDE_CODE_ENTRYPOINT=cli`、且工具调用内 stdin 非 TTY，因此自动探测会产生误报，在有用户在场的会话里静默吞掉交互。`claude -p` 用户会传 `-q`（README 已记载）。显式信号才是有保证的契约。
 </rule>
 
 **flag 解析（从 `$ARGUMENTS` 剥离后，剩余文本作需求/Linear ID/tier 关键词交给 task-init 1b 继续解析）：**
@@ -121,7 +117,7 @@ Reason: empirically there is no stable headless signal — an interactive sessio
 - **No open tasks** AND `$ARGUMENTS` 为空 → AskUserQuestion 询问任务描述
 - **No open tasks** → 新任务，跳到 Step 2A（Init）
 - **1 open task** → 读取该任务文件夹的 `phases.md`（如果存在），跳到 Step 2B（Resume）
-- **多个 open tasks** → AskUserQuestion 让用户选择；选定后跳到 Step 2B（Resume）
+- **多个 open tasks** → 先拿 `$ARGUMENTS` 与各 open task 的文件夹名 / 任务名做子串匹配：**唯一命中 → 直接选中，跳到 Step 2B（Resume），不询问**（新会话交接命令自带任务名，恢复时不多问一次）；无命中或多重命中 → AskUserQuestion 让用户选择；选定后跳到 Step 2B（Resume）
 
 **B. Trivial Task Check** (仅对新任务): 如果 `$ARGUMENTS` 满足全部 3 个免除条件，AskUserQuestion 确认后跳过工作流。
 
@@ -138,6 +134,8 @@ Phase 1 完成后（task-init SKILL.md 指示 DONE），执行 **Step 2A.1**，�
 ### Step 2A.1: Unattended Mode Check（Phase 过渡时）
 
 > **主要激活入口已移至 P2 Step 2e 配置面板。** Phase 过渡时的询问为后备入口，仅当 Phase 1/2/3 完成且 unattended.json 不存在时触发。
+>
+> **与 Step 3 步骤 3 的关系（单一机制，勿各自演化）**：Phase 过渡时的无人值守判定权威序列（declined 短路 → activate_after 激活 → 文件不存在则询问 → 否则静默）定义在 **Step 3 步骤 3**；本 Step 2A.1 是其中「文件不存在 → 询问激活时机」分支的**询问子过程**（拥有下方 AskUserQuestion 选项），同时供 Step 2A（新任务 Init 完成后）直接调用。两处的 declined 短路 / 「已存在则静默」语义必须一致——改其一须同步改另一。
 
 在以下任一时机执行（刚标记为 DONE 且 `unattended.json` 不存在）：
 - Init 完成 → 进入 Design
@@ -161,8 +159,8 @@ Phase 1 完成后（task-init SKILL.md 指示 DONE），执行 **Step 2A.1**，�
 **[Unattended]** 此处为无人值守询问入口本身——已有 unattended.json（含延后激活的 `enabled:false`）时静默继续，不阻塞。
 
 <rule>
-When an AskUserQuestion is rejected/dismissed without a semantic answer, do NOT infer a default value or treat the rejection as selecting any option. Confirm the user's intent in plain text first.
-Reason: a dismissed prompt is not a choice — inferring "the user meant the recommended option" silently commits a decision (branch strategy, unattended activation, scope) the user never made. This applies to all AskUserQuestion calls across the workflow, including Interactive-mode stop points where a UI rejection differs from an actual answer.
+被拒绝/取消而没有语义回答的 AskUserQuestion 不推断任何默认值，等同于「未选任何选项」；用户意图先以纯文本确认。
+Reason: 被取消的提问不是一个选择——推断「用户指的是推荐选项」会静默落定一个用户从未做出的决定（分支策略、无人值守激活、范围）。这适用于整个工作流的所有 AskUserQuestion 调用，包括 Interactive 模式下「UI 拒绝」不同于「真实回答」的停顿点。
 </rule>
 
 ### Step 2B: Resume Existing Task
@@ -187,6 +185,7 @@ Reason: a dismissed prompt is not a choice — inferring "the user meant the rec
    - 仍无法推断 → 使用 standard preset 默认值
    - 降级时**不**写入 task-config.json（留给 P2 Step 2e 正式生成）
 3. 读取 `{task-folder}/unattended.json`（无人值守状态，可选）
+3.5. **戳运行态信号**：`hat-task-state running "{task-folder}"`（外部驱动可机读的状态文件，契约见 `references/headless-driving.md`；graceful——失败仅 stderr 告警，不阻断恢复）。
 4. **追加当前 session-id**：跨 session 恢复时，本次的 `$CLAUDE_CODE_SESSION_ID` 可能不在 `{task-folder}/session.json` 的 `sessions` 数组中。若该 id 非空且不在数组则追加（保持 `{"sessions": [...]}` schema）；`session.json` 不存在则创建。这样多 session 任务的会话导出（task-end / `/dogfooding`）能覆盖全部 session。env 缺失或写失败 → 跳过（不阻断恢复）。
 
    ```bash
@@ -233,63 +232,79 @@ Reason: a dismissed prompt is not a choice — inferring "the user meant the rec
 | Phase 5 = DONE，Phase 6 = PENDING（无人值守 self_test） | 读取 `unattended.json`；若 `task_type == "self_test"` → `Read ${CLAUDE_PLUGIN_ROOT}/skills/task-end/SKILL.md` → 自动执行 Phase 6 |
 | Phase 6 = IN_PROGRESS | `Read ${CLAUDE_PLUGIN_ROOT}/skills/task-end/SKILL.md` → 继续执行 Phase 6（跳过已完成步骤） |
 
-**如果 phases.md 不存在**（任务文件夹存在但没有 phases.md）：
-- 检查是否有 `plan.md` → 路由到 Phase 4（若 Phase 4 已 DONE 则路由到 Phase 5）
-- 检查是否有 `design.md` → 路由到 Phase 3
-- 两者都没有 → 路由到 Phase 2
+**如果 phases.md 不存在**（任务文件夹存在但没有 phases.md）——phases.md 是 Phase Status 的唯一来源，缺失时改用可观测产物信号路由（与 task-init 1a「继续现有任务」判据同表）：
+- 有 `plan.md`：含未勾 `[ ]` → 路由 Phase 4（执行未完成）；全部 `[x]`（无未勾）→ 路由 Phase 5（执行完成，待测试/验收）
+- 无 `plan.md` 但有 `design.md` → 路由 Phase 3
+- 两者都没有 → 路由 Phase 2
 
 <HARD-GATE>
-Before executing any step of any phase, you MUST Read that phase's SKILL.md in the current turn. Never execute a phase from memory or from a conversation summary.
-Reason: each phase SKILL.md carries the hook calls (review/git/linear) that produce the phase's artifacts. Skipping the read silently skips the hooks, and the task archives with missing artifacts — the failure stays invisible until task-end. Real case: bin-unit-tests L866 claimed "read task-end SKILL.md" but never actually read it, so P5/P6 hooks never ran and conversation.md was never generated. This is a HARD-GATE, not a soft rule: a missed read poisons every downstream artifact.
+执行某 phase 的任何步骤都要求在当前 turn 内 Read 该 phase 的 SKILL.md；记忆或对话 summary 不能替代。
+Reason: 每个 phase SKILL.md 携带产出该 phase 产物的 hook 调用（review/git/linear）。漏读会静默跳过这些 hook，任务带着缺失的产物归档——失败一直隐形到 task-end 才暴露。真实案例：bin-unit-tests L866 声称「读了 task-end SKILL.md」却从未真正读，于是 P5/P6 hook 从未运行、conversation.md 从未生成。它是 HARD-GATE，因为一次漏读会毒化每一个下游产物。
 </HARD-GATE>
 
 **Rationalization 表**（执行任何 phase 前自检——命中任意一条即停下，先 Read 当前 phase SKILL.md）：
 
 | Rationalization | Reality |
 |---|---|
-| "我记得这个 phase 的步骤，不用再读 SKILL.md" | 记忆会漏掉 hook 调用。phase SKILL.md 是当前权威，当前 turn 必须 Read。 |
-| "summary / 上下文里已经有 phase 内容了" | summary 是压缩产物，hook 命令常被省略。读原文。 |
-| "上一个 session 我读过这个 SKILL.md" | 跨 session 记忆不可靠，且 SKILL.md 可能已更新。重读。 |
+| "我记得这个 phase 的步骤，不用再读 SKILL.md" | 记忆会漏掉 hook 调用；phase SKILL.md 是当前权威，当前 turn 重读。 |
+| "summary / 上下文里已经有 phase 内容了" | summary 是压缩产物，hook 命令常被省略；读原文。 |
+| "上一个 session 我读过这个 SKILL.md" | 跨 session 记忆不可靠，且 SKILL.md 可能已更新；重读。 |
 | "这个 phase 很简单，直接做就行" | 觉得简单正是漏 hook 的高发场景（bin-unit-tests 元 bug 即如此）。 |
+
+<rule>
+经 Read 加载的 phase SKILL.md 中动态注入行不会展开——正文出现字面 `!`cat <路径>`` 时当场 Read 该路径文件，出现字面 `!`<命令>`` 时当场用 Bash 执行取结果，再继续该步骤。
+Reason: `!` 注入只在技能经 Skill / 斜杠激活时由 harness 展开；编排器用 Read 工具路由 phase skill，注入行原样留在正文——DESIGN_PROTOCOL / PLAN_PROMPT 等协议正文与 Runtime Context 探测结果会静默缺失，而按「协议单一来源」约定 SKILL.md 不重述这些内容，缺了等于整段流程丢失（ISSUE 审计 F5 实证）。
+</rule>
+
+<rule>
+一切 subagent / codex / headless worker 派发都带超时上限（缺省 10 分钟，长任务在派发时显式放宽）；超时或瞬时 infra 错误（529 / 网关超时）退避重试至多 1 次，仍失败即转 fallback（主 agent 自验 / 降级路径）并留痕（unattended-decisions.md 或 fallback-log.jsonl），不无限等待。
+Reason: 派发无超时曾致 codex review 续接挂起超过 10 分钟无信号、review subagent 连续 529 空转约 25 分钟，全靠人工发现（ISSUE / ISSUE 实证）；待验内容多数可由主 agent 机械自验，无限等待的代价远高于降级。
+</rule>
 
 ### Step 3: Continue to Next Phase
 
 **Phase 过渡类型表**（各边界的交互程度，用语义描述以避免 phase_merge 后序号变化）：
 
-| 过渡边界 | 产物检查 | Compact 建议 | Unattended 检查 | 停顿类型 |
+| 过渡边界 | 产物检查 | 新会话交接建议 | Unattended 检查 | 停顿类型 |
 |---------|----------|-------------|----------------|----------|
 | Init 完成后 | ✓ | — | ✓ | 有交互点（unattended 询问） |
 | Design 完成后 | ✓ | 降级时* | ✓ | 有交互点（unattended 询问） |
-| Plan 完成后 | ✓ | **✓（必触发）** | ✓ | **软停顿**（compact 建议等待用户回复） |
+| Plan 完成后 | ✓ | **✓（必触发）** | ✓ | **软停顿**（交接建议等待用户回复） |
 | Execute 完成后 | ✓ | — | — | 产物检查通过后推进 |
 | Test 完成后 | **✓（P5 门控）** | — | — | **硬停**（用户必须调用 `/task-end`） |
 
-*降级：phase_merge 将 Plan 和 Execute 合并时，compact 建议前移到 Design 完成后
+*降级：phase_merge 将 Plan 和 Execute 合并时，交接建议前移到 Design 完成后
 
 每个阶段完成后，该阶段的 SKILL.md 会负责更新 `phases.md`。返回此处：
 1. 读取更新后的 `phases.md`，确认当前阶段已标记为 DONE
 1.1. **phase_merge 检查**：读取 `{task-folder}/task-config.json` 的 `phase_merge` 字段。检查当前完成的阶段和下一个阶段是否在某个 merge 组中。
-   - **匹配且下一阶段不是 End** → 跳过步骤 1.5（产物检查）、步骤 2（compact）、步骤 3（unattended），直接加载下一阶段的 SKILL.md
+   - **匹配且下一阶段不是 End** → 跳过步骤 1.5（产物检查）、步骤 2（新会话交接）、步骤 3（unattended），直接加载下一阶段的 SKILL.md
    - **不匹配** → 正常执行后续步骤
    - **硬约束**：Test→End 永不可合并——即使 phase_merge 包含该组合，仍执行 End 准入检查（硬停）
 1.5. **产物完整性门控**：运行 `hat-task-artifact-check {task-folder} {完成的phase编号}` （如 task-config.json 存在，追加 `--config {task-folder}/task-config.json`）。
    - **PASS** → 继续
-   - **FAIL** → 尝试 fallback 补齐缺失文件（主 agent 按 task-config 与 design.md 补齐）。补齐后重跑检查。
-   - 仍 FAIL → 阻断推进，告知用户缺失的文件列表
-2. **Compact 建议**（仅 Plan 完成后、且 Interactive 模式触发）：
-   - **前置门（最先判断）**：读取 `{task-folder}/unattended.json`。若 `enabled == true`（已是无人值守），**或** `enabled == false` 且 `activate_after` 匹配当前过渡点（本过渡点步骤 3 即将激活无人值守）→ **完全跳过本步，不输出任何 `/compact` 块**，直接进入步骤 3。这是前置条件判断，不是"先输出再说跳过"。
+   - **FAIL** → 尝试 fallback 补齐缺失文件（主 agent 按 task-config 与 design.md 补齐）。**补齐仅一轮**（不循环补齐——补齐→重跑一次即终态判定）。
+   - 重跑仍 FAIL → 阻断推进（终态），告知用户缺失的文件清单；不再反复补齐（幂等约束同 task-end 3.3.7）
+2. **新会话交接建议**（仅 Plan 完成后、且 Interactive 模式触发）：
+   - **前置门（最先判断）**：读取 `{task-folder}/unattended.json`。若 `enabled == true`（已是无人值守），**或** `enabled == false` 且 `activate_after` 匹配当前过渡点（本过渡点步骤 3 即将激活无人值守）→ **完全跳过本步，不输出任何交接命令块**，直接进入步骤 3。这是前置条件判断，不是"先输出再说跳过"。
    - **触发条件**（仅 Interactive）：刚完成的阶段是 Plan
    - **降级规则**：若 phase_merge 将 Plan 和 Execute 合并，触发点前移至 Design 完成后
-   - **Hotfix 例外**：若 `task-config.json` 中 `todo_sync == false` 或 `p5_auto_only == true`，跳过 compact 建议
-   - **其他过渡**：不给 compact 建议
-   - 触发时无条件给出 compact 建议（不评估上下文大小），提供可直接复制的 compact 命令
-   - 建议后等待用户回复。用户可选择 compact 后用 `/task` 恢复，或直接说"继续"跳过 compact
+   - **Hotfix 例外**：若 `task-config.json` 中 `todo_sync == "off"` 或 `p5_auto_only == true`，跳过交接建议
+   - **其他过渡**：不给交接建议
+   - 触发时无条件给出交接建议（不评估上下文大小）：任务状态已全量落盘（phases.md / task-config.json / plan.md），新会话从文件态恢复比压缩后续跑更干净（无摘要失真、无残留上下文计费）。输出一个可直接复制的命令块：
 
-**[Unattended]** compact 软停是面向交互用户的停顿——前置门跳过 `enabled:true`（已激活）与"本过渡点即将激活（`enabled:false` 且 activate_after 匹配）"两种无人值守情形，不输出任何等待用户回复的 `/compact` 块（见上方 HARD-GATE）。
+     ```bash
+     cd {项目根绝对路径} && claude -n "{task-folder-name}" "/task 继续任务「{任务名}」：任务目录 {task-folder}，Plan 已完成、从 Execute 开始。先读该目录下 phases.md 与 task-config.json 恢复进度，按 Resume 流程继续。任务目标：{一句话摘要}"
+     ```
+
+     占位符取值：{项目根绝对路径} = 当前 session 的项目根（worktree 任务即 worktree 根）；{task-folder} = 相对项目根的任务目录路径；{一句话摘要} 从 prompt.md 提炼、一句以内。
+   - 建议后等待用户回复。用户在新终端执行该命令 → 本会话直接弃用（状态已落盘，无需收尾动作）；用户回复"继续" → 留在当前会话推进
+
+**[Unattended]** 新会话交接软停是面向交互用户的停顿——前置门跳过 `enabled:true`（已激活）与"本过渡点即将激活（`enabled:false` 且 activate_after 匹配）"两种无人值守情形，不输出任何等待用户回复的交接命令块（见上方 HARD-GATE）。
 
 <HARD-GATE>
-In unattended mode, never emit a /compact block at the Plan→Execute boundary. Check unattended.json FIRST and skip the entire compact step before producing any output.
-Reason: a /compact suggestion is a soft stop that waits for a user reply. In unattended mode there is no user to reply, so emitting it stalls the flow indefinitely — exactly the bin-unit-tests failure. The guard must be a precondition, not an after-the-fact "[Unattended] skip", because the latter still risks emitting the block before the skip is evaluated.
+无人值守模式下，Plan→Execute 边界不输出任何交接命令块：先检查 unattended.json，在产生任何输出之前就整段跳过交接步骤。
+Reason: 交接建议是等待用户回复的软停顿。无人值守模式下没有用户可回复，输出它会让流程无限期停滞——正是 bin-unit-tests 的失败（当时为 /compact 建议，机制同）。这道守卫是前置条件，而非事后的「[Unattended] skip」，因为后者仍有在评估跳过之前就把块输出出去的风险。
 </HARD-GATE>
 3. **Unattended Mode Check**（仅刚完成的是 Init、Design 或 Plan 时执行；判定顺序：先 declined 短路，再 activate_after 激活，再"文件不存在→询问"）：
    - **3-a0. declined 短路（最先判断，优先于 activate_after）**：读取 `{task-folder}/unattended.json`。若文件存在且 `declined == true` → 用户已拒绝无人值守，静默继续、不询问、不进激活分支、不推断 `activate_after`。跳过 3-a/3-b/3-c。（declined 哨兵无 `activate_after`，必须显式短路，避免 §1「缺省视为 now」误读为待激活，见 `UNATTENDED_PROTOCOL.md` §5）
@@ -299,18 +314,23 @@ Reason: a /compact suggestion is a soft stop that waits for a user reply. In una
 
 **[Unattended]** 步骤 3 的激活/询问自身可无人值守推进：activate_after 匹配 → 自动翻 `enabled`（无需人工）；已 `enabled:true` → 静默继续；仅"文件不存在 + 未给无人值守意图"才走 Step 2A.1 的交互询问（Interactive 路径）。
 4. **End 准入检查**：Test 完成后，步骤 1.5 已对 phase 5 跑产物门控（`hat-task-artifact-check {task-folder} 5`，即 P5 门控——确认 Test 阶段产物齐全）。门控 PASS 后，若 End 仍 PENDING → 硬停，告知用户调用 `/task-end`。门控 FAIL → 先按步骤 1.5 补齐/阻断，不进入 End。仅 unattended self_test 模式允许自动推进。
-5. 否则：加载下一个阶段的 SKILL.md，继续执行
+5. 否则：先 `hat-task-state running "{task-folder}"`（graceful），再加载下一个阶段的 SKILL.md，继续执行
 
 重复直到 Test 完成（End 由用户手动触发）。
 
 <rule>
-End phase MUST NOT auto-advance from Test in normal (non-unattended) mode. The user must explicitly invoke `/task-end` to enter the End phase. This is a deliberate decision point — automated test pass does not equal user acceptance.
-Reason: user feedback during dogfooding found End phase sometimes auto-advancing without user confirmation.
+任何等待用户输入的回合结束前（AskUserQuestion 之前、纯文本停点之前、硬停宣告之前），先运行 `hat-task-state waiting "{task-folder}" --phase N --stop-point <语义 slug> --resume-hint approve|choice|free_text --expect "<一句人读提示>"` 再停；写失败仅 stderr 告警、照常停下（graceful，非硬依赖）。此规则为全 phase 共用的编排纪律——phase skill 停点表不重复写入指令。
+Reason: 外部驱动方（E2E 回归、cron、调度器）依赖 state.json 机械判定「在等什么、回什么能推进」，不再解析输出文本猜停点（E2E 首跑实证 3 次 UNMATCHED）；契约与消费算法见 `references/headless-driving.md`。
 </rule>
 
 <rule>
-Phase transitions MUST go through the corresponding SKILL.md. Skipping the SKILL.md means phases.md won't be updated, TODO sync won't happen, and the task will be archived with incomplete state.
-Reason: M0 postmortem found Execute phase archived with all steps still [ ] and Status PENDING because task-execute/SKILL.md was never loaded.
+普通（非无人值守）模式下，End phase 不从 Test 自动推进：进入 End 要求用户显式调用 `/task-end`。这是一个有意保留的决策点——自动化测试通过不等于用户验收。
+Reason: dogfooding 期间的用户反馈发现 End phase 有时会在没有用户确认的情况下自动推进。
+</rule>
+
+<rule>
+Phase 过渡都经由对应的 SKILL.md。漏掉某个 SKILL.md 会让 phases.md 未更新、TODO sync 未运行，任务带着不完整状态归档。
+Reason: M0 复盘发现 Execute phase 归档时所有步骤仍为 [ ]、Status 仍是 PENDING，原因是 task-execute/SKILL.md 从未被加载。
 </rule>
 
 ---
@@ -329,6 +349,7 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 - [ ] 1a. 检查现有任务
 - [ ] 1b. 解析参数 + 需求确认
 - [ ] 1b.2 Prompt 质量分析
+- [ ] 1b.2b 头脑风暴补完
 - [ ] 1b.3 档位粗选
 - [ ] 1c. Git 规范 + 工作目录
 - [ ] 1d. 分支决策
@@ -410,7 +431,7 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 
 本 orchestrator `self-evolving: true`，每轮收尾沉淀**编排决策类**经验。完整自进化过程准则（裁决漏斗 / 写入闸 / 整合 / changelog 纪律）由启动时硬注入的受管全局母本 `spec-skill/references/self-evolution-canonical.md` 提供（spec-skill canonical，受管·勿改），此处不再手写以防漂移。
 
-**Changelog 归并**：task 套件全体 skill 的 changelog 已合并进本 orchestrator 的 `references/changelog.md`（按 skill 分节，原各 worker 的 `references/changelog.md` 已删除）。受管准则中通用的 `references/changelog.md` 即指此文件——本 orchestrator 自进化条目写入 `## task (orchestrator)` 节顶部；其余 skill 为编排 worker（非 self-evolving），历史条目在此归档只读。
+**Changelog 归并**：task 套件全体 skill 的 changelog 已合并进本 orchestrator 的 `references/changelog.md`（按 skill 分节，原各 worker 的 `references/changelog.md` 已删除）。受管准则中通用的 `references/changelog.md` 即指此文件——本 orchestrator 自进化条目写入 `## task (orchestrator)` 节顶部。6 个 phase worker 为 `self-evolving: inbox` 形态（lessons.md 是收件箱：retrospective 插件写入、skill-revise 消费固化，worker 自身不做运行时自进化——形态定义见 spec-skill `references/self-evolution-spec.md` 编排族节）。
 
 **task 专属归属补充**：往 `lessons.md` 写一条前，除受管准则的写入闸外，再追问归属——「这条下次会在 task 的哪个编排决策点（路由/分支/无人值守/跨 worker 协调）被读到？」执行细节属对应 worker（task-init/-design/… 各自的 lessons），不放这里；不给编排族另建 series 级公共经验库。
 
@@ -418,6 +439,7 @@ Reason: M0 postmortem found Execute phase archived with all steps still [ ] and 
 
 - **Runtime loads**: `${CLAUDE_PLUGIN_ROOT}/skills/task-init/SKILL.md`, `task-design/SKILL.md`, `task-plan/SKILL.md`, `task-execute/SKILL.md`, `task-test/SKILL.md`, `task-end/SKILL.md`（via Read at routing time）
 - **Conditional load**: `${CLAUDE_PLUGIN_ROOT}/skills/task/UNATTENDED_PROTOCOL.md`（仅当 unattended.json 存在时加载）, `${CLAUDE_PLUGIN_ROOT}/skills/task-revise/SKILL.md`（仅当 phases.md 包含 IN_PROGRESS 的 Revise section 时加载）
-- **Scripts**: hat-task-detect, hat-task-artifact-check, hat-plugin-hook
+- **Reference files（按需 Read）**: `task/references/todo-sync.md`, `task/references/review-workflow.md`, `task/DESIGN_PROTOCOL.md`（task-design 加载）, `task/PLAN_PROMPT.md`（task-plan 加载）
+- **Scripts**: hat-task-detect, hat-task-artifact-check, hat-plugin-hook, hat-task-state（状态信号写入，契约见 `references/headless-driving.md`）
 - **State files**: `{task-folder}/phases.md`, `{task-folder}/task-config.json`
 - **Unattended state**: `{task-folder}/unattended.json`

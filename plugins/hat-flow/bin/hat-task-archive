@@ -47,10 +47,21 @@ def git(*args):
     timeout=120 表示最多等待 120 秒：commit 会触发 pre-commit hook
     （含 site/ 改动时跑 tsc，约 10-20s），10s 会必然超时，故放宽。
     快操作（mv/add）仍立即返回，不受影响。
+
+    超时（pre-commit hook 卡死）不抛 TimeoutExpired 致未处理 traceback，而是返回
+    returncode=124 的合成结果，让调用方既有的 `returncode != 0` 错误路径接管。
     """
-    result = subprocess.run(
-        ["git"] + list(args), capture_output=True, text=True, timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            ["git"] + list(args), capture_output=True, text=True, timeout=120,
+        )
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+        err = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
+        return subprocess.CompletedProcess(
+            ["git"] + list(args), returncode=124,
+            stdout=out, stderr=err + "\ngit 命令超时（120s），疑似 pre-commit hook 卡死",
+        )
     return result
 
 

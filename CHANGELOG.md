@@ -4,6 +4,29 @@ All notable changes to hat-flow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions use the plugin's
 `hat-flow--vX.Y.Z` tag scheme.
 
+## [0.5.0]
+
+### Changed
+- Execute (P4) now runs zero-blocking: no interactive prompts inside the
+  execute loop; abnormal states (e.g. a TDD RED check passing unexpectedly)
+  stop visibly in-session with a report instead of raising dialogs. Plan →
+  Execute handoff supports a fresh-session handover when context compacts.
+- Task phase skills (init / execute / end / setup) slimmed to explicit word
+  budgets; operational rules unchanged, background material moved into each
+  skill's `references/`.
+- Bundled discipline skills (systematic-debugging, test-driven-development,
+  dispatching-parallel-agents, receiving-code-review,
+  verification-before-completion) fully adopted: Chinese trigger words,
+  per-skill changelogs, upstream idioms cleaned, large slim-downs;
+  systematic-debugging auxiliary files moved under `references/`.
+
+### Fixed
+- Packaging no longer ships tests for scripts that are not part of the
+  distribution (BIN_EXCLUDE invariant), removing 76 spurious build-test
+  failures in clean environments.
+- Stale cross-references corrected across the suite (e.g. task-test pointing
+  at a nonexistent section of verification-before-completion).
+
 ## [0.4.0]
 
 ### Changed
@@ -37,5 +60,6 @@ All notable changes to hat-flow are documented here. Format follows
   stop-points (non-converging review, debt reconciliation) continue with a
   recorded trace; irreversible / high-risk points still hard-stop.
 
+[0.5.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.5.0
 [0.4.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.4.0
 [0.3.1]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.3.1

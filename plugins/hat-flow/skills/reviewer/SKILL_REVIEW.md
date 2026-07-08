@@ -4,7 +4,7 @@
 
 **调用方式**：调用方派发 Agent subagent，将本协议内容 + spec-skill 规范内容 + 待审 SKILL.md + README.md 全部以文本形式注入 prompt（路径 B）。不依赖 `${CLAUDE_POSITIONAL_ARGS}` 动态路由。
 
-**范围**：只审**我们自有**的技能。**外部导入 / 第三方技能不在审查范围**——它们统一登记在忽略表 `~/.claude/skill-maintenance-ignore`（gitignore 风格 glob，按技能名匹配，如 `lark-*`、`surge`）。调用方派发前先读这份表、把命中的技能过滤掉，不要派审（**以忽略表为准，不靠"是不是软链"**）。
+**范围**：只审**我们自有**的技能。外部导入 / 第三方技能不在审查范围——它们统一登记在忽略表 `~/.claude/skill-maintenance-ignore`（gitignore 风格 glob，按技能名匹配，如 `lark-*`、`surge`）。调用方派发前先读这份表，命中的技能过滤掉、不派审（以忽略表为准，不靠"是不是软链"）。
 
 ## Required Input
 
@@ -19,8 +19,8 @@
 > 注：维度 5「自进化合规」以注入的 spec-skill「Self-Evolution Capability」**当前定义**为准——每次审查都用最新版，无需被审技能自带版本戳。
 
 <rule>
-Check all required inputs before starting review. If any input is missing, output error listing missing items and terminate immediately.
-Reason: reviewing with partial context produces false negatives that are worse than no review.
+review 开始前先检查所有必要输入，缺失任一输入即以报错终止，并列出缺失项。
+Reason: 在残缺上下文上做 review 会产生 false negative，比不做 review 更糟。
 </rule>
 
 ## 检查维度

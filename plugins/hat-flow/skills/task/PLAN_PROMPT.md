@@ -50,6 +50,7 @@
 - **同变更同文件**：会一起变更的代码放同一文件，分散变更的代码拆开。
 - **按职责拆分，而非按技术层**：按"独立问题域"组织文件（如"用户认证""支付结算"），而非按"全部 controller / 全部 model"的技术分层堆放。
 - **列出相邻契约文件（防并行盲区）**：除本 plan 直接改动的文件外，还须列出"契约另一端"——即**引用了改动文件、或被改动文件引用的相邻文件**（如：改 A 的输出格式，则消费 A 输出的 B 也要列；删 A 的某节，则按节名引用 A 的 C 也要列），即使本 plan 不直接改它，也标注为"契约另一端（需核实 / 同步）"。否则并行切割（parallel-agents）时契约一端会无人认领、留下悬空引用，只能靠全量 review 兜底（Block 4 实证：reviewer 协议改了 Output Format，引用它的 plan-reviewer 文件因未列而遗漏）。
+- **改 skill 类任务预置 changelog 产物**：任务涉及修改任何 skill 时，File Structure 须列入该 skill 对应的 changelog 文件（Modify）——spec-skill 要求每个被改 skill 维护 changelog，漏列则 Execute 期才被迫补做。
 
 ---
 
@@ -69,7 +70,7 @@
 ## File Structure
 （见上方 File Structure 职责图，列出全部 Create/Modify 文件及职责）
 
-## Task N: [Title]
+## Task N: [P] [Title]
 
 **Difficulty**: easy/medium/hard（仅 mode=subagent 时使用）
 **Depends**: []（列出前置 task 编号；空列表表示无前置依赖，可立即并行派发）
@@ -100,9 +101,11 @@
 
 **为什么标 Depends**：task-execute 消费 `Depends` 字段做并行派发决策——`Depends` 字段 schema（连同 `Difficulty`）已被 task-execute 消费，不可删改。
 
+**`[P]` 并行断言（可选；fan-out 的必要条件之一）**：标题写成 `## Task N: [P] [Title]`（`[P]` 是字面标记、原样保留；`[Title]` 是占位符、须替换为真实标题），`[P]` 须为冒号后第一个 token、其后须有真实 title（缺省 `[P]` = 串行）。它是 plan 作者对「该 task 与同批 task **真独立、无共享状态**」的显式断言——承载纯文件路径重叠机判覆盖不到的语义判断（如两 task 各改各文件却共享一个未在任何 `Files` 声明的契约）。task-execute 的 `auto`/`parallel-agents` 派发要求**整层每个 task 都带 `[P]`**（叠加 `Depends` 完成 + `Files` 不重叠 + 契约门）才 fan-out；任一缺 `[P]` → 整层 inline。**只在确信无共享状态时才标 `[P]`**——存疑则不标（保守串行）。
+
 **怎么切割并行批次**：按"独立问题域"分组（参考 hatflow-dispatching-parallel-agents 的"一域一 agent"原则——每个 agent 负责一个无共享状态、不改同一文件的独立子问题）。判断两个 task 能否并行，对齐 task-execute 的 `layer_is_isolatable` 判据：
 
-> 一组 task 可并行派发 ⟺ 各自的 `Depends` 都已全部完成（无未满足的跨层依赖）**且** 改动文件集互不重叠（写同一文件的 task 不并行，避免写冲突）。
+> 一组 task 可并行派发 ⟺ 每个 task 标题都带 `[P]`（并行意图的显式断言）**且** 各自的 `Depends` 都已全部完成（无未满足的跨层依赖）**且** 改动文件集互不重叠（写同一文件的 task 不并行，避免写冲突）。任一缺 `[P]` → 整层串行。
 
 因此拆 task 时刻意让**同批 task 改动不同文件**，能显著提升并行度。两个 task 若必须改同一文件，应合并或串行（标注 `Depends`）。
 
@@ -112,7 +115,7 @@
 
 - 每步是**一个动作**，预计 2-5 分钟
 - TDD 步骤格式见下方 TDD Requirements section
-- Must use **exact file paths** — never write "relevant files" or similar vague references
+- 文件路径写**精确路径**——"relevant files" 之类模糊指代不可用
 - 尽可能提供**确切的命令和预期输出**
 - No placeholder steps (e.g., "handle later")
 
@@ -212,8 +215,10 @@ plan 编写完成前必须完成此 checklist：
 - [ ] 所有文件路径是精确的（无模糊或相对路径）
 - [ ] 验证命令引用了项目实际的检查命令
 - [ ] task 依赖是显式的（每个 task 有 `Depends`，后续 task 不引用尚未创建的文件）
+- [ ] `[P]` 标注与 `Depends`/`Files` 一致（标 `[P]` 的 task 确与同批 task 无共享状态、不改同一文件、无未声明的共享契约；存疑则不标 `[P]`）
 - [ ] 每个 task 有明确的验证标准
 - [ ] **跨 task 文件引用一致性**：当 Task B 创建的文件需要与 Task A 的产物交互时（如 CSS 选择器匹配 HTML 元素、JS 操作特定 DOM id、API 契约），plan 中必须显式声明引用关系和命名约定。若使用 subagent 执行（各 task 独立 session），这些约定是唯一的一致性保障
+- [ ] **确定性断言有验证钩子**：对「必须=0」「恒等」类确定性验证断言，先想一遍被验对象是否含时钟、随机种子、网络渲染等环境噪声源；有则改为带容差/排噪的判定或附执行期修正钩子，不写会被环境证伪的绝对断言
 
 Self-review 通过后，在 plan.md 末尾追加：
 

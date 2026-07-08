@@ -1,7 +1,9 @@
 ---
 name: task-test
 user-invocable: false
-description: "Use when executing Phase 5 (Test) of a task. Runs full verification, updates Linear status, and shows acceptance checklist. Can be called standalone or via /task orchestrator. 触发词: \"测试阶段\", \"task test\", \"验收\", \"验证阶段\""
+self-evolving: inbox
+description: "Use when executing Phase 5 (Test) of a task. Can be called standalone or via /task orchestrator. Do NOT use before Execute completes. 触发词: \"测试阶段\", \"task test\", \"验收\", \"验证阶段\""
+word-budget: 2000
 ---
 
 # Task Test — Phase 5: Test
@@ -10,28 +12,18 @@ description: "Use when executing Phase 5 (Test) of a task. Runs full verificatio
 
 **Announce at start:** "Using task-test for Phase 5: Test."
 
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
-
 ## Runtime Context
 
 - Tasks: !`hat-task-detect .tasks 2>/dev/null || echo '{"open":[]}'`
 - Branch: !`git branch --show-current 2>/dev/null || echo 'NO_GIT'`
-- Check (light): !`r=$(grep -A1 '轻量' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'`
-- Check (full): !`r=$(grep -A1 '完整' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'`
-
-## Red Flags
-
-| If you think... | Reality |
-|---|---|
-| "All checks passed, skip to Phase 6" | Never skip per-item confirmation. Each manual test item must be individually walked through with the user before proceeding to Phase 6. |
-| "Verification passed, skip Linear update" | Linear visibility matters to the team. Don't skip. |
-| "The fix is obvious, commit without user confirmation" | During test phase: analyze → fix → user tests → user confirms → THEN commit. |
-
----
+- Check (light): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('light','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '轻量' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
+- Check (full): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('full','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '完整' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
 
 ## TODO Sync
 
-双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
+
+本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；步骤完成同步 phases.md（`full` 另 `TaskUpdate(completed)`）。
 
 ---
 
@@ -58,15 +50,15 @@ description: "Use when executing Phase 5 (Test) of a task. Runs full verificatio
    - 读取全局配置（按第 0 节）：若 `task-defaults.json` 不存在，先从 `task-defaults.json.example` 复制创建，再 `cat` 读取，解析为 `task_config`（字段缺失时使用默认值）
 3. **若文件不存在或 enabled != true**：正常交互流程
 
-> 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
+> 无人值守的激活入口与契约（quiet / 交互主入口 / 后备入口、activate_after 与 declined 语义）见 UNATTENDED_PROTOCOL.md §5。各阶段 skill 只读取已有状态。
 
 ---
 
 ### 5a. Full Verification
 
 <rule>
-声称验证通过前，必须先取得新鲜证据：① fresh 运行验证命令（Check (full)，不依赖记忆 / 上次结果）；② 读完整输出 + 退出码；③ 确认输出确实对应"验证通过"这一声明，方可标记通过。禁止基于"应该通过""上次通过了""改动很小"等做完成声明。
-Reason: 证据优先于主张——未经新鲜验证的完成声明是虚假的，会让未测试的改动流向下游。依据见 `${CLAUDE_PLUGIN_ROOT}/skills/hatflow-verification-before-completion/SKILL.md`（Read 该文件获取完整 Iron Law 与失败案例库）。
+验证通过的前提是新鲜证据：① fresh 运行验证命令（Check (full)，不依赖记忆 / 上次结果）；② 读完整输出 + 退出码；③ 确认输出确实对应"验证通过"这一声明，三者齐备才标记通过。仅凭"应该通过""上次通过了""改动很小"的完成声明无效。
+Reason: 证据优先于主张——未经新鲜验证的完成声明是虚假的，会让未测试的改动流向下游。依据见 `${CLAUDE_PLUGIN_ROOT}/skills/hatflow-verification-before-completion/SKILL.md`（Read 该文件获取完整 Iron Law、Rationalization Guard 托词对照表与 Claim Requirements 证据要求表）。
 </rule>
 
 **快速路径**：如果 Check (light) 和 Check (full) 均为 `NOT_CONFIGURED`（验证命令为 none），且 design.md `## Acceptance Tests` 中没有手动测试项（全为自动化验证），则 5a-5b 标记为 `[x]` 并跳到 5c 验收清单的自动化结果展示。
@@ -81,9 +73,11 @@ Reason: 证据优先于主张——未经新鲜验证的完成声明是虚假的
 
 ### 5b. Linear 状态更新
 
-> **由 `P5.post-acceptance` hook 中 linear plugin 执行。** 本步骤仅保留触发入口。
+> 由 `P5.post-acceptance` hook 中 linear plugin 执行。
 
 linear plugin 启用时，在验收完成后由 hook 将状态更新为 "In Review"。关闭时跳过。
+
+- 验证通过不豁免 Linear 同步：plugin 启用时此步是团队可见性的固定环节，照常执行（仅在 plugin 关闭时跳过）。
 
 完成后：更新 phases.md，将 `5b. Linear 状态更新` 标记为 `[x]`。
 
@@ -94,14 +88,16 @@ linear plugin 启用时，在验收完成后由 hook 将状态更新为 "In Revi
 - `false` / 不存在 → 正常流程（含手动测试项）
 
 <rule>
-Never skip user confirmation for manual test items (unless p5_auto_only). Automated tests run with results pre-filled; manual tests require user to fill in the checklist file.
-Reason: premature closure skips user acceptance testing and risks shipping unverified changes.
+手动测试项的用户确认是必经环节（p5_auto_only 模式除外）。自动化测试预填结果即可；手动测试由用户在清单文件中填写。
+Reason: 提前收尾会跳过用户验收测试，让未验证的改动流向交付。
 </rule>
 
 从 `{task-folder}/design.md` 的 `## Acceptance Tests` 提取验收项（唯一来源），**分类**为自动化和手动两组：
 
 - **可自动验证**：grep 匹配、命令行检查、文件存在性、构建/测试通过等——机器可判定结果
 - **需人工判断**：UI 行为、主观体验、跨系统集成效果、运行时交互流程等——需要人类确认
+
+对**纯声明式改动**（只改 SKILL/reference/config 的文案与契约、无新增可执行路径）的行为类 MUST，显式区分两档标注：**契约层可验**（grep/结构断言当场判）vs **需实跑 dogfooding**（本会话触达不到该行为路径）——后者预填 `DEFERRED(dogfooding)` 留痕，不默认当作已验证。
 
 **Step 1: 批量执行自动化验收测试**
 
@@ -134,6 +130,7 @@ Reason: premature closure skips user acceptance testing and risks shipping unver
 > 在 → 后填 PASS 或 FAIL（备注可选，写在结果后面）
 > 例：→ PASS
 > 例：→ FAIL 球还在动
+> 注：无人值守 self_test 下人工项的 → 由系统预填 `DEFERRED（待 task-end 后人工验收）`，是第三种合法取值，留待 task-end Step 2.6 交还人工填 PASS/FAIL
 
 1. [MUST|SHOULD|MAY] 测试项描述
    测试方法：具体操作步骤
@@ -255,13 +252,6 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（linear: 状
 
 验收完成后是硬停，不自动推进 Phase 6（权威规则见「Test 完成 → 过渡」）。
 
-**[Unattended]** 若无人值守模式激活：
-- `task_type == "self_test"` → 跳过手动测试区域，仅评估**可机判**的自动化验收项：
-  - 可机判 `[MUST]` / `[SHOULD]` FAIL → 进修复循环（重试一次 Opus）；仍无解 → Telegram 通知人工 + **暂停**（任务保留、等 `/task` 恢复，**非 auto-cancel**——区别于"验证命令失败 → auto-cancel"，见 UNATTENDED_PROTOCOL 第 8 节）
-  - 不可机判的 `[SHOULD]` / `[MAY]` 项（无人填 PASS/FAIL）→ 记录为 deferred、不阻断
-  - 全部可机判 MUST/SHOULD PASS（含 deferred）→ 发送 Telegram 通知 `[task-name] Phase 5 完成，自动推进到 Phase 6...` → 更新 phases.md Phase 5 Status = DONE → 返回编排器
-- `task_type == "user_test"` → 生成完整清单文件 → 发送 Telegram 通知 `[task-name] 验收清单已生成到 acceptance-checklist.md，请填写后回复` → 停止，等待用户
-
 ---
 
 ### 5d. Handling Test Feedback
@@ -269,10 +259,10 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（linear: 状
 如果用户在测试后报告 bug：
 
 1. **先分析，后行动** — 复现 → 找到根因 → 向用户解释 → 修改前获得确认
-2. **Do NOT commit after modifying** — 告知用户变更内容，让他们再次测试
+2. **改后待测** — 告知用户变更内容，让他们再次测试（commit 在用户确认后才进行）
 3. **多轮反馈** — 每轮：分析 → 修改 → 用户确认 → 然后提交
 
-Do NOT commit before user confirmation. Unverified fixes may introduce new problems.
+commit 的前置条件是用户确认；未经验证的修复可能引入新问题。
 
 #### P5.test-feedback Hook（架构级问题时触发）
 
@@ -297,15 +287,13 @@ hat-plugin-hook {task-folder} P5.test-feedback
 - 修复改变跨进程 / 跨 session / 跨服务的契约（路由、状态语义、消息格式）
 
 确认是架构级后，AskUserQuestion 三个选项：
-1. **触发 Revise Cycle** — 结构化的 mini design→plan→execute 子循环，有完整状态追踪（phases.md 中 Revise section）。选择后进一步选择深度：Full (design+plan+execute) / Partial (plan+execute) / Lite (execute only)
+1. **触发 Revise Cycle** — 结构化的自适应单循环（根因分析 → 按需 design/plan → execute → verify），有完整状态追踪（phases.md 中 Revise section）。**不再选深度**——是否触及 design/plan 由 task-revise 的根因分析决定。
 2. **Defer to a new task** — 本 task 仅做最小兜底（或不做），开新 task 处理
-3. **Patch in place** — 仅限真正的局部修补（无状态追踪，直接改→测→commit），涉及多文件/多步骤时应选 Revise Lite
-
-**[Unattended]** 架构级问题属 `UNATTENDED_PROTOCOL.md` §9 HARD-STOP：不自动选向、不自动 Defer（避免静默吞掉架构偏差），暂停 + Telegram（含问题描述 + 三选项），等 `/task` 恢复人工决策。
+3. **Patch in place** — 仅限真正的局部修补（无状态追踪，直接改→测→commit），涉及多文件/多步骤时应选 Revise Cycle
 
 **Revise 触发执行**（当用户选择选项 1 时）：
 1. 在 phases.md 中相关验收项后追加 `[→ REVISE R1]`
-2. 在 phases.md 末尾追加 `## Revise R1` section，包含字段：Trigger（5d）、Return（5c）、Depth（用户选择）、Reason（问题描述）、Started（当前时间）、Status（IN_PROGRESS）、按深度生成步骤列表（Partial 深度 R1-design 标记 `[~]`；Lite 深度 R1-design + R1-plan 标记 `[~]`）
+2. 在 phases.md 末尾追加 `## Revise R1` section，包含字段：Trigger（5d）、Return（5c）、Reason（问题描述）、**Rootcause hint**（5d 架构判别已定位的层级：命中的判据 + 一句根因，供 task-revise RN-rootcause 作起点验证、不必从零重做）、Started（当前时间）、Status（IN_PROGRESS），步骤列表为单循环基线 `- [ ] R1-rootcause` / `- [ ] R1-execute` / `- [ ] R1-verify`（design/plan 由 task-revise 在 rootcause 后按需插入，**不预填、不用 `[~]`**）
 3. 声明："Revise R1 已触发，返回编排器。"
 4. **不标记 5c 为 `[x]`**——5c 在 revise 完成后的回归模式中才标记
 
@@ -314,15 +302,17 @@ hat-plugin-hook {task-folder} P5.test-feedback
 - 如有：进入回归模式——仅重跑触发 revise 的相关测试项，而非完整验收
 - 回归通过后：**task-test（非编排器、非 task-revise）负责**标记 Revise RN Return 步骤完成 + 5c `[x]`
 
-**用户主动触发**：如果用户在 Phase 5 任意时刻主动提出大 bug 或新需求（超出逐 bug 修复范围），提供 Revise Cycle 作为选项：AskUserQuestion——**触发 Revise Cycle** (Full/Partial/Lite) / **Defer to new task** / **继续逐 bug 修复**
+**用户主动触发**：如果用户在 Phase 5 任意时刻主动提出大 bug 或新需求（超出逐 bug 修复范围），提供 Revise Cycle 作为选项：AskUserQuestion——**触发 Revise Cycle** / **Defer to new task** / **继续逐 bug 修复**
 
 Reason: 架构级问题若在 5d 直接原地修，会出现：commit 序列与 plan.md 脱节；final.md 难以解释偏差；后续相关 task 的 design 失去前置上下文。Revise Cycle 通过结构化子流程让偏差被显式记录而非隐式吞掉。
 </rule>
 
 <rule>
-During Test, track cumulative accepted NEW features (not bug fixes). When the count reaches 3, or the new-feature change volume visibly exceeds this task's Execute phase, STOP and AskUserQuestion: spin a new task (record to next-task-prompt.md) / trigger Revise Cycle / continue. Per-request size is not the only trigger — cumulative creep is. **[Unattended]** This cumulative gate is a §9 HARD-STOP: pause + Telegram (with the running count and volume) and wait for `/task` — do not auto-continue past creep.
-Reason: new requirements in Test often arrive incrementally — each individually below the single-request threshold, yet together they turn Test into a second Execute (real case 2026-06-18-tmux-agent-restore: P5 was 42% of output vs P4's 35%, 3.9h, with naming/status/resume/palette iterated entirely inside P5). A cumulative gate catches the creep that per-request checks miss.
+Test 阶段累计追踪已接受的**新功能**（不含 bug 修复）。累计达 3 项，或新功能改动体量明显超过本 task 的 Execute 阶段时，触发停点 + AskUserQuestion：开新任务（记入 next-task-prompt.md）/ 触发 Revise Cycle / 继续。单次请求体量并非唯一触发条件，累计蔓延同样触发。
+Reason: Test 阶段的新需求常是渐进式的——每条单看都低于单次请求阈值，合起来却把 Test 变成第二个 Execute（已有真实案例：P5 占产出 42% 反超 P4 的 35%，命名/状态/恢复/palette 全在 P5 内迭代）。累计闸门能捕获逐条检查漏掉的蔓延。
 </rule>
+
+即便用户在蔓延闸选择「本任务做」，**feature-sized 追加（体量接近独立 feature、或需要新的数据源/架构设计）也不经 task-revise 落地**——Revise Cycle 定义为 systemic-fix 循环，塞入 feature 属语义错配（design.md 会被反复追加 R 段）。此时改为：记入 next-task-prompt.md 分流新任务；用户坚持本任务做则作为显式标注的范围扩展直接走 Execute 增量（不开 Revise section）。
 
 ---
 
@@ -331,8 +321,8 @@ Reason: new requirements in Test often arrive incrementally — each individuall
 每个步骤完成后更新 phases.md。每次更新步骤标记时，同步更新 `**Updated**` 时间为当前时间（格式 YYYY-MM-DD HH:MM）。
 
 <rule>
-Every step completion MUST update phases.md: mark step [x], update Updated time, update Status when all steps done.
-Reason: phases.md is the cross-session state record. Missing updates mean the next session cannot correctly resume.
+每个步骤完成即更新 phases.md：标记步骤 [x]、更新 Updated 时间，所有步骤完成时更新 Status。
+Reason: phases.md 是跨 session 的状态记录，遗漏更新会让下次 session 无法正确恢复。
 </rule>
 
 **Phase 5 完成时**（所有测试完成后）：将 Phase 5 的 `**Status**: PENDING` 改为 `**Status**: DONE`，更新 `**Updated**` 时间。
@@ -341,23 +331,28 @@ Reason: phases.md is the cross-session state record. Missing updates mean the ne
 
 ## Test 完成 → 过渡
 
-Test 完成后**不自动推进**。用用户配置的语言简要宣告测试结果（自动化验证状态、Linear 同步状态、用户确认结果），然后声明：**"所有测试已完成，请调用 `/task-end` 关闭任务。"**
+Test 完成后**不自动推进**。用用户配置的语言简要宣告测试结果（自动化验证状态、Linear 同步状态、用户确认结果），声明 **"Phase 5 完成。"**，然后声明：**"所有测试已完成，请调用 `/task-end` 关闭任务。"**
+
+声明后**停止输出，返回编排器 Step 3 执行过渡逻辑**（artifact check / 新会话交接 / unattended check）。
 
 <rule>
-Test phase is a hard stop. Never auto-advance to End phase, even when all acceptance tests are automated and passing. The user must explicitly invoke `/task-end`. **[Unattended] exception**: in unattended self_test mode §6 auto-advances to End (Telegram-notify + return to orchestrator) — the deliberate decision was pre-collected at activation (`end_decisions`); unattended user_test still stops (Telegram-notify) and waits.
-Reason: the user needs a deliberate decision point before closing a task — automated test pass does not equal user acceptance. Under unattended self_test that decision is made up-front (`end_decisions` in unattended.json), so blocking on a `/task-end` no one will type would hang the run.
+Test 阶段是硬停：即便所有验收测试均为自动化且通过，也不自动推进到 End 阶段，须由用户显式调用 `/task-end`（无人值守例外见 UNATTENDED_PROTOCOL.md §6 task-test 表）。
+Reason: 关闭任务前用户需要一个有意识的决策点——自动测试通过不等于用户验收。
 </rule>
 
 ---
 
 ## Mandatory Stop Points
 
-| Step | When | What to Ask | Unattended |
-|------|------|-------------|-----------|
-| 5d | 架构级问题确认后 | 触发 Revise Cycle / Defer / Patch in place | §9 HARD-STOP：暂停 + Telegram，等 `/task` |
-| 累计新功能 | 累计 ≥3 或体量超 Execute | 新任务 / Revise / 继续 | §9 HARD-STOP：暂停 + Telegram，等 `/task` |
-| 5c 回归 | 回归 review 不通过 | 触发 R(N+1) / 手动修复 / 终止 | 自动触发 R(N+1)，达上限硬停 + Telegram（不走 A4 续跑，见 review plugin） |
-| Phase 5 Stop | 所有测试完成后 | 硬停，告知用户调用 `/task-end`（不自动推进） | self_test 自动推进 P6；user_test Telegram 停（§6） |
+| Step | When | What to Ask |
+|------|------|-------------|
+| 5d | 架构级问题确认后 | 触发 Revise Cycle / Defer / Patch in place |
+| 累计新功能 | 累计 ≥3 或体量超 Execute | 新任务 / Revise / 继续 |
+| 5c 回归 | 回归 review 不通过 | 触发 R(N+1) / 手动修复 / 终止 |
+| Phase 5 Stop | 所有测试完成后 | 硬停，告知用户调用 `/task-end`（不自动推进） |
+
+> 无人值守下各停点的自动决策见 UNATTENDED_PROTOCOL.md §6（经上方 Unattended State 加载器进入）。
+> 停点状态信号（外部驱动可机读）由编排器停点 rule 统一写入，契约见 task/references/headless-driving.md。
 
 ## Dependencies
 

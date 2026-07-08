@@ -309,9 +309,9 @@ def detect_formatting(project_root):
                 ]):
                     hook_files.append(name)
                     hook_tool = "lefthook"
+                    break
             except (OSError, UnicodeDecodeError):
                 pass
-            break
 
     # --- pre-commit 框架（Python 生态常用）---
     pre_commit_path = os.path.join(project_root, ".pre-commit-config.yaml")

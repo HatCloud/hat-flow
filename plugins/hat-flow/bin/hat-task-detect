@@ -91,19 +91,31 @@ def scan_open(base_path):
         if not os.path.isdir(task_dir):
             continue
 
-        plan_path = os.path.join(task_dir, "plan.md")
+        # worktree 任务的真实产物住在 worktree 内，stub 只有 .worktree 指针。
+        # 探测产物时重定位到 worktree；指针失效（目录不存在）则回退 stub 并标记。
+        worktree = read_worktree_pointer(task_dir)
+        artifact_dir = task_dir
+        worktree_missing = False
+        if worktree:
+            if os.path.isdir(worktree):
+                artifact_dir = worktree
+            else:
+                worktree_missing = True
+
+        plan_path = os.path.join(artifact_dir, "plan.md")
         task = {
             "name": name,
             "path": os.path.join(base_path, "open", name),
-            "hasDesign": os.path.isfile(os.path.join(task_dir, "design.md")),
+            "hasDesign": os.path.isfile(os.path.join(artifact_dir, "design.md")),
             "hasPlan": os.path.isfile(plan_path),
-            "hasFinal": os.path.isfile(os.path.join(task_dir, "final.md")),
+            "hasFinal": os.path.isfile(os.path.join(artifact_dir, "final.md")),
             "planProgress": parse_plan_progress(plan_path) if os.path.isfile(plan_path) else None,
-            "linear": read_linear_json(task_dir),
+            "linear": read_linear_json(artifact_dir),
         }
-        worktree = read_worktree_pointer(task_dir)
         if worktree:
             task["worktree"] = worktree
+        if worktree_missing:
+            task["worktreeMissing"] = True
         tasks.append(task)
     return tasks
 

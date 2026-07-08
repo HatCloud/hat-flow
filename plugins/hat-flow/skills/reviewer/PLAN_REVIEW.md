@@ -13,13 +13,13 @@
 | Review focus | review 的重点描述（可选） |
 
 <rule>
-Check all required inputs before starting review. If any input is missing, output error listing missing items and terminate immediately.
-Reason: plan review without design.md cannot verify scope alignment — the most critical check.
+review 开始前先检查所有必要输入，缺失任一输入即以报错终止，并列出缺失项。
+Reason: 没有 design.md 的 plan review 无法核对范围一致性——而这是最关键的检查。
 </rule>
 
 ## Single-Pass Review
 
-单次 pass 跑完整张 checklist——不分轮、不分维度派发。逐条检查以下维度，对每个发现的问题按 confidence 锚定表定级，再按下方 Output 与 advisory 准入规则归桶。
+单次 pass 跑完整张 checklist，不分轮、不分维度派发。逐条检查以下维度，对每个发现的问题按 confidence 锚定表定级，再按下方 Output 与 advisory 准入规则归桶。
 
 ### Checklist
 
@@ -38,7 +38,7 @@ Reason: plan review without design.md cannot verify scope alignment — the most
 
 ## Output Format
 
-plan-reviewer 输出二元结论，**不做数值评分、不计算阈值、不分维度派 subagent**：
+plan-reviewer 输出二元结论：不做数值评分、不计算阈值、不分维度派 subagent。
 
 ```markdown
 ## Review Summary
@@ -64,7 +64,7 @@ plan-reviewer 输出二元结论，**不做数值评分、不计算阈值、不�
 
 ### Advisory 准入规则
 
-advisory 桶只放**不影响正确性**的优化。以下四类**必须进 Issues 阻断桶，绝不进 advisory**：
+advisory 桶只放**不影响正确性**的优化。以下四类一律进 Issues 阻断桶，不进 advisory：
 
 | 命中情形 | 归桶 |
 |---|---|
@@ -74,13 +74,13 @@ advisory 桶只放**不影响正确性**的优化。以下四类**必须进 Issu
 | design 需求无对应 task（覆盖缺口） | Issues（阻断） |
 
 <rule>
-The four blocking categories (Forbidden Patterns, wrong file paths, inverted dependencies, design requirements with no task) MUST go into the Issues bucket. Never downgrade any of them into Advisory Recommendations.
-Reason: these are correctness defects that break execution — routing them to a non-blocking advisory bucket lets a broken plan pass review silently. Advisory is for optimizations that do not affect correctness only.
+四类阻断项（Forbidden Patterns、错误文件路径、依赖关系颠倒、有 design 需求却无对应 task）一律进 Issues bucket，没有一项被路由到 Advisory Recommendations。
+Reason: 这些是会破坏执行的正确性缺陷——若放进非阻断的 advisory bucket，会让有缺陷的 plan 静默通过 review。Advisory 只装不影响正确性的优化项。
 </rule>
 
 ## Confidence Guidance
 
-Confidence 评分参考。每个区间附锚定示例——偏高的 confidence 会掩盖不确定性：
+Confidence 评分参考。每个区间附锚定示例——偏高的 confidence 会掩盖不确定性。
 
 | Confidence | 适用场景 | 锚定示例 |
 |------------|---------|---------|
@@ -90,4 +90,4 @@ Confidence 评分参考。每个区间附锚定示例——偏高的 confidence 
 | 60-74 | 改进建议：不影响正确性的优化 | "Task 3 可以和 Task 2 并行执行以提高效率" |
 | <60 | 纯推测：基于经验的猜测 | "这个 task 可能需要超过 5 分钟" |
 
-本协议为二元输出，**无独立 Low Confidence 节**：影响正确性的问题一律进 `## Issues`（confidence 如实标注，由调用方据 confidence 决定是否行动），不因 confidence 低而静默丢弃；不影响正确性的低 confidence 改进进 `## Advisory Recommendations`。当你犹豫该给 80 还是 75 时，选 75——宁可低估确定性也不要高估。
+本协议为二元输出，无独立 Low Confidence 节：影响正确性的问题一律进 `## Issues`（confidence 如实标注，由调用方据 confidence 决定是否行动），不因 confidence 低而静默丢弃；不影响正确性的低 confidence 改进进 `## Advisory Recommendations`。犹豫该给 80 还是 75 时选 75——低估确定性优于高估。

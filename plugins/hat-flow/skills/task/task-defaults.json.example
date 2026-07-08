@@ -58,7 +58,8 @@
       "enabled": false
     }
   },
-  "todo_sync": true,
+  "todo_sync": "full",
+  "_todo_sync_values": "off | overview | full（legacy boolean 仍兼容：true→full / false→off）",
   "phase_merge": [],
   "overrides": {},
   "presets": {
@@ -81,7 +82,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "standard": {
       "execution": {
@@ -101,7 +102,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "lite": {
       "execution": {
@@ -122,7 +123,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "hotfix": {
       "execution": {
@@ -141,7 +142,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": false,
+      "todo_sync": "off",
       "p5_auto_only": true
     }
   }

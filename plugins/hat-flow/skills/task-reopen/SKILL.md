@@ -1,6 +1,6 @@
 ---
 name: task-reopen
-description: "Use when the user wants to reactivate a completed, canceled, or deferred task. Moves the task folder back to .tasks/open/, resets phases.md, and updates Linear status. 触发词: \"重新激活\", \"reopen\", \"task reopen\", \"重开任务\", \"恢复任务\""
+description: "Use when the user wants to reactivate a completed, canceled, or deferred task. Do NOT use for tasks still open. 触发词: \"重新激活\", \"reopen\", \"task reopen\", \"重开任务\", \"恢复任务\""
 ---
 
 # Task Reopen
@@ -8,8 +8,6 @@ description: "Use when the user wants to reactivate a completed, canceled, or de
 将已完成/取消/推迟的任务重新移回进行中，供用户继续开发或修改。
 
 **Announce at start:** "Using task-reopen to reactivate a task."
-
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
 
 ## Runtime Context
 
@@ -19,22 +17,11 @@ description: "Use when the user wants to reactivate a completed, canceled, or de
 
 ---
 
-## Red Flags
-
-| If you are thinking... | The reality is... |
-|---|---|
-| "Task is reopened, let me run the next phase myself" | reopen only moves the folder back and resets state. It hands off to `/task`; it never executes a phase itself. |
-| "Reset every phase's checkboxes to be safe" | Only the target Phase and everything after it reset to `[ ]`. Earlier completed `[x]` stay — re-doing already-done early phases wastes work. |
-| "Skip Linear update if the MCP call looks flaky" | Linear update is conditional on `plugins.linear.enabled`; when enabled, attempt it and on failure skip silently — do not silently drop it when it would have succeeded. |
-| "Hardcode the In Progress state UUID, it's faster" | State must resolve via `statusMap["In Progress"]` through `get_status_map`. Hardcoded UUIDs break across workspaces. |
-| "Keep the old unattended.json so it resumes unattended" | Always delete `unattended.json` on reopen. The user must re-decide unattended mode via `/task`; carrying it over auto-drives a task the user may want to drive manually. |
-| "Use plain `mv` to move the folder" | Use `git mv` so the deletion from the source dir and addition to `open/` stage atomically. |
-
----
-
 ## TODO Sync
 
-双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
+
+本 skill 触发点：**overview 复活**——`full`/`overview` 将 overview 由 `completed` 改回 `in_progress` + 符号回退到重开的 phase；`full` 重建该 phase step；`off` no-op。
 
 ---
 
@@ -42,11 +29,11 @@ description: "Use when the user wants to reactivate a completed, canceled, or de
 
 ### Unattended State（每次执行时加载）
 
-1. **读取状态**：task-reopen 执行时任务可能尚未处于 open 状态，跳过 unattended.json 读取
-2. **若文件不存在或 enabled != true**：正常交互流程（task-reopen 的预期路径）
-3. **Note**：task-reopen 是人工操作，不支持全自动执行。重开后用户需通过 `/task` 决定是否启用无人值守。
+1. **读取状态**：执行 task-reopen 时任务可能尚未处于 open 状态，因此跳过 unattended.json 读取
+2. **文件不存在或 enabled != true**：走正常交互流程（task-reopen 的预期路径）
+3. **执行模式**：task-reopen 是人工操作，全自动执行不可用；重开后由用户通过 `/task` 决定是否启用无人值守
 
-> 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
+> 无人值守的激活入口与契约（quiet / 交互主入口 / 后备入口、activate_after 与 declined 语义）见 UNATTENDED_PROTOCOL.md §5。各阶段 skill 只读取已有状态。
 
 ---
 
@@ -75,6 +62,8 @@ AskUserQuestion：从哪个阶段重新开始？
 git mv .tasks/{done|canceled|deferred}/{task-name} .tasks/open/{task-name}
 ```
 
+此处用 `git mv` 而非 `mv`，使源目录的删除与 `open/` 的新增原子暂存到同一变更。
+
 ### Step 4: 更新 phases.md
 
 读取 `.tasks/open/{task-name}/phases.md`，将目标 Phase 及之后的所有步骤重置为 `[ ]`，Status 改为 PENDING；保留目标 Phase 之前已完成的 `[x]`。
@@ -101,28 +90,28 @@ rm -f .tasks/open/{task-name}/unattended.json
 
 读取 `{task-folder}/task-config.json`，检查 `plugins.linear.enabled`。
 
-- 为 true 且 `linear.json` 存在 → 按 `plugins/linear.md` 规范更新状态为 In Progress（`state` 取 `linear.json.statusMap["In Progress"]`，经 get_status_map 解析，无硬编码 UUID）
+- 为 true 且 `linear.json` 存在 → 按 `plugins/linear.md` 规范更新状态为 In Progress（`state` 取 `linear.json.statusMap["In Progress"]`，经 get_status_map 解析；UUID 不硬编码）
 - 为 false 或 `linear.json` 不存在 → 跳过
 
-失败时跳过（不中止 reopen 流程）。
+Linear 更新失败时跳过该步，reopen 流程继续。
 
-### Step 6.5: 保留 task-config.json
+### Step 7: 保留 task-config.json
 
 reopen 后 task-config.json 保留。用户可在 P2 Step 2e 重新配置。
 
-### Step 7: Commit
+### Step 8: Commit
 
 ```bash
 git add .tasks/open/{task-name}/
 git commit -m "docs: reopen task [{task-name}]"
 ```
 
-### Step 8: 通知用户
+### Step 9: 通知用户
 
 告知用户：
 - 任务已重新激活：`.tasks/open/{task-name}/`
 - 将从 Phase N 开始
-- 请调用 `/task` 继续（不自动执行）
+- 调用 `/task` 继续；reopen 后不自动进入执行
 
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: task-cancel
-description: "Use when the user decides to abandon or defer an in-progress task. Handles cleanup and archives the task folder from .tasks/open/ to canceled/ or deferred/. 触发词: \"取消任务\", \"放弃任务\", \"推迟任务\", \"defer 任务\""
+description: "Use when the user decides to abandon or defer an in-progress task. Handles cleanup and archives the task folder from .tasks/open/ to canceled/ or deferred/. Do NOT use for completed tasks (use task-end). 触发词: \"取消任务\", \"放弃任务\", \"推迟任务\", \"defer 任务\""
+word-budget: 1000
 ---
 
 # Task Cancel — Lifecycle Closure
@@ -9,23 +10,11 @@ description: "Use when the user decides to abandon or defer an in-progress task.
 
 **Announce at start:** "Using task-cancel to close this task."
 
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
-
-## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
-
-| If you are thinking...                                        | The reality is...                                                           |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| "The task is almost done, it shouldn't be canceled"           | The decision to cancel/defer belongs to the user, not to you.               |
-| "A lot of code was written, just keep it without asking"      | Sunk cost fallacy. The user must decide what happens to the code.           |
-| "It's canceled, no need to write final.md"                    | Cancellation reports document why it failed/was deferred — team knowledge.  |
-| "Linear sync doesn't matter since the task is canceled"       | Team members need to know about status changes and reasons.                 |
-| "Deferred and Canceled are basically the same"                | Completely different: Deferred preserves code and sub-issues for resumption. Canceled is permanent closure. |
-
 ## Mandatory Stop Points
 
 <rule>
-Each Mandatory Stop Point requires AskUserQuestion. You MUST NOT proceed past a stop point without explicit user confirmation.
-Reason: autonomous progression past decision points leads to wasted work when user preferences differ from defaults.
+每个 Mandatory Stop Point 都由 AskUserQuestion 把关，越过它需要用户明确确认。
+Reason: 在决策点上自主推进，会在用户偏好与默认值不一致时造成无用功。
 </rule>
 
 | Step | When | What to Ask | Type |
@@ -38,9 +27,14 @@ Reason: autonomous progression past decision points leads to wasted work when us
 | Step 3.3b | Process Review 有改进建议 | 逐条确认：立即执行 / 记录到 debt / 跳过 | Decision |
 | Step 3.5 | Feature 分支处理 | 删除分支 / 保留分支 | Decision |
 
+> 无人值守下各停点的自动决策见 UNATTENDED_PROTOCOL.md §6（经下方 Unattended State 加载器进入）。
+> 停点状态信号（外部驱动可机读）由编排器停点 rule 统一写入，契约见 task/references/headless-driving.md。
+
 ## TODO Sync
 
-双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
+
+本 skill 触发点：**cleanup（cancel 标记）**——`full`/`overview` 将 overview 置 `completed`（可加 cancel 标记）+ step 全清（`full`）；`off` no-op。
 
 ---
 
@@ -52,7 +46,7 @@ Reason: autonomous progression past decision points leads to wasted work when us
 2. **若 enabled == true**：执行 `Read ${CLAUDE_PLUGIN_ROOT}/skills/task/UNATTENDED_PROTOCOL.md`，加载完整协议
 3. **若文件不存在或 enabled != true**：正常交互流程
 
-> 无人值守模式的激活（unattended.json 创建）统一由 `/task` 编排器的 Step 2A.1 处理。各阶段 skill 仅负责读取已有状态。
+> 无人值守的激活入口与契约（quiet / 交互主入口 / 后备入口、activate_after 与 declined 语义）见 UNATTENDED_PROTOCOL.md §5。各阶段 skill 只读取已有状态。
 
 ---
 
@@ -73,13 +67,9 @@ Reason: autonomous progression past decision points leads to wasted work when us
    - 方案不可行
    - 优先级调整
    - 其他（用户描述）
-
-   **[Unattended]** 若无人值守模式激活：从调用上下文推断原因（BLOCKED / 验证失败 / 用户请求），不询问用户。
-4. AskUserQuestion 询问任务处置方式：
+4. AskUserQuestion 询问任务处置方式（Cancel 与 Defer 语义截然不同：Defer 保留代码与子 issue 以备恢复；Cancel 是永久关闭）：
    - **Cancel permanently** — 任务不再需要，归档到 `canceled/`，Linear → Canceled
    - **Defer** — 任务将在以后恢复，归档到 `deferred/`，Linear → Backlog
-
-   **[Unattended]** 若无人值守模式激活：自动选择 Cancel（不 Defer）。
 
 ### Step 2: Assess Completed Work
 
@@ -88,8 +78,6 @@ Reason: autonomous progression past decision points leads to wasted work when us
    - **Keep** — 代码留在分支上，不合并（供将来使用或恢复）
    - **Discard** — 回退所有变更，删除分支
    - **Partial** — 用户指定要 cherry-pick 到 main 的 commit
-
-   **[Unattended]** 若无人值守模式激活：自动选择 Keep（保留分支，供参考）。
 
 ### Step 3: Execute Cleanup
 
@@ -118,23 +106,23 @@ git status
 **3.2 Switch to Main for Documentation** (如果在非 main 分支上)
 
 <rule>
-Task documentation (final.md + archive commit) must be committed on the main branch, not on feature branches.
-Reason: ensures task history is always visible on main regardless of whether the feature branch is kept or deleted.
+任务文档（final.md + 归档提交）在 main 分支上提交，而非在 feature 分支上。
+Reason: 这样无论 feature 分支被保留还是删除，任务历史在 main 上始终可见。
 </rule>
 
 ```bash
 git status --porcelain  # 切换前必须是干净的
 ```
 
-如果有未提交的变更：Stop here. 显示文件，请用户先解决。
-如果是干净的：`git checkout main`
-如果已经在 main 上：跳过。
+- 有未提交的变更：在此停下，显示文件，由用户先解决。
+- 工作区干净：`git checkout main`。
+- 已经在 main 上：跳过。
 
 **3.3 Write final.md**
 
 <rule>
-final.md must thoroughly document why the task was canceled/deferred and what was learned. Incomplete cancellation reports waste the effort already invested.
-Reason: cancellation reports are team knowledge — future decisions depend on understanding past failures.
+final.md 完整记录任务被取消/推迟的原因以及从中获得的经验；不完整的取消报告会浪费已经投入的精力。
+Reason: 取消报告是团队知识——未来的决策依赖于对过往失败的理解。
 </rule>
 
 在任务文件夹中创建 `final.md`（此时已在 main 分支上）：
@@ -187,9 +175,6 @@ Reason: cancellation reports are team knowledge — future decisions depend on u
 [分支名和状态：保留供将来使用]
 ```
 
-**[Unattended]** 若无人值守模式激活：自动将改进建议写入 `{task-folder}/debt.md`，不讨论。
-
-
 对于 Cancel 场景，特别关注：
 - 取消的根本原因是否可以更早发现？（例如可行性预检）
 - 设计阶段是否在最终被否决的方案上花费了过多 token？
@@ -204,11 +189,17 @@ Reason: cancellation reports are team knowledge — future decisions depend on u
 
 **3.4 Archive and Commit** (single commit)
 
-Do NOT use `git add -A`. Only add specific files that are part of the task closure.
+暂存范围：仅 add 属于本次任务关闭的具体文件。`git add -A` 会拖入无关改动，因此不适用。
 
 根据处置方式确定目标路径：
 - **Canceled** → `.tasks/canceled/`
 - **Deferred** → `.tasks/deferred/`
+
+归档移动**之前**先写终态信号（先戳后移；Cancel → `--outcome canceled`、Defer → `--outcome deferred`；graceful，失败不阻断）：
+
+```bash
+hat-task-state terminal "{task-folder}" --outcome <canceled|deferred>
+```
 
 **Script** (preferred):
 ```bash
@@ -223,7 +214,7 @@ git mv .tasks/open/YYYY-MM-DD-topic .tasks/<canceled|deferred>/YYYY-MM-DD-topic
 git commit -m "docs: <cancel|defer> and archive task [YYYY-MM-DD-topic]"
 ```
 
-注意：使用 `git mv`（不是普通的 `mv`），这样从 `open/` 删除和添加到目标路径会原子性地暂存。
+使用 `git mv`（而非普通 `mv`），从 `open/` 删除和添加到目标路径原子性地暂存。
 
 **3.4.1 Verify Commit Content**
 
@@ -244,8 +235,6 @@ git tag -l 'revise-*' | xargs git tag -d 2>/dev/null
 - **Keep**: 保持分支不变（供将来使用或恢复）
 - **Partial**: 分支已在 3.1 中处理
 
-**[Unattended]** 若无人值守模式激活：保留分支（不删除，与 Keep 代码一致）。
-
 ### Step 4: Confirmation
 
 输出最终清单：
@@ -259,10 +248,9 @@ git tag -l 'revise-*' | xargs git tag -d 2>/dev/null
 - [x] Linear 子 issue 已处理（如适用）
 - [x] Git 已在 main 上提交（单次关闭提交）
 
-**[Unattended]** 若无人值守模式激活：发送 Telegram 通知 `[task-name] 任务已取消：[原因]`（经 `UNATTENDED_PROTOCOL.md` §4，Telegram 为 opt-in；未配置 / 插件未装则静默降级、不阻断取消流程）。
-
 ## Dependencies
 
 - **Reads**: `{task-folder}/task-config.json`
-- **Scripts**: hat-task-archive, hat-task-detect
+- **Scripts**: hat-task-archive, hat-task-detect, hat-task-state（终态信号）
 - **Conditionalized**: Linear operations（`plugins.linear.enabled`）, Git branch cleanup（`plugins.git.enabled`）
+- **References（按需 Read）**: `task/UNATTENDED_PROTOCOL.md`（无人值守）, `task/references/todo-sync.md`（TODO 同步契约）

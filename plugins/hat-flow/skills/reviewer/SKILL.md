@@ -2,11 +2,12 @@
 name: reviewer
 user-invocable: false
 description: "Use when dispatched by task skill to review design, plan, or code. Do NOT use standalone — always called as subagent with context injected by caller. 触发词: \"review 设计\", \"review 计划\", \"review 代码\", \"审查设计\", \"审查计划\""
+word-budget: 1000
 ---
 
 # Reviewer
 
-为 task 流程提供统一的 review 能力，覆盖 5 种 review 类型。只返回结构化 issue 列表，不负责修改文档或代码。
+为 task 流程提供统一的 review 能力，覆盖 5 种 review 类型。只返回结构化 issue 列表，不修改文档或代码。
 
 | 类型 | 协议文件 | 用途 |
 |------|---------|------|
@@ -18,53 +19,43 @@ description: "Use when dispatched by task skill to review design, plan, or code.
 
 **Announce at start:** "Using reviewer to perform [DESIGN/PLAN/CODE] review."
 
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
+## 审查心态
 
-## Red Flags — If You Are Thinking Any of These, You Are Making a Mistake
-
-| If you are thinking... | The reality is... |
-|---|---|
-| "This design looks fine, no issues" | If you found zero issues, you likely skimmed. Re-read with adversarial mindset. |
-| "This issue is minor, not worth reporting" | Report it as Suggestion with appropriate confidence. Let the caller decide. |
-| "I should fix this issue directly" | Reviewer only reports. Never modify files or suggest code patches. |
-| "Confidence is hard to estimate, just use 90" | Confidence must reflect actual certainty. Default-high masks uncertainty. |
-| "I'll review all dimensions at once for efficiency" | Each review call focuses on one type/dimension. Mixing dilutes attention. |
-| "The input is too long but I'll try anyway" | If input exceeds token budget, report error immediately. Partial review is worse than no review. |
-| "This deserves a big multi-agent adversarial sweep" | Default to ONE focused review pass. A Workflow / multi-agent fan-out spends many times the tokens — launch it only after the user explicitly consents. |
+- **对抗式阅读**：主动找问题，不确认正确性。零 issue 通常意味着只是略读——以对抗心态重读一遍。
+- **如实定级**：用 confidence 的类型（DESIGN/DOCUMENT/SKILL）confidence 反映真实把握度、不默认填高分，犹豫给 80 还是 75 时选 75；CODE 按实际严重度归三级 severity，拿不准 Critical/Important 时默认 Critical（见 CODE_REVIEW.md HARD-GATE）。
 
 ## Iron Laws
 
 <rule>
-Never modify files or generate code fixes. Return issue list only.
-Reason: reviewer's role is diagnosis, not treatment. Mixing roles causes scope creep and context pollution.
+reviewer 只做诊断报告，不修改文件、不生成代码修复，输出仅为 issue 列表。
+Reason: reviewer 的职责是诊断而非治疗。角色混杂会导致 scope creep 和上下文污染。
 </rule>
 
 <rule>
-Report all issues with confidence score. Do not filter issues below threshold silently.
-Reason: confidence < 80 issues go to Low Confidence section, not to /dev/null. The caller decides what to act on.
+使用 confidence 的类型（DESIGN / DOCUMENT / SKILL）每条 issue 都带 confidence 评分，没有任何一条会因低于阈值而被静默丢弃；confidence < 80 的 issue 进入 Low Confidence 节，由调用方决定取舍。CODE 用三级 severity 不带 confidence、PLAN 用二元 Verdict，格式以各自 `_REVIEW.md` 为准。
+Reason: 静默过滤会藏掉调用方可能仍想处理的发现。
 </rule>
 
 <rule>
-If required input is missing, terminate with error immediately. Do not attempt degraded review.
-Reason: partial context leads to false negatives, which are worse than no review.
+必要输入缺失时 review 以报错终止，不在残缺上下文上做降级 review。
+Reason: 残缺上下文会带来 false negative，比不做 review 更糟。
 </rule>
 
 <rule>
-Default to a single focused review pass. Do NOT default to a high-spec multi-agent review.
-Reason: a normal review is one reviewer reading the artifact and reporting issues. That is the right default for almost every call — it is cheap, fast, and sufficient. Escalating to broader/deeper coverage is the exception, not the baseline.
+默认是一次聚焦的 review pass——单个 reviewer 读产物、报 issue。更广或更深的覆盖是例外而非基线。
+Reason: 一次普通 review 便宜、快、对几乎所有调用都足够。升级是按需选用，而非默认。
 </rule>
 
 <rule>
-Never launch a Workflow / multi-agent fan-out (parallel finders, adversarial verifiers, convergence loops) without explicit user consent. Ask first, stating the rough scale.
-Reason: a multi-agent sweep spends many times the tokens of a normal review (a single SKILL review fanned out to ~27 agents before being cut short). The user must opt in to that cost — phrases like "用对抗/收敛" describe a method but are not standing authorization to spin up dozens of agents. When a review would genuinely benefit from fan-out, briefly say so and ask, rather than doing it by default.
+Workflow / 多 agent fan-out（并行 finder、对抗 verifier、收敛循环）仅在事先取得用户明确同意、并说明大致规模后才运行。「用对抗/收敛」这类说法描述的是方法，不构成批量起 agent 的常驻授权。
+Reason: 一次多 agent 扫描花费的 token 是普通 review 的数倍（一次 SKILL review 曾 fan out 到约 27 个 agent 才被中止）。这份成本必须由用户主动选用。fan-out 确有帮助时，简短说明并询问。
 </rule>
 
 ## Dynamic Routing
 
 !`cat ${CLAUDE_SKILL_DIR}/${CLAUDE_POSITIONAL_ARGS}_REVIEW.md 2>/dev/null || echo "ERROR: unknown review type '${CLAUDE_POSITIONAL_ARGS}'. Expected: DESIGN, PLAN, CODE, DOCUMENT, or SKILL"`
 
-**调用方式（已验证）**：调用方必须使用路径 B（直接注入 protocol 内容）。`${CLAUDE_POSITIONAL_ARGS}` 在 subagent 模式下为空字符串（2026-03-28 dogfooding 验证）。调用方读取对应的 `_REVIEW.md`，将内容直接注入 Agent subagent prompt。
+**调用方式（已验证）**：调用方使用路径 B（直接注入 protocol 内容）。`${CLAUDE_POSITIONAL_ARGS}` 在 subagent 模式下为空字符串（2026-03-28 dogfooding 验证）。调用方读取对应的 `_REVIEW.md`，将内容直接注入 Agent subagent prompt。
 
 | 直接调用 | subagent 模式 |
 |---------|-------------|
@@ -74,17 +65,19 @@ Reason: a multi-agent sweep spends many times the tokens of a normal review (a s
 
 ## Output Format
 
-DESIGN / CODE / DOCUMENT / SKILL 类型共享下方统一输出格式。Confidence ≥ 80 的 issue 按正常分级输出；confidence < 80 的 issue 放在 "Low Confidence" 节中供用户自行判断。
+各 review 类型的输出格式以其 `${CLAUDE_SKILL_DIR}/<TYPE>_REVIEW.md ## Output Format`（CODE 为 `## Severity Classification`）为单一权威，本节只给 DESIGN / DOCUMENT / SKILL 共享的默认模板。CODE 与 PLAN 是例外，不套用本模板：
 
-> **PLAN 类型例外**：plan review 用二元 `Verdict: Approved | Issues` + `## Advisory Recommendations` 桶，格式定义见 `${CLAUDE_SKILL_DIR}/PLAN_REVIEW.md ## Output Format`，**不套用下方统一模板**（无 Round / 无 Suggestion / 无 Low Confidence 节）。下游 `plugins/review.md` P3 按二元 Verdict 解析。
+> **CODE 类型例外**：用三级 severity（Critical / Important / Minor），**不带 confidence、无 Suggestion / Low Confidence 节**，结尾给 `Ready to merge?` 结论。格式定义见 `${CLAUDE_SKILL_DIR}/CODE_REVIEW.md ## Severity Classification`。下游 `plugins/review.md` 按三级 severity + HARD-GATE 解析。
+>
+> **PLAN 类型例外**：用二元 `Verdict: Approved | Issues` + `## Advisory Recommendations` 桶，格式见 `${CLAUDE_SKILL_DIR}/PLAN_REVIEW.md ## Output Format`（无 Round / 无 Suggestion / 无 Low Confidence 节）。下游 `plugins/review.md` P3 按二元 Verdict 解析。
 
-其余类型输出必须严格遵循以下模板：
+DESIGN / DOCUMENT / SKILL 共享下方模板。Confidence ≥ 80 的 issue 按正常分级输出；confidence < 80 的 issue 放在 "Low Confidence" 节中供用户自行判断：
 
 ```markdown
 ## Review Summary
-- Type: [DESIGN / PLAN / CODE-LIGHT / CODE-FULL-{DIMENSION}]
-- Round: [N or N/A for CODE-LIGHT and CODE-FULL]
-- Focus: [轮次重点 / Light Mode / Full-{DIMENSION}]
+- Type: [DESIGN / DOCUMENT / SKILL]
+- Round: [N or N/A]
+- Focus: [轮次重点]
 - Issues: [Critical: N, Important: N, Suggestion: N, Low Confidence: N]
 
 ## Critical
@@ -108,7 +101,7 @@ DESIGN / CODE / DOCUMENT / SKILL 类型共享下方统一输出格式。Confiden
 [如果没有发现任何问题，明确输出此节]
 ```
 
-Each severity section that has no items should be omitted entirely. At least one of the sections (Critical, Important, Suggestion, Low Confidence, No Issues Found) must be present.
+无条目的 severity 节整节省略。Critical、Important、Suggestion、Low Confidence、No Issues Found 这几节中至少出现一个。
 
 ## Error Handling
 
@@ -116,10 +109,10 @@ Each severity section that has no items should be omitted entirely. At least one
 - **Missing context**: 必要输入缺失 → 直接报错终止，列出缺失项，要求调用方补发
 - **Input size exceeded**: 输入超过 token 预算 → 直接报错终止，返回实际大小和上限
 - **No issues found**: 明确输出"未发现问题"节，避免调用方误判为失败
-- **Output format non-compliance**: 调用方应对输出做基本格式校验（检查是否包含 `## Review Summary` 和至少一个分级节），不合规时可选重试
+- **Output format non-compliance**: 调用方对输出做基本格式校验（检查是否包含 `## Review Summary` 和至少一个分级节），不合规时可选重试
 
 ## Dependencies
 
 - 预注入: `${CLAUDE_SKILL_DIR}/${CLAUDE_POSITIONAL_ARGS}_REVIEW.md`（通过 Dynamic Routing 按需加载）
-- 调用方: task skill（Phase 2 design review, Phase 3 plan review, Phase 4 code review）、distill / research / card-refine（DOCUMENT review）
+- 调用方: task skill（Phase 2 design review, Phase 3 plan review, Phase 4 code review）、distill / dive / card-refine（DOCUMENT review）
 - 引用: spec-skill（skill 格式规范）、Knowledge_Base Guide 文件（DOCUMENT review 动态注入）

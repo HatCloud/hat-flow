@@ -1,31 +1,9 @@
 # task-reopen
 
-## 目的
+将已完成 / 取消 / 推迟的任务从归档目录移回 `.tasks/open/` 重新激活：用户选起始 Phase，重置 phases.md 对应步骤，恢复 Linear 状态，最后提示经 `/task` 继续。人工操作，不支持全自动执行。完整流程以 `SKILL.md` 为准。
 
-将已完成、取消或推迟的任务重新移回进行中，供用户继续开发或修改。
+## 补充信息
 
-## 触发条件
-
-用户想重新激活某个已归档任务时使用。常见触发词：重新激活、reopen、重开任务、恢复任务。
-
-## 核心流程
-
-1. **选择任务** — 从 `.tasks/done/`、`.tasks/canceled/`、`.tasks/deferred/` 中选择要重开的任务
-2. **选择阶段** — 用户决定从哪个 Phase 重新开始（Phase 2-6）
-3. **移回 open** — `git mv` 到 `.tasks/open/`
-4. **重置 phases.md** — 目标 Phase 及之后的步骤重置为未完成
-5. **清除 unattended.json** — 重开后需用户重新决定是否启用无人值守
-6. **更新 Linear** — 将 issue 状态改回 In Progress（`state` 取 `linear.json.statusMap["In Progress"]`，经 `get_status_map` 解析，无硬编码 UUID）
-7. **提交 + 通知** — 独立 commit，提示用户调用 `/task` 继续
-
-## 关键规则
-
-- task-reopen 是人工操作，不支持全自动执行
-- 重开后通过 `/task` 决定是否启用无人值守
-- Linear 更新失败不中止流程
-
-## 依赖
-
-- 引用：`plugins/linear.md`（Linear 状态更新规范，通过 task-config.json 条件化）
-- 读取: `{task-folder}/task-config.json`、`{task-folder}/linear.json`（若存在）
-- 写入: `{task-folder}/phases.md`（重置步骤状态）
+- **无硬编码 UUID**（分发决策）：Linear 状态恢复取 `linear.json.statusMap`（经 `get_status_map` 解析）而非写死状态 UUID——hat-flow 公开分发后每个 workspace 的状态 ID 都不同，写死的值无法跨 workspace 使用。
+- **unattended.json 一律清除**：重开是人的决策，归档前的无头授权不自动延续——是否继续无人值守由用户在 `/task` 恢复时重新决定。
+- **容错立场**：Linear 更新失败不中止流程——归档移动与状态重置是主体，外部同步失败降级为提示。

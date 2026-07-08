@@ -104,6 +104,26 @@ def _pick_preset(preset_override, layers, template):
     return template.get(_PRESET_KEY, "standard")
 
 
+_TODO_SYNC_VALUES = ("off", "overview", "full")
+
+
+def _normalize_todo_sync(eff):
+    """Normalize todo_sync to the enum off|overview|full (backward compatible).
+
+    legacy boolean True→"full", False→"off"; valid enum string kept; any other
+    value (illegal string / None) and a missing key both fall back to "full".
+    Checked before string membership because bool is a subclass of int.
+    """
+    val = eff.get("todo_sync", "full")
+    if isinstance(val, bool):
+        eff["todo_sync"] = "full" if val else "off"
+    elif val in _TODO_SYNC_VALUES:
+        eff["todo_sync"] = val
+    else:
+        eff["todo_sync"] = "full"
+    return eff
+
+
 def resolve(template, global_local, project_local, flags, preset_override=None, quiet=False):
     layers = [global_local, project_local, flags]
     preset = _pick_preset(preset_override, [template, global_local, project_local, flags], template)
@@ -130,6 +150,8 @@ def resolve(template, global_local, project_local, flags, preset_override=None, 
     if branch.get("worktree", "ask") == "ask":
         branch["worktree"] = True if quiet else "ask"
 
+    _normalize_todo_sync(eff)
+
     return eff
 
 
@@ -148,6 +170,7 @@ def main(argv=None):
     parser.add_argument("--preset", default=None)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--flags", default=None, help="JSON object of call-time overrides")
+    parser.add_argument("--todo-sync", default=None, help="off|overview|full (④-layer override)")
     args = parser.parse_args(argv)
 
     template = _load_json(args.template, required=True)
@@ -164,6 +187,16 @@ def main(argv=None):
         if not isinstance(flags, dict):
             sys.stderr.write("hat-task-config-resolve: --flags must be a JSON object\n")
             sys.exit(2)
+
+    # --todo-sync overwrites --flags todo_sync within layer ④ (both layer ④; runs after --flags is parsed); illegal → warn, fall back to config
+    if args.todo_sync is not None:
+        if args.todo_sync in _TODO_SYNC_VALUES:
+            flags["todo_sync"] = args.todo_sync
+        else:
+            sys.stderr.write(
+                f"hat-task-config-resolve: --todo-sync invalid value {args.todo_sync!r}; "
+                "ignoring (using config value)\n"
+            )
 
     eff = resolve(template, global_local, project_local, flags, args.preset, args.quiet)
     json.dump(eff, sys.stdout, ensure_ascii=False, indent=2)

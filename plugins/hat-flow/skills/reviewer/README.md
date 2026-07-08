@@ -98,5 +98,5 @@ ${CLAUDE_PLUGIN_ROOT}/skills/reviewer/
 
 ## 依赖
 
-- **调用方**：task skill（design/plan/code review）、distill/research/card-refine（document review）
+- **调用方**：task skill（design/plan/code review）、distill/dive/card-refine（document review）
 - **引用**：spec-skill（skill 格式规范）、Knowledge_Base Guide 文件（document review）

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Task plugin hook 引擎：解析 task-config 启用的插件，收集某 hook-point 注册的
-handler，按 priority + after 约束排序，从各插件 .md 抽取 section 正文拼接输出。
+handler，按 priority 排序，从各插件 .md 抽取 section 正文拼接输出。
 所有 handler 均 inline——输出注释头 + 指令正文，由编排器在主线程逐段同步执行。
 无 handler 时 exit 0、stdout 为空。
 
@@ -14,7 +14,7 @@ import sys
 USAGE = """Usage: hat-plugin-hook <task-folder> <hook-point>
 
 Resolves enabled plugins for a task, collects handlers registered
-at <hook-point>, sorts by priority + after constraints, and outputs
+at <hook-point>, sorts by priority, and outputs
 the concatenated instruction text from each plugin's .md file.
 
 Every handler is inline: a comment header plus its instruction body,
@@ -146,33 +146,9 @@ def main(argv):
     if not handlers:
         sys.exit(0)
 
-    # after 依赖校验
-    registered = {h["plugin"] for h in handlers}
-    deps = sorted({d for h in handlers if h.get("after") for d in h["after"]})
-    for dep in deps:
-        if dep not in registered:
-            err(f"[!] hat-plugin-hook: after dependency '{dep}' not registered "
-                f"at hook '{hook_point}' or plugin disabled")
-
-    # priority 稳定升序排序，再按 after 约束重排（缺 priority 兜底 0，复刻旧 bash `// 0`；
+    # priority 稳定升序排序（缺 priority 兜底 0，复刻旧 bash `// 0`；
     # 不能用 `or 0`——合法的 priority=0 会被 falsy 误伤）
     ordered = sorted(handlers, key=lambda h: h["priority"] if h.get("priority") is not None else 0)
-    # after 重排：单遍移位（与旧 bash 等价）——仅保证每个 handler 排在其直接依赖之后；
-    # 链式 after（A→B→C）不保证全序。当前无插件使用 after，故不引入拓扑排序。
-    n = len(ordered)
-    for i in range(n):
-        cur_deps = ordered[i].get("after") or []
-        if not cur_deps:
-            continue
-        max_dep_idx = -1
-        for dep in cur_deps:
-            idxs = [j for j in range(len(ordered)) if ordered[j].get("plugin") == dep]
-            dep_idx = max(idxs) if idxs else -1
-            if dep_idx > max_dep_idx:
-                max_dep_idx = dep_idx
-        if max_dep_idx > i:
-            h = ordered.pop(i)
-            ordered.insert(max_dep_idx, h)
 
     # 抽取 section 并输出
     first = True

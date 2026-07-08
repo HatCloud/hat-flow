@@ -1,28 +1,8 @@
-# Task Test Skill
+# task-test
 
-## 目的
+Phase 5（Test）worker：运行完整验证、生成验收清单引导用户逐项验收、更新 Linear 状态，然后硬停等待用户显式调用 `/task-end`；验收发现的系统性问题经编排器路由 task-revise。由 `/task` 编排器在 Phase 4 完成后派发。完整流程以 `SKILL.md` 为准。
 
-Phase 5（Test）阶段 skill。运行完整验证、更新 Linear 状态，展示验收清单等待用户手动测试。
+## 补充信息
 
-## 触发条件
-
-- 通过 `/task` 编排器在 Phase 4 完成后自动调用
-- 直接调用 `/task-test`（手动进入测试阶段）
-
-## 核心流程
-
-1. Full verification（5a/5b）
-2. 生成并展示验收清单（5c）
-3. Linear 状态更新为 "In Review"（P5.post-acceptance hook）
-4. **硬停，等待用户调用 /task-end**（测试反馈走 5d）
-
-## 关键规则
-
-- 永远不要自动调用 /task-end 或开始归档流程
-- 测试反馈阶段（5d）：分析 → 修复 → 用户确认 → 再 commit
-- 架构级问题必须 triage，不能直接原地修
-
-## 产物
-
-- `{task-folder}/.last-verified`
-- 更新 `phases.md`（Phase 5 各步骤）
+- **硬停的设计立场**：验收通过与否只能由用户判定，Phase 5 永不自行推进到归档——「测试通过」与「关闭任务」之间必须隔一次人的显式动作（`/task-end`）；无人值守模式按 UNATTENDED_PROTOCOL 分级降级，而非静默跳过。
+- **`.last-verified` 接线**：验证通过后写入任务文件夹的 `.last-verified`（含 commit hash），task-end Step 0 据此跳过重复验证——这是两个 skill 之间唯一的验证状态通道。

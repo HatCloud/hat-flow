@@ -80,3 +80,16 @@ def test_git_root_env_contract():
     r = run_gate("echo x > /repo/out.txt", env={"CODEX_GIT_ROOT": ""})
     assert r.returncode == 2
     assert r.stdout.startswith("hard-fallback:")
+
+
+def test_simulator_dependent_verification_hard_fallbacks():
+    # 验证依赖模拟器 → hard fallback（codex 沙盒无 CoreSimulatorService，ISSUE）
+    assert_hard("xcrun simctl boot 'iPhone 16'", "hard-fallback:verification requires simulator")
+    assert_hard("maestro test flows/smoke.yaml", "hard-fallback:verification requires simulator")
+    assert_hard(
+        "xcodebuild test -scheme App -destination 'platform=iOS Simulator,name=iPhone 16'",
+        "hard-fallback:verification requires simulator")
+    # 非模拟器 destination 的 xcodebuild 不误伤
+    assert_eligible("xcodebuild build -scheme App -destination 'generic/platform=macOS'")
+    # 散文里提到 simulator 一词不触发（判据是命令 token，非正文关键词）
+    assert_eligible("the app uses a simulator-like preview mode")

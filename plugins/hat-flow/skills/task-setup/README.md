@@ -1,37 +1,9 @@
-# Task Setup Skill
+# task-setup
 
-## 目的
+hat-flow 任务工作流的首次配置向导（first-run setup）：依赖预检、Linear 身份、可选 Telegram 通知、插件档位、输出语言，一次把任务流在项目里配置就位。全程可跳过，任一步跳过即用缺省。完整步骤与规则以 `SKILL.md` 为准。
 
-hat-flow 任务工作流的**首次配置向导**（first-run setup）。引导用户在一个项目里完成任务流的初始配置，把结果写入**项目本地**（`CLAUDE.md` / `task-defaults.json`），不含任何作者私人值。
+## 补充信息
 
-## 触发条件
-
-- 在新项目里第一次准备用 task 工作流时
-- 直接调用 `/task-setup`
-- 触发词："task setup"、"初始化配置"、"配置任务流"、"setup hat-flow"
-
-## 核心职责
-
-**目的**：一次性把任务流在某项目里配置就位——依赖预检、Linear 身份、可选 Telegram 通知、插件档位、输出语言。
-
-**触发**：新项目首次准备用 task 工作流，或直接 `/task-setup`。
-
-**关键规则**：
-- 依赖预检中 `python3` 为必需，缺则不继续（hook 引擎与 bin 脚本靠它）；`node` 仅 Linear 集成需要
-- 配置只写**项目本地**（`CLAUDE.md` / `task-defaults.json`），绝不写入作者私人值或硬编码状态 UUID
-- 全程可跳过；所有问题用 AskUserQuestion 逐项确认
-
-## 关键规则
-
-- **全程可跳过**：任一步选「跳过」即用缺省（对应能力关闭 / 沿用默认），不阻断流程
-- 所有问题用 AskUserQuestion，逐项确认
-- 配置只写**项目本地**，绝不写入作者私人值（分发安全）
-
-## 产物
-
-- 项目 `CLAUDE.md` 的任务流相关段
-- 项目 `task-defaults.json`（档位预设 + 插件开关）
-
-## 在 task 族中的位置
-
-`task` 编排族的**配置入口** worker：在 `task` 编排正式跑流程前，由本 skill 把项目配置就位。与生命周期内各 worker（init/design/plan/execute/test/end）不同，它只在「首次接入」时跑一次。
+- **在 task 族中的位置**：编排族的「配置入口」worker——与生命周期内各 phase worker 不同，只在项目首次接入时跑一次；之后改配置直接编辑项目的 task-defaults.json，不重跑向导。
+- **分发安全立场**：配置只写项目本地（`CLAUDE.md` / `task-defaults.json`），绝不落作者私人值或硬编码状态 UUID——本 skill 随 hat-flow 公开分发，任何个人值都是分发事故。
+- **python3 硬门的由来**（ISSUE 教训）：hook 引擎曾隐含未声明的 jq 硬依赖、干净环境全挂，此后核心改纯 Python 并把依赖预检提为 setup 首步——python3 缺失时所有插件 hook 静默失效、流程照跑但产物全缺，故设为不继续的硬门；node 仅 Linear 集成需要。

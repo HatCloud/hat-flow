@@ -27,14 +27,16 @@
 - **跨任务引用**：引用其他任务的文档应改用任务名 slug 或摘要描述（如"见 2026-06-17-todo-sync-research 的 final.md"），而非占位符
 - **`docs/` 目录下的文档**：已有相对路径约定，遵循原有写法（相对路径或直接文件名），不受占位符约束
 
-## 反模式
+## 正确写法
+
+任务内引用一律走占位符，不写绝对路径——绝对路径在归档或清理 worktree 后即失效。
 
 ```
-# ❌ 禁止：写入绝对路径（即使当下有效）
+# 绝对路径（即使当下有效，归档后失效）
 ~/.claude/.claude/worktrees/2026-06-17-task-doc-placeholder-review/.tasks/open/2026-06-17-task-doc-placeholder-review/design.md
 /Users/hat_cloud/.claude/.claude/.tasks/done/2026-06-17-task/plan.md
 
-# ✅ 正确：使用占位符
+# 占位符（推荐）
 任务文档/design.md
 任务文档/plan.md
 ```

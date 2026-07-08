@@ -2,20 +2,18 @@
 
 本文件提供主 session 的完整设计阶段工作流——流程步骤、模板、复杂度矩阵、原则的**单一来源**。在 Phase 2（Design）开始时由 task-design/SKILL.md 通过 `!cat` 嵌入。主 session 直接遵循此协议——不委托 subagent。
 
-**LANGUAGE RULE**: Inherit from SKILL.md — all user-facing messages in Chinese, technical terms in English.
-
 <HARD-GATE>
-Design must be shown to the user and receive explicit approval before the flow advances to the Plan phase. Until approval, do not enter Plan, do not write any implementation code.
-Reason: skipping approval lets unreviewed assumptions flow straight into implementation — the most expensive place to discover them. An unapproved design that proceeds silently produces work the user never agreed to and routinely has to be redone.
+推进到 Plan phase 要求设计已展示给用户并获得显式批准；在批准之前，流程停在 Plan 之外、不写任何实现代码。
+Reason: 跳过批准会让未经 review 的假设直接流入实现——那是发现它们代价最高的地方。一个未获批准却静默推进的设计，会产出用户从未同意的工作，且通常不得不返工重做。
 </HARD-GATE>
 
 ---
 
-## Anti-Pattern: 太简单不必设计
+## Pattern: 每个任务都走设计流程
 
-每个任务都走设计流程——没有例外。"这个太简单，直接写就行"恰恰是未审假设导致返工的高发区：简单任务的设计往往被跳过，于是错误的假设直到实现甚至上线才暴露。
+每个任务都走设计流程，没有例外。设计的**篇幅**由复杂度决定，**是否设计**则不取决于复杂度——再简单的任务也展示设计并获批。
 
-正确做法：设计可以**短**（几句话即可），但必须**展示给用户并获得批准**。复杂度决定设计的**篇幅**，不决定**是否设计**。
+"这个太简单，直接写就行"是未审假设导致返工的高发区：简单任务的设计一旦跳过，错误假设往往拖到实现甚至上线才暴露。正确做法是设计可以**短**（几句话即可），但都**展示给用户并获得批准**。
 
 ---
 
@@ -40,13 +38,13 @@ Reason: skipping approval lets unreviewed assumptions flow straight into impleme
 
 在投入详细提问之前，**先评估范围**。
 
-如果请求横跨多个独立子系统，**先建议拆分成多个任务**，不要在一个需要先分解的项目上花费澄清问题——否则问题会散落在不该一起处理的子系统之间，浪费往返。先分解，再针对每个聚焦的子任务提问。
+如果请求横跨多个独立子系统，**先建议拆分成多个任务**：在尚需分解的项目上提澄清问题，问题会散落在不该一起处理的子系统之间、浪费往返。先分解，再针对每个聚焦的子任务提问。
 
 ---
 
 ## Design Flow
 
-按顺序执行以下步骤。每步都有明确的完成条件。Do NOT skip steps.
+按顺序执行以下步骤，每步都有明确的完成条件，逐步走完不跳步。
 
 ### Step 1: Explore Project Context
 
@@ -55,13 +53,29 @@ Reason: skipping approval lets unreviewed assumptions flow straight into impleme
 - 识别现有代码风格、架构模式、命名约定。
 - 读取 `{task-folder}/prompt.md` 获取结构化需求作为探索的起点。
 
-**Exploration budget**: If you have made more than 10 exploratory tool calls (Read, Grep, Glob, Bash) without forming a clear hypothesis, STOP exploring and ask the user a clarifying question instead. Aimless exploration wastes tokens.
+**Exploration budget**: 超过 10 次探索性工具调用（Read / Grep / Glob / Bash）仍未形成清晰假设时，停止探索、转而向用户提一个澄清问题。漫无目的的探索浪费 token。
 
 **API/环境验证**: 如果方案依赖特定 API 或运行时能力（原生模块、平台 API、第三方服务等），在探索阶段通过快速实验（console.log、REPL 测试等）确认其可用性和返回值，不要等到执行阶段才发现 API 不可用。
 
 **原生依赖验证（RN 项目）**: 如果方案需要新增原生依赖（如 Skia、MMKV 等需要编译原生代码的库），在探索阶段验证：① 安装后 `pod install` / codegen 是否通过 ② dev client 能否正常编译启动。M2 教训：Skia 的 codegen 因 `balanced-match` v4 破坏性变更导致 `pod install` 失败，在执行阶段才发现，浪费大量调试时间。
 
 **Completion condition**: 你已有足够的上下文来提出有针对性的问题（且已完成 scope 分解评估，见上方 "Scope 分解先于澄清问题"）。
+
+### Step 1.5: Optional Web Research（联网调研）
+
+本地探索只看项目内内容。有些需求外部信息能省掉从零探索——解 bug（网上可能已有解法）、0→1 新项目（选型 / 脚手架）、建技能、引入陌生第三方依赖（官方文档 / 最佳实践 / 版本差异）。在本地探索已建立初步图景、缺口已清楚之后插入这一步（此时调研问题问得最准）。
+
+- **Interactive**：AskUserQuestion——「本地探索已完成，是否联网调研补充外部信息（已知解法 / 选型 / 最佳实践 / 版本差异）？」选项：是 / 否。bug 修复、0→1 新项目、建技能、引入陌生依赖等场景默认建议「是」；纯项目内改动默认「否」。
+- **若是 → 调 `web-research` 引擎**，构造 `WebResearchRequest`：`contract_version: "1.0"`、`depth: quick`（探索阶段重时效）、`research_question` = 由缺口凝练的单一问题、`local_context` = 已探查的代码结论（避免引擎重复已知工作）。
+- **折叠 `WebResearchResult`**（先断言返回的 `contract_version` major 与本协议期望一致，不符则降级只读已知字段并告警）：
+  - `findings[verification==verified]` → design 探索上下文「外部技术事实」段，带源可追溯，供 Step 3 提案引用。
+  - `findings` 中 `verification` 为 `tentative` 或 `opinion` 者，以及 `filtered_out[]` 数组的 claim → 仅列入探索备注「需实现期验证」，**不作为设计决策依据**（设计决策只建立在 verified 事实上）。
+  - `coverage_gaps` → 转成 Step 2 的澄清问题候选。
+- **不写报告文件**：task-design 只把结果折进 `design.md` 的探索段，引擎本身不落地任何文件。
+
+**无人值守**：按 UNATTENDED_PROTOCOL 自动决策——保守档默认**跳过**联网调研，除非 `prompt.md` 显式要求外部调研；启用时给引擎传 `unattended: true`（成本封顶、档位降级）。Headless 短路：不弹门，按 prompt 信号决定跑或跳。
+
+**Completion condition**: 已决定是否联网；若联网，结果已折进探索上下文。
 
 ### Step 2: Ask Clarifying Questions
 
@@ -70,7 +84,7 @@ Reason: skipping approval lets unreviewed assumptions flow straight into impleme
 - **合并提问（最多 4 个）。** 相关的问题合并到一个 AskUserQuestion 中（最多 4 个）；不相关的话题分开消息提问。
 - **Prefer multiple-choice**（选项 A / B / C）而非开放式问题。
 - 聚焦于：目的、约束、成功标准。
-- **YAGNI** — do NOT propose or design features without explicit requirements.
+- **YAGNI** — 无明确需求就不提议、不设计功能。
 - 如果请求跨越多个独立子系统，在继续之前先提议拆分（见 "Scope 分解先于澄清问题"）。
 
 **确认循环（Step 2 末必须执行）：**
@@ -80,11 +94,11 @@ Reason: skipping approval lets unreviewed assumptions flow straight into impleme
 
 **Completion condition**: 你已充分理解目标、约束和成功标准，可以提出解决方案，且用户已确认没有更多补充。
 
-提问后，使用 AskUserQuestion 或结束你的回合等待用户回复。Do NOT answer your own questions or assume the user's answer.
+提问后，使用 AskUserQuestion 或结束你的回合等待用户回复，不自答、不替用户假设答案。
 
 <rule>
-After asking a question, you must use AskUserQuestion or end your turn to wait for the user's response. Never answer your own questions or assume the user's answer.
-Reason: self-answered questions bypass user input and lead to designs that don't match user intent.
+提出问题之后，下一个动作是 AskUserQuestion 或结束 turn 以等待用户回复；自问自答或假定用户的答案均不在允许范围内。
+Reason: 自问自答绕过了用户输入，会导致设计与用户意图不符。
 </rule>
 
 ### Step 3: Propose Solutions
@@ -96,7 +110,7 @@ Reason: self-answered questions bypass user input and lead to designs that don't
 
 判断标准不是"bug fix = 轻量"——如果修复需要重构模块或改变架构，按 feature 处理。
 
-向用户展示你的方案。然后使用 AskUserQuestion 请用户选择或确认。Do NOT proceed until the user responds.
+向用户展示你的方案，然后使用 AskUserQuestion 请用户选择或确认；用户回复前不推进。
 
 ### Step 4: Present Design Section by Section
 
@@ -170,7 +184,7 @@ Reason: self-answered questions bypass user input and lead to designs that don't
 
 ### Step 6: Self-Review
 
-> **由 review plugin 的 `P2.post-design-draft` hook 执行。** 核心步骤仅保留触发入口。
+> 由 review plugin 的 `P2.post-design-draft` hook 执行。
 
 当 review plugin 启用时，在 design.md 写完后运行 `hat-plugin-hook {task-folder} P2.post-design-draft`，按输出指令执行自我审查和独立 review。
 
@@ -188,11 +202,11 @@ Reason: self-answered questions bypass user input and lead to designs that don't
 
 ### Step 8: User Review
 
-所有 review 轮次完成、review 策略写入 design.md 后，明确告知用户："Design 已完成 N 轮 review，请审核 design.md，确认后进入 planning 阶段。" Wait for explicit approval（见 HARD-GATE）。
+所有 review 轮次完成、review 策略写入 design.md 后，明确告知用户："Design 已完成 N 轮 review，请审核 design.md，确认后进入 planning 阶段。" 然后等待明确批准（见 HARD-GATE）。
 
 <rule>
-"Explicit approval" means the user has responded with a clear affirmative (e.g., "好", "可以", "approved", "LGTM", "继续"). Silence, acknowledgment of receipt ("收到"), or partial feedback does not count as approval.
-Reason: ambiguous signals lead to premature phase transitions.
+「显式批准」指明确的肯定回复（如 "好"、"可以"、"approved"、"LGTM"、"继续"）。沉默、仅表示收到（"收到"）、或局部反馈都不算批准。
+Reason: 含糊的信号会导致过早的 phase 过渡。
 </rule>
 
 ---

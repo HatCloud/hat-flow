@@ -58,6 +58,13 @@
 
 # Review Plugin
 
+## max_rounds 解析（单一权威，下文各处引用本规则）
+
+`task-config.json` `plugins.review.max_rounds` 可为**标量**或**对象**：
+- **标量 N** → 两类 reviewer（native/codex）共用 N（向后兼容）。
+- **对象 `{"claude": N, "codex": M}`** → native 取 `.claude`（缺省 3）、codex 取 `.codex`（缺省 8，codex 更严、收敛更慢）。
+- 取轮次上限前先按上述解析为**标量整数**再比较（勿把对象直接当标量与「轮次」比较）。下文 P2/P3/P4 各处「max_rounds 取 codex/claude 值」均指本规则，不再重述。
+
 ## P2.post-design-draft
 
 ### 设计自我审查 + 独立 Review
@@ -123,9 +130,9 @@ R1 返回后处理：
    - prompt 注入：`${CLAUDE_PLUGIN_ROOT}/skills/reviewer/DESIGN_REVIEW.md` 维度规范 + **项目专有约定**（Guardrails / `Depends:[]` / header / self-review 等）+ `design.md`、`prompt.md`（仓内相对路径，codex 可读）；外部本地依赖给**绝对路径**。
    - **输出契约**：要求 codex 输出 `## Critical` / `## Important` / `## Minor` 三段 + 末行 `Critical=N Important=M Minor=K`。
    - 捕获 **agentId**；收敛判据用 `codex-findings-count`（解析末行计数）判 **C=0 & I=0**（**非 verdict 行**）。
-   - **不并发**：R1/R2 **串行**（codex 同 repo 不并发，非 native 并行）。
+   - **R1/R2 并行**：codex review 只读（不 `--write`），同 repo 实测不串扰（broker busy 自动 spawn 独立子进程，state/broker 按 workspace-root 隔离）→ R1/R2 首轮**并行**派发，与 native R1/R2 并行对齐。
    - **max_rounds reviewer-aware**：取 `plugins.review.max_rounds` 的 codex 值（标量则两 reviewer 共用；对象取 `.codex`，缺省 8——codex 更严、收敛更慢）。
-   - **round≥2**：`SendMessage(to: agentId)` 续接（companion `--resume-last`），注入「修复后的 design.md + 上轮未清 Critical/Important」。
+   - **round≥2**：`SendMessage(to: agentId)` **定向**续接（按具体 agentId resume 该 thread，**不依赖 `--resume-last` 的「最新 thread」**——R1/R2 并行下多 thread，「最新」会抢错），注入「修复后的 design.md + 上轮未清 Critical/Important」。
 3. **中途 fallback**：codex 输出 `FALLBACK:` / quota / rate-limit 错误 → 中止该 codex 轮，改派 native design-reviewer 重跑该轮（review 只读幂等、安全），并向 `{task-folder}/fallback-log.jsonl` 追加一行：`{phase:"P2", integration_point:"design-review", requested_engine:"codex", actual_engine:"claude", reason:<文本>, codex_check_output:<文本>, agentId:<id|null>, action:"fallback-to-native"}`。
 
 ## P2.post-design-approved
@@ -142,7 +149,7 @@ R1 返回后处理：
 - Reviewer type: Claude
 ```
 
-> `Per-task review` 取自 task-config.json `plugins.review.per_task_review`（缺省 `each`）。仅在 `Code review ∈ {medium, full}` 时有意义；`skip/light` 下逐 task review 本就不必做，该行可省略或记 `each`（无副作用）。
+> **`Per-task review`（值 `each | checkpoint`）以 `task-config.json` `plugins.review.per_task_review` 的运行期解析为准——本文档不复述缺省值**（缺省由 `bin/hat-task-config-resolve` 三层合并决定，复述会漂移）。写 Review Strategy 时填入解析到的实际值。仅在 `Code review ∈ {medium, full}` 时有意义；`skip/light` 下逐 task review 本就不必做，该行可省略（无副作用）。
 
 ### 复杂度评估
 
@@ -180,7 +187,7 @@ plan.md 生成后，评估其与 design.md 的一致性：
 解析为 codex 时，**替代**上面单 plan-reviewer 派发：
 - 经 `/codex:rescue`（**read-only，不加 `--write`**）派；prompt 注入 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md` 维度 + 项目专有约定 + `plan.md`、`design.md`。
 - **输出格式覆盖（仅 codex 路径）**：PLAN_REVIEW.md 原生用二元 `Verdict: Approved|Issues`；codex 路径**改用** `## Critical` / `## Important` / `## Minor` 三段 + 末行 `Critical=N Important=M Minor=K`（对齐 task finding-count 收敛判据）。**claude plan-reviewer 仍用原生 verdict，不受影响。**
-- 捕获 **agentId**；`codex-findings-count` 判 **C=0 & I=0** 收敛；**不并发**串行；`max_rounds` 取 codex 值（对象 `.codex`，缺省 8）；round≥2 `SendMessage(to: agentId)` 续接。
+- 捕获 **agentId**；`codex-findings-count` 判 **C=0 & I=0** 收敛；**plan review 为单 reviewer、无并行对象；收敛轮次（round≥2）本质顺序**（修复→重评，非同仓库限制）；`max_rounds` 取 codex 值（对象 `.codex`，缺省 8）；round≥2 `SendMessage(to: agentId)` **定向**续接。
 - 中途 `FALLBACK:`/quota → 降级 native plan-reviewer 重跑该轮，向 `{task-folder}/fallback-log.jsonl` 追加：`{phase:"P3", integration_point:"plan-review", requested_engine:"codex", actual_engine:"claude", reason:<文本>, codex_check_output:<文本>, agentId:<id|null>, action:"fallback-to-native"}`。
 
 ## P4.per-task-post
@@ -196,9 +203,9 @@ plan.md 生成后，评估其与 design.md 的一致性：
 | medium | 必做 |
 | full / high | 必做 |
 
-**先判 per-task 粒度（`Per-task review` 行，缺省 `each`）**：
+**先判 per-task 粒度（`Per-task review` 行，值 `each | checkpoint`，运行期取自 task-config 解析）**：
 
-- `each`（缺省） → 按上表逐 task 派发（质量优先，默认行为）。
+- `each` → 按上表逐 task 派发（逐 task 质量优先）。
 - `checkpoint` → **跳过逐 task 派发**，不论 code review 策略是 medium 还是 full。per-task 覆盖改由 P4.post-execute 全量 review 兜底（届时全量 review **不降档**、按 full 规模跑——见 `## P4.post-execute/full-review` 降档前置）。适用于 prose-only 多-task 重构：逐 task 派发边际收益递减时，用一次足规模全量 review 替代 N 次逐 task 派发以省 token。
 - 当 code review = `skip/light` 时 per-task 粒度无意义（本就不必做或可选），忽略此行。
 
@@ -230,7 +237,7 @@ Review scope 限定为当前 task 变更的文件。
 
 进入维度自适应表前，先判是否可降档全量 review 的 agent 规模。
 
-- **信号源**：`design.md Review Strategy 的 code review ∈ {medium, full}` **且** `Per-task review = each`（缺省）**且** phases.md `4a` 已完成。在 medium / full + `each` 策略下 per-task review 逐 task 必做（见 P4.per-task-post），故各 task 在执行中已被逐个审过——per-task 覆盖已成立，全量 review 无需再以最大规模重审。
+- **信号源**：`design.md Review Strategy 的 code review ∈ {medium, full}` **且** `Per-task review = each` **且** phases.md `4a` 已完成。在 medium / full + `each` 策略下 per-task review 逐 task 必做（见 P4.per-task-post），故各 task 在执行中已被逐个审过——per-task 覆盖已成立，全量 review 无需再以最大规模重审。
 - **成立** → 设 `agent_count_cap=2`（全量 review 的 agent 数上限封顶为 2），随后**仍进**下方维度自适应表做维度分配，并**保留 ARCHITECTURE 维度的 opus 隔离**（架构型 review 命中时该维度照常 override opus，不受 cap 影响其模型选择）。
 - **不成立** → 不设 cap，直接走下方原表。命中任一即不降档：① code review = skip/light；② `Per-task review = checkpoint`（逐 task 未派发，全量 review 是唯一 review，必须足规模兜底）；③ 4a 未完成。
 
@@ -270,7 +277,23 @@ Review scope 限定为当前 task 变更的文件。
 3. 如 `{task-folder}/design.md` 含 `## Acceptance Tests`：在 prompt 中注入这些验收项（含 `[MUST|SHOULD|MAY]` 标签与变体 / 反模式注记），指示 reviewer 按 CODE_REVIEW.md 的 Acceptance Context 章节把它们当作"合法实现"判断上下文（**不输出 VERDICT、不打分**）
 
 在 reviewer subagent prompt 中注入：
-> Do not trust the implementer's claims about code quality or completeness. Verify all changes by reading the actual diff.
+> Verify every change by reading the actual diff; the implementer's claims about code quality or completeness are not evidence.
+
+#### 执行后端：可选 Workflow（探测回落，默认主 session 派发）
+
+「维度自适应扇出 reviewer 生产 findings + 逐 finding 对抗验证」是无状态只读生产段，可由 Workflow 工具并行编排。**默认走下方主 session 派发；仅当全部满足时改用 Workflow 后端：**
+
+1. 配置 `review.workflow_backend: true`（task-config，缺省 false）；
+2. 运行时探测到 Workflow 工具可用。
+
+任一不满足 → **静默回落**主 session 派发（无 Workflow 工具的环境零感知、流程不变）。
+
+**Workflow 后端职责（三守卫，不得突破）：**
+- 只接管两跳——`parallel()` 扇出维度 reviewer 生产 findings → `pipeline` 逐 finding 对抗验证过滤误报；`schema` 强制结构化输出（末行 `Critical=N Important=M Minor=K` + 每条 finding 附 diff 行引用作核实证据）。barrier 收齐汇总 findings **交回主 session**。
+- **不写 phases.md**（4b 行由主 session 收口写）、**不触发 hook**（P4.post-execute hook 仍由主 session 边界调用）、**判 C/I → 批判性消费 → 就地修复 → Interactive 确认 → 可能转 Revise 全部留主 session**。
+- 脚本骨架 + 调用 + 收口 + A/B 对账见 `references/review-workflow.md`（便携路径，勿写绝对路径）。
+
+Workflow 后端下收敛由其轮内 barrier + journal 承担；**回落主 session 时仍用下方 agentId JOIN**。首次启用先在单 task A/B 对账 token（主 session SendMessage 复活基线 avg 3426 token/次）与稳定性，净收益为正再常开。
 
 #### 收敛场景派发：后台 + 捕获 agentId（衔接 convergence 复活）
 
@@ -329,20 +352,15 @@ Review scope 限定为当前 task 变更的文件。
 
 其余情况（尚有多个未报、且无报错）→ 结束回合继续等。绝不无限挂死。
 
-#### 收敛循环触发模式（Interactive vs Unattended）
+#### 收敛循环触发（所有模式统一）
 
-> 下表是收敛循环的**顶层触发条件**（是否就此 finding 进入下一轮），与上方「改派触发判据」（单个 agent 超时/报错的处理）是两个独立概念，勿混。
+> 本段是收敛循环的**顶层触发条件**（是否就此 finding 进入下一轮），与上方「改派触发判据」（单个 agent 超时/报错的处理）是两个独立概念，勿混。
 
-| 模式 | 触发循环 | 行为 |
-|---|---|---|
-| **Interactive** | 存在 Critical | 推荐进行一轮收敛：验证并就地修复 C/I → 复活受影响维度的 reviewer（轮次 +1，失败则全新派发兜底）→ JOIN 收齐后重新统计。修复前 AskUserQuestion 确认（用户可让继续循环、可指出额外问题再循环、也可接受现状停止）。Important-only 时建议修复但不强制循环。 |
-| **Unattended** | ≥1 Critical **或** ≥2 Important | 自动验证并就地修复 → 复活受影响维度的 reviewer（轮次 +1，失败则全新派发兜底）→ JOIN 收齐后重新统计，**不询问**。 |
+触发判据全模式统一（P4 零阻塞交互，约定 9）：**≥1 Critical 或 ≥2 Important** → 自动验证并就地修复 C/I → 复活受影响维度的 reviewer（轮次 +1，失败则全新派发兜底）→ JOIN 收齐后重新统计，不弹 AskUserQuestion；每轮把「验证结论 + 修复内容」在 session 内可见输出（Interactive 用户在场可随时插话纠偏，缺省不等待）。仅剩 1 Important（无 Critical）时验证并就地修复、不再触发重 review 轮，修复后视为清零。
 
 退出条件：
-- **已收敛**（C=0 且 I=0，或 Interactive 下用户明确接受现状）→ 标记 4b 完成，继续。
-- **达 max_rounds 仍未清零**：
-  - **[Interactive]** AskUserQuestion：再加轮次 / 接受现状并记录 / 转 Revise / 终止。
-  - **[Unattended]** 停下，发送 Telegram 通知 `[task-name] code review 达 max_rounds（{N}）仍有未清 C/I：[清单]`，等待人工。
+- **已收敛**（C=0 且 I=0）→ 标记 4b 完成，继续。
+- **达 max_rounds 仍未清零**（所有模式统一，参照 task-execute escalate 的「可见停下+报告」终态）：在 session 内可见地停下，输出未清 C/I 清单 + 轮次报告，不弹阻塞菜单；**[Unattended]** 叠加 Telegram 通知 `[task-name] code review 达 max_rounds（{N}）仍有未清 C/I：[清单]`（best-effort）。处置在 `/task` 恢复时决定：4b 分诊检出「收敛标注轮次 ≥ max_rounds 且 4b 未标记完成」→ AskUserQuestion：再加轮次 / 接受现状并记录 / 转 Revise / 终止（恢复是用户主动发起的交互点，不属 P4 运行中阻塞）。
 
 #### 收敛轮瘦身（round ≥ 2 只重派受影响范围）
 
@@ -385,7 +403,7 @@ Reason: the old multi-Critical-count threshold let one or two genuine Critical i
 检查 phases.md 中 4b 步骤是否有 `[→ REVISE RN]` 标记（精确匹配 `REVISE` 前缀；**`[→ 收敛 Rn]` 是收敛循环的临时标注、非回归触发，不在此匹配**）：
 - 如有：进入回归模式——scope 限定为 `git diff revise-rN-start..HEAD`
 - 回归 review 通过后：标记 4b `[x]` + 确认 Revise RN Return 完成
-- 回归 review 不通过：**[Interactive]** AskUserQuestion——触发新 R(N+1) / 手动修复 / 终止；**[Unattended]** 自动触发新 R(N+1)（沿用原 Revise 深度），达 `max_rounds` 上限**硬停 + Telegram，等 `/task`**——**不走 `UNATTENDED_PROTOCOL.md` §9 A4 续跑**（A4 仅限 design/plan review；回归 review 不通过 = Revise 未修好，accept-with-findings 放行不安全）
+- 回归 review 不通过：**[Interactive]** AskUserQuestion——触发新 R(N+1) / 手动修复 / 终止；**[Unattended]** 自动触发新 R(N+1)（深度由其根因分析重新决定），达 `max_rounds` 上限**硬停 + Telegram，等 `/task`**——**不走 `UNATTENDED_PROTOCOL.md` §9 A4 续跑**（A4 仅限 design/plan review；回归 review 不通过 = Revise 未修好，accept-with-findings 放行不安全）
 
 ### AI 触发检测（首次执行模式）
 
@@ -393,13 +411,13 @@ Reason: the old multi-Critical-count threshold let one or two genuine Critical i
 
 - 同一根因跨 3+ 文件 → 建议触发 Revise
 - 架构级缺陷（修复需跨模块重新设计）→ 建议触发 Revise
-- **[Interactive]** AskUserQuestion：触发 Revise（Full/Partial/Lite）/ Defer to new task / 继续手动修复
-- **[Unattended]** 自动选择深度：跨 3+ 文件或架构级 → Full；局部多文件 → Partial；≤ 2 文件 → Lite
+- **[Interactive]** AskUserQuestion：触发 Revise / Defer to new task / 继续手动修复
+- **[Unattended]** 跨 3+ 文件或架构级根因 → 自动触发 Revise（深度由 task-revise 根因分析决定，不预设档位）；纯局部 bug → 继续就地修复
 
 ### Revise 触发执行
 
 1. 在 phases.md 4b 步骤后追加 `[→ REVISE R1]`
-2. 在 phases.md 末尾追加 Revise section
+2. 在 phases.md 末尾追加 Revise section（字段 + 单循环基线步骤 `R1-rootcause`/`R1-execute`/`R1-verify`，**无 `[~]`**——模板见 `task/SKILL.md` phases.md Format Reference 的 Revise 段，design/plan 由 task-revise 按需插入）
 3. 声明 "Revise R1 已触发，返回编排器。"
 4. **不标记 4b 为 `[x]`**
 

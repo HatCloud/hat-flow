@@ -116,6 +116,13 @@ def segment_reason(tokens):
     first = effective[0]
     second = effective[1] if len(effective) > 1 else None
 
+    # 验证依赖模拟器：codex 沙盒无 CoreSimulatorService，模拟器 destination 的
+    # xcodebuild / simctl / maestro 全不可行（ISSUE 实测），派发前即判 fallback
+    if first == "maestro" or (first == "xcrun" and second == "simctl"):
+        return "verification requires simulator"
+    if first == "xcodebuild" and any("simulator" in token.lower() for token in effective[1:]):
+        return "verification requires simulator"
+
     if second and (first, second) in INSTALL_COMMANDS:
         return "network install"
 

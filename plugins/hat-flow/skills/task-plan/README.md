@@ -1,30 +1,9 @@
-# Task Plan Skill
+# task-plan
 
-## 目的
+Phase 3（Plan + Commit）worker：把已批准的 design 按模板落成 plan.md（bite-sized tasks + 精确文件路径），经 plan-reviewer 忠实度评估收敛后提交任务文档、同步 Linear。由 `/task` 编排器在 Phase 2 完成后派发，也可单独调用。完整流程与收敛判据以 `SKILL.md` 为准。
 
-Phase 3（Plan + Commit）阶段 skill。按模板编写实施计划 plan.md、运行 reviewer review、提交任务文档、同步 Linear。
+## 补充信息
 
-## 触发条件
-
-- 通过 `/task` 编排器在 Phase 2 完成后自动调用
-- 直接调用 `/task-plan`（手动进入规划阶段）
-
-## 核心流程
-
-1. 按内置模板编写 plan.md（bite-sized tasks + TDD steps + exact file paths）
-2. Self-review checklist（无占位符、每需求对应 task、路径精确）
-3. Plan 忠实度评估（SC2 二元契约）：单个 plan-reviewer subagent、single-pass、注入 plan.md + design.md，返回 `Verdict: Approved | Issues`。不分层、不算轮次矩阵、不按 dimension 派多个 subagent。Approved → 收敛；Issues → 批判性 Accept/Reject 修复后重跑，直到 Approved 或达 max_rounds。
-4. 收敛后展示本轮 review 差异，纯文本确认是否有补充
-5. 提交任务文档（`git commit`，由 P3.phase-end hook 处理）
-6. 同步 Linear（更新描述、发布评论、上传文档）
-
-## 关键规则
-
-- plan.md 中绝不出现占位符（TBD、"similar to Task N"等）
-- Plan review 判据为 `Verdict == Approved`（二元），不做数值评分 / 阈值 / 分层
-- Linear sync 由 P3.phase-end hook 中 linear plugin 执行（条件化）
-
-## 产物
-
-- `.tasks/open/YYYY-MM-DD-topic/plan.md`
-- 更新 `phases.md`（Phase 3 各步骤）
+- **SC2 二元契约的由来**（历史决策）：plan review 曾按数值评分 + 阈值 + 分层轮次矩阵运作，后简化为单 plan-reviewer、single-pass、`Verdict: Approved | Issues` 纯二元判据——「计划是否忠实于设计」是契约式问题，数值分只添加伪精度。
+- **模板来源**：plan.md 模板在 `task/PLAN_PROMPT.md`，运行时嵌入；改模板改该文件，不改本 skill。
+- **codex reviewer 路径**：reviewer 解析为 codex 时输出改三级 severity + `bin/codex-findings-count` 判收敛，与 SC2 verdict 等价映射；quota / 不可用时自动降级 native plan-reviewer 并留 fallback 日志。

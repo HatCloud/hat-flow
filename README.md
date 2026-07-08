@@ -310,17 +310,17 @@ Flag overrides become sparse JSON merged as layer ④ via
 
 | Key | Type | Default | Function |
 |---|---|---|---|
-| `todo_sync` | bool | `true` | Sync `phases.md` to `TaskCreate` / `TaskUpdate` UI. |
+| `todo_sync` | enum | `full` | TODO sync tier: `off` (silent) / `overview` (overview row only) / `full` (overview + per-phase step). Legacy boolean still accepted (`true`→`full`, `false`→`off`). |
 | `phase_merge` | array | `[]` | E.g. `[[3,4]]` skips the P3→P4 pause. **P5→P6 can never be merged.** |
 
 ### Presets
 
 | Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `todo_sync` | Typical use |
 |--------|------------------|------------|----------------|--------------------|------------------|--------------|------------|
-| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | Large refactors, contract-sensitive work |
-| `standard` (default) | `auto` | `lite` | `medium` | `each` | `true` | `true` | General-purpose |
-| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | Small changes, docs |
-| `hotfix` | `inline` | `none` | `skip` | (skipped) | `false` | **`false`** | Emergency fixes (minimum overhead) |
+| `full` | `auto` | `full` | `full` | `each` | `true` | `full` | Large refactors, contract-sensitive work |
+| `standard` (default) | `auto` | `lite` | `medium` | `each` | `true` | `full` | General-purpose |
+| `lite` | `inline` | `none` | `light` | `each` | `false` | `full` | Small changes, docs |
+| `hotfix` | `inline` | `none` | `skip` | (skipped) | `false` | **`off`** | Emergency fixes (minimum overhead) |
 
 > Override any field via layer ② (`~/.claude/task-defaults.local.json`),
 > layer ③ (`<project>/task-defaults.json`), or call-time flag (highest).

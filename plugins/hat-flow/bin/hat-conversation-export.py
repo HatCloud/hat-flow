@@ -24,6 +24,7 @@ def extract_messages_and_stats(jsonl_paths):
     if isinstance(jsonl_paths, str):
         jsonl_paths = [jsonl_paths]
     messages = []
+    seen_uuids = set()
     phase_stats = defaultdict(lambda: {
         "input_tokens": 0, "output_tokens": 0,
         "cache_read": 0, "cache_create": 0,
@@ -51,6 +52,14 @@ def extract_messages_and_stats(jsonl_paths):
             msg_type = obj.get("type", "")
             if msg_type not in ("user", "assistant"):
                 continue
+
+            # compaction 边界会重复渲染同一记录（实测 ~15% 多余）；按 uuid 去重，
+            # 否则 tool/turn 计数与 Agent 调用次数会虚高
+            uid = obj.get("uuid")
+            if uid is not None:
+                if uid in seen_uuids:
+                    continue
+                seen_uuids.add(uid)
 
             timestamp = obj.get("timestamp", "")
             msg = obj.get("message", {})

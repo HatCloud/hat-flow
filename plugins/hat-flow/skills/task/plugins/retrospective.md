@@ -41,16 +41,21 @@
    - 例：未配置验证命令 → 建议添加到 CLAUDE.md
    - 例：formatter 不由 git hook 管理 → 建议配置 husky
 
-**如果有建议**，使用 AskUserQuestion，每条建议附带：
+**跳过前置**：若无建议，或全部建议仅为 Minor（锦上添花、无明确流程偏差/配置缺失证据），**跳过 Part B 交互**——将这些建议记入 final.md（随归档 commit），不打断用户。仅当存在 ≥1 条实质建议（命中流程偏差 / token 浪费 / 配置缺失）时才进入下方交互。（Part A 分析与建议汇总照常做，本前置只裁交互、不减分析深度。）
+
+**有实质建议时**，用**单次** AskUserQuestion 汇总（每条实质建议一个 question，最多 4 条；超出的直接记 debt.md），每个 question 附：
 - 问题描述（一句话）
 - 具体的改进方案
-- 选项：**Execute now** / **Record to debt.md for later** / **Skip**
+- 选项：**沉淀到 lessons / 配置** / **Record to debt.md for later** / **Skip**
 
-对于用户选择 "Execute now" 的建议：
-- Workflow/Skill improvements → 直接修改对应的 skill 文件
-- Project configuration improvements → 修改 CLAUDE.md 或相关配置文件
+对于用户选择第一项（采纳）的建议：
+- **Workflow/Skill improvements → 不直接改 skill 文件**：把该建议作为一条 lessons 候选写入对应技能 `references/lessons.md`（带「建议出口=正文/reference」标记 + 重要度），并提醒用户「固化进流程请用 `skill-revise`（带双盲 A/B 测试门）」。
+- Project configuration improvements → 修改 CLAUDE.md 或相关配置文件（不涉及技能正文，照旧）。
 
-**如果没有建议**：跳过此步骤。
+<rule>
+本插件不直接修改任何技能 SKILL.md / reference 正文；对 Workflow/Skill 类改进只把建议沉淀为对应技能的 lessons 候选，固化进流程一律转交 skill-revise。Project 配置（CLAUDE.md / husky 等非技能文件）不受此限。
+Reason: 两段式自进化要求运行段（含归档后 retrospective）只沉淀、不固化——无验证的自动改流程会累积 skill debt。skill-revise 的双盲测试门是唯一固化入口。
+</rule>
 
 **[Unattended]** 自动选择 "Record to debt.md for later"，不阻断。
 

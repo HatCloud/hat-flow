@@ -128,3 +128,83 @@ def test_missing_template_errors(tmp_path):
 def test_bad_flags_json_errors(tmp_path):
     r = run_resolve(tmp_path, "--preset", "standard", "--flags", "{not json")
     assert r.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# todo_sync enum (off | overview | full) + legacy boolean normalization
+# ---------------------------------------------------------------------------
+def test_todo_sync_enum_passthrough(tmp_path):
+    # guards the SHIPPED template: preset enum values resolve as expected
+    # (regression guard against a preset accidentally reverting to legacy boolean)
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+    r = run_resolve(tmp_path, "--preset", "hotfix")
+    assert json.loads(r.stdout)["todo_sync"] == "off"
+
+
+def test_todo_sync_overview_via_layer(tmp_path):
+    _write(tmp_path / "task-defaults.json", {"todo_sync": "overview"})
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "overview"
+
+
+def test_todo_sync_legacy_boolean_migrates(tmp_path):
+    # legacy true → full
+    _write(tmp_path / "task-defaults.json", {"todo_sync": True})
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+    # legacy false → off
+    _write(tmp_path / "task-defaults.json", {"todo_sync": False})
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "off"
+
+
+def test_todo_sync_illegal_value_falls_back_to_full(tmp_path):
+    _write(tmp_path / "task-defaults.json", {"todo_sync": "bogus"})
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+    assert r.stderr == ""  # config-layer illegal value falls back silently (no warning)
+
+
+def test_todo_sync_json_null_falls_back_to_full(tmp_path):
+    # key present but value JSON null (Python None) → not bool, not in enum → full
+    _write(tmp_path / "task-defaults.json", {"todo_sync": None})
+    r = run_resolve(tmp_path, "--preset", "standard")
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+
+
+def test_todo_sync_missing_defaults_to_full(tmp_path):
+    # run_resolve uses the real TEMPLATE (always sets todo_sync); call subprocess
+    # directly with a minimal template to exercise the missing-key path
+    tmpl = tmp_path / "tmpl.json"
+    _write(tmpl, {"preset": "standard", "presets": {"standard": {}}})
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--template", str(tmpl),
+         "--project-root", str(tmp_path), "--global-local", "/nonexistent/g.json",
+         "--preset", "standard"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+
+
+def test_todo_sync_flag_overrides_config(tmp_path):
+    r = run_resolve(tmp_path, "--preset", "standard", "--todo-sync", "overview")
+    assert json.loads(r.stdout)["todo_sync"] == "overview"
+
+
+def test_todo_sync_flag_beats_flags_json(tmp_path):
+    # --todo-sync is more specific than a --flags JSON todo_sync
+    r = run_resolve(
+        tmp_path, "--preset", "standard",
+        "--flags", json.dumps({"todo_sync": "off"}),
+        "--todo-sync", "full",
+    )
+    assert json.loads(r.stdout)["todo_sync"] == "full"
+
+
+def test_todo_sync_flag_illegal_falls_back_to_config(tmp_path):
+    r = run_resolve(tmp_path, "--preset", "standard", "--todo-sync", "bogus")
+    assert r.returncode == 0
+    assert json.loads(r.stdout)["todo_sync"] == "full"  # config (standard) value kept
+    assert "invalid value" in r.stderr

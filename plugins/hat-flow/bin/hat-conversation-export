@@ -48,7 +48,11 @@ fi
 JSONL_FILES=()
 if [ "${#SESSION_IDS[@]}" -gt 0 ]; then
   for sid in "${SESSION_IDS[@]}"; do
-    jf=$(find "$PROJECTS_DIR" -name "${sid}.jsonl" -type f 2>/dev/null | head -1)
+    # 同一 session-id 可能在多个 project 目录各有一份（worktree 任务尤甚：真实
+    # transcript 在主 project 目录、worktree 目录常只有 1 行 stub）。按文件大小
+    # 降序取最大那份，避免 head -1 抓到空 stub。
+    jf=$(find "$PROJECTS_DIR" -name "${sid}.jsonl" -type f -print0 2>/dev/null \
+      | xargs -0 ls -S 2>/dev/null | head -1)
     if [ -z "$jf" ]; then
       echo "Error: No JSONL file found for session: $sid" >&2
       exit 1

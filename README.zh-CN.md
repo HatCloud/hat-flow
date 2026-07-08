@@ -281,17 +281,17 @@ JSON，作为第 ④ 层经 `hat-task-config-resolve --flags` 合并。
 
 | Key | 类型 | 默认 | 功能 |
 |---|---|---|---|
-| `todo_sync` | bool | `true` | 同步 `phases.md` 到 `TaskCreate` / `TaskUpdate` UI |
+| `todo_sync` | enum | `full` | TODO 同步档位：`off`（静默）/ `overview`（仅概览行）/ `full`（概览 + 每 phase step）。legacy boolean 仍兼容（`true`→`full`、`false`→`off`） |
 | `phase_merge` | array | `[]` | 例：`[[3,4]]` 表示 P3→P4 无停顿。**P5→P6 永不可合并** |
 
 ### Preset 档位
 
 | Preset | `execution.mode` | `tdd.mode` | `code_review` | `per_task_review` | `retrospective` | `todo_sync` | 典型场景 |
 |--------|------------------|------------|----------------|--------------------|------------------|--------------|----------|
-| `full` | `auto` | `full` | `full` | `each` | `true` | `true` | 大型重构、契约敏感 |
-| `standard`（缺省） | `auto` | `lite` | `medium` | `each` | `true` | `true` | 通用默认 |
-| `lite` | `inline` | `none` | `light` | `each` | `false` | `true` | 小改动、文档 |
-| `hotfix` | `inline` | `none` | `skip` | （跳过） | `false` | **`false`** | 紧急修复（最低开销） |
+| `full` | `auto` | `full` | `full` | `each` | `true` | `full` | 大型重构、契约敏感 |
+| `standard`（缺省） | `auto` | `lite` | `medium` | `each` | `true` | `full` | 通用默认 |
+| `lite` | `inline` | `none` | `light` | `each` | `false` | `full` | 小改动、文档 |
+| `hotfix` | `inline` | `none` | `skip` | （跳过） | `false` | **`off`** | 紧急修复（最低开销） |
 
 > 任何字段都可经层 ②（`~/.claude/task-defaults.local.json`）、层 ③
 > （`<project>/task-defaults.json`）或调用 flag（最高）覆盖。

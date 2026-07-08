@@ -3,7 +3,7 @@
   "_comment": "任务流程全局默认配置。顶层 plugins 定义全局默认值，presets 定义档位覆盖，overrides 用于用户自定义覆盖。",
   "preset": "standard",
   "telegram_chat_id": null,
-  "_telegram_chat_id_note": "无人值守 Telegram 通知目标的 chat_id（字符串或数字）。**默认 null = 不开启通知**。在 personal local 配置（~/.claude/task-defaults.local.json）覆盖，不要在分发版仓库里填具体值——hat-flow pipeline 会把本文件打包到公开仓库。",
+  "_telegram_chat_id_note": "无人值守 Telegram 通知目标的 chat_id（字符串或数字）。**默认 null = 不开启通知**。在 personal local 配置（~/.claude/task-defaults.local.json）覆盖，不要在本共享模板里填具体值（个人标识符不入仓库，见 UNATTENDED_PROTOCOL.md §3）。",
   "_telegram_chat_id_setup": "获取方式：运行 /telegram:configure 完成 Telegram companion 插件配对（access.json dmPolicy=allowlist + allowFrom 含本人）；或运行 task-setup Step 2 让向导写入 ~/.claude/task-defaults.local.json。探测优先级见 UNATTENDED_PROTOCOL.md §3。",
   "branch": {
     "mode": "keep",
@@ -42,10 +42,12 @@
   "execution": {
     "mode": "inline",
     "_mode_values": "auto | inline | parallel-agents",
-    "_mode_note": "auto = 按批次决策（独立批次 2+ 无互依赖→parallel-agents 派发，耦合链/单 task→inline）；inline = 主 agent 当前上下文串行直接执行；parallel-agents = 凡可隔离 task 都派 task-executor。legacy 值 subagent 已废弃→迁移为 auto；未识别 mode 一律 fallback 为 inline。",
+    "_mode_note": "auto = 按批次决策（整层可隔离——层内每个 task 带 [P]、互无依赖、Files 不重叠、过契约门——且层规模 ≥ fanout_min_batch → parallel-agents 派发；否则整层 inline）；inline = 主 agent 当前上下文串行直接执行；parallel-agents = 凡可隔离 layer（含单 task 层）都派 task-executor。legacy 值 subagent 已废弃→迁移为 auto；未识别 mode 一律 fallback 为 inline。",
+    "fanout_min_batch": 3,
+    "_fanout_min_batch_note": "auto 模式触发 parallel-agents fan-out 所需的同层最小 task 数阈值（判据：len(layer) >= 此值，且该层满足 [P]+Depends完成+Files不重叠+契约门）。默认 3：Anthropic 实测多智能体扇出约 15x token、多数编码工作是反例，故默认克制——批次 <3 时 inline 串行更划算。parallel-agents 模式不受此阈值约束（任何可隔离 layer 都派）；inline 模式忽略此值。",
     "engine": "auto",
     "_engine_values": "auto | sonnet | opus | codex",
-    "_engine_note": "仅作用于被派发的 task。auto = 模型 f(难度, TDD mode, 复杂度)：基线 easy/medium→Sonnet, hard→Opus；TDD 加权 full+hard+无架构→降 Sonnet；架构 override（触 3+ 文件或含架构关键词）→Opus，优先级最高。codex = 经 /codex:rescue --write 串行派 Codex 执行实现（不并发、覆盖 inline/parallel-agents 扇出；受沙盒门槛 + cwd_control + codex-check 门控，不满足则硬降级 Claude；仅 P4 实现派发，code review 不变）。engine=sonnet/opus/codex 仅控制派发执行者；inline task 固定跑主 agent 当前模型，不受此 engine 设置影响、不做 per-task 选型。",
+    "_engine_note": "仅作用于被派发的 task。auto = 模型 f(难度, TDD mode, 复杂度)：基线 easy/medium→Sonnet, hard→Opus；TDD 加权 full+hard+无架构→降 Sonnet；架构 override（触 3+ 文件或含架构关键词）→Opus，优先级最高。两条分级原则：① mid-tier 下限——executor 与 design/plan reviewer 不低于 Sonnet（现矩阵已满足；code review 恒 Opus/claude）；② 便宜模型多步反而更贵——hard/架构 task 让 Sonnet 硬扛多步往返常比直接上 Opus 更贵，故复杂度/影响面够高即 Opus（架构 override），不靠便宜模型多步硬撑。codex = 经 /codex:rescue --write 串行派 Codex 执行实现（不并发、覆盖 inline/parallel-agents 扇出；受沙盒门槛 + cwd_control + codex-check 门控，不满足则硬降级 Claude；仅 P4 实现派发，code review 不变）。engine=sonnet/opus/codex 仅控制派发执行者；inline task 固定跑主 agent 当前模型，不受此 engine 设置影响、不做 per-task 选型。",
     "_cost_note": "执行大头走 Sonnet（≈Opus 1/5 价）；parallel-agents 只省墙钟不减 token 总量；前提是 plan 任务已切细自足。"
   },
   "plugins": {
@@ -85,7 +87,9 @@
       "enabled": false
     }
   },
-  "todo_sync": true,
+  "todo_sync": "full",
+  "_todo_sync_values": "off | overview | full",
+  "_todo_sync_note": "TODO（TaskCreate/Update）同步档位。off = 完全静默（不建概览、不调任何 Task 工具，Bootstrap 亦 no-op）；overview = 只维护 1 行概览（1f 建、phase 切换更新符号、收尾置完成），不建 step；full = 双层（概览 + 当前 phase step），现状行为。触发契约 + 4 命名模板见 references/todo-sync.md。legacy boolean 向后兼容：resolver 规范化 true→full、false→off、非法/缺失→full。",
   "phase_merge": [],
   "_phase_merge_note": "数组的数组，如 [[3,4]] 表示 P3→P4 无停顿。P5→P6 永不可合并。当前默认全部不合并（所有 preset 均为 []，每个阶段都重要）。",
   "overrides": {},
@@ -100,7 +104,12 @@
         "review": {
           "enabled": true,
           "code_review": "full",
-          "reviewer": "auto"
+          "reviewer": "auto",
+          "per_task_review": "each",
+          "max_rounds": {
+            "claude": 4,
+            "codex": 8
+          }
         },
         "tdd": {
           "enabled": true,
@@ -111,7 +120,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "standard": {
       "execution": {
@@ -122,7 +131,8 @@
         "review": {
           "enabled": true,
           "code_review": "medium",
-          "reviewer": "auto"
+          "reviewer": "auto",
+          "per_task_review": "checkpoint"
         },
         "tdd": {
           "enabled": true,
@@ -133,7 +143,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "lite": {
       "execution": {
@@ -155,7 +165,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": true
+      "todo_sync": "full"
     },
     "hotfix": {
       "execution": {
@@ -175,7 +185,7 @@
         }
       },
       "phase_merge": [],
-      "todo_sync": false,
+      "todo_sync": "off",
       "p5_auto_only": true
     }
   }

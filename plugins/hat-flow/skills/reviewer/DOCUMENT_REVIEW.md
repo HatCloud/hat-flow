@@ -2,7 +2,7 @@
 
 通用文档审核协议。通过动态注入 Guide 文件实现类型特有检查。
 
-**调用方式**：调用方（distill/research/card-refine）派发 Agent subagent，将本协议内容 + 对应 Guide 文件内容 + 待审文档内容全部以文本形式注入 prompt（路径 B）。不依赖 `${CLAUDE_POSITIONAL_ARGS}` 动态路由。
+**调用方式**：调用方（distill/dive/card-refine）派发 Agent subagent，将本协议内容 + 对应 Guide 文件内容 + 待审文档内容全部以文本形式注入 prompt（路径 B）。不依赖 `${CLAUDE_POSITIONAL_ARGS}` 动态路由。
 
 ## Required Input
 
@@ -15,8 +15,8 @@
 | 文档类型 | Cards / Wiki / Report / Blog |
 
 <rule>
-Check all required inputs before starting review. If any input is missing, output error listing missing items and terminate immediately.
-Reason: reviewing with partial context produces false negatives that are worse than no review.
+review 开始前先检查所有必要输入，缺失任一输入即以报错终止，并列出缺失项。
+Reason: 在残缺上下文上做 review 会产生 false negative，比不做 review 更糟。
 </rule>
 
 ## Guide 映射

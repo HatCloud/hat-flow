@@ -127,3 +127,36 @@ def test_no_worktree_field_when_absent(tmp_path):
     data = json.loads(result.stdout)
     task_entry = next(t for t in data["open"] if t["name"] == "2026-06-17-plain")
     assert "worktree" not in task_entry
+
+
+def test_worktree_artifacts_read_from_worktree(tmp_path):
+    """产物住在 worktree 内时，从 worktree（非 stub）探测 design/plan/progress。"""
+    stub_dir = tmp_path / "open" / "2026-06-17-wt-relocate"
+    stub_dir.mkdir(parents=True)
+    wt_dir = tmp_path / "worktrees" / "2026-06-17-wt-relocate"
+    wt_dir.mkdir(parents=True)
+    (wt_dir / "design.md").write_text("# design\n")
+    (wt_dir / "plan.md").write_text("- [x] a\n- [ ] b\n")
+    (stub_dir / ".worktree").write_text(f"{wt_dir}\n")
+
+    result = run_detect(str(tmp_path))
+    data = json.loads(result.stdout)
+    task_entry = next(t for t in data["open"] if t["name"] == "2026-06-17-wt-relocate")
+    assert task_entry["hasDesign"] is True
+    assert task_entry["hasPlan"] is True
+    assert task_entry["planProgress"] == {"total": 2, "checked": 1, "unchecked": 1}
+    assert task_entry["worktree"] == str(wt_dir)
+    assert "worktreeMissing" not in task_entry
+
+
+def test_worktree_pointer_stale_marks_missing(tmp_path):
+    """worktree 指针指向不存在的目录 → 回退 stub 并标 worktreeMissing。"""
+    stub_dir = tmp_path / "open" / "2026-06-17-wt-stale"
+    stub_dir.mkdir(parents=True)
+    (stub_dir / ".worktree").write_text("/nonexistent/worktrees/2026-06-17-wt-stale\n")
+
+    result = run_detect(str(tmp_path))
+    data = json.loads(result.stdout)
+    task_entry = next(t for t in data["open"] if t["name"] == "2026-06-17-wt-stale")
+    assert task_entry["worktreeMissing"] is True
+    assert task_entry["hasPlan"] is False

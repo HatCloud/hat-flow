@@ -2,6 +2,7 @@
 name: spec-task-skill
 user-invocable: false
 description: "Use when creating, modifying, or reviewing task workflow skills (task-init, task-design, task-plan, task-execute, task-test, task-end, task-cancel, task-revise, task-reopen, and the task orchestrator). Extends spec-skill with task-specific conventions. Do NOT use for non-task skills. 触发词: \"task skill 规范\", \"检查 task skill\", \"task 技能合规\""
+word-budget: 2000
 ---
 
 # Task Skill Specification Guide
@@ -9,20 +10,6 @@ description: "Use when creating, modifying, or reviewing task workflow skills (t
 Task workflow skill 的专用规范。继承 `spec-skill` 的所有通用规则，增加 task 系列特有的约定。
 
 **Announce at start:** "Using spec-task-skill to [write/modify/review] the task skill."
-
-**LANGUAGE RULE — strictly enforced, no exceptions:**
-Write every message you show to the user in the user's configured language (the project's language preference, e.g. via `/config` or CLAUDE.md). Technical terms and code identifiers stay in their original form.
-
-## Red Flags
-
-| If you think... | Reality |
-|---|---|
-| "This phase skill can handle its own transition" | Phase skills MUST return to orchestrator Step 3. Transition routing is the orchestrator's job. |
-| "The hook output is just one segment, no need to verify" | Hooks can output multiple segments. All must execute, and artifacts must be verified. |
-| "Phase numbers are stable, I can hardcode P3→P4" | phase_merge changes numbering. Use semantic names (Init/Design/Plan/Execute/Test/End). |
-| "Revise is a quick fix, skip user confirmation" | Revise without confirmation leads to band-aid fixes. Confirmation loop is mandatory. |
-
----
 
 ## Base Specification (spec-skill pre-loaded)
 
@@ -34,6 +21,7 @@ Write every message you show to the user in the user's configured language (the 
 
 - **继承**: `spec-skill`（已预注入上方）
 - **适用范围**: `skills/task*/SKILL.md`（各 phase skill，含生命周期辅助 skill task-reopen）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/SKILL.md`（编排器）+ `bin/hat-task-artifact-check`（门控脚本）+ `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`（插件指令 + 顶部 frontmatter 声明）+ `agents/*.md`（task 工作流派发的 subagent，如 task-executor、各 reviewer）+ `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/*.md`（review 协议）+ 协议文件（`DESIGN_PROTOCOL.md` / `PLAN_PROMPT.md` / `UNATTENDED_PROTOCOL.md` / `IMPLEMENTER_PROMPT.md`）
+- **消费方**：`skill-create`（Phase 1/2 之间）与 `skill-revise`（Phase 0）在目标 skill 名匹配 `task*` 或其 Dependencies 声明 `Invokes: task-*` 时，条件 `!`cat`` 本文件（本文件不复述 spec-skill 规则，只补 task 系列的增量约定）。新增第三个消费方时，同样在该消费方的对应阶段加条件注入分支，不要求本文件反向感知消费方数量。
 
 ---
 
@@ -47,8 +35,8 @@ Task 流程分两层，必须始终分离：
 两层只通过 hook 边界连接：core 在阶段边界调 `hat-plugin-hook {folder} {hook-point}`，逐段执行返回的指令；插件关闭（`task-config.json` 翻 `enabled:false`）时 hook 不返回它的指令段，该能力自然消失。目标——**任一插件都能靠翻 `enabled:false` 干净拔除，无需编辑任何 core 文件**（门控脚本也算 core：它不得为某个具体插件硬编码产物文件名）。
 
 <HARD-GATE>
-Plugin-specific logic MUST NOT be written into any core file (a phase SKILL.md, the orchestrator, or hat-task-artifact-check). A plugin's behavior lives only in its plugins/*.md (instruction body + leading frontmatter); core merely invokes the hook and executes whatever instructions come back.
-Reason: when plugin logic leaks into core, flipping enabled:false no longer removes the logic — disabling the plugin then requires surgically editing core files, and the pluggable promise silently breaks. When a stateful plugin's artifacts span phases, its lifecycle logic tends to spread across multiple phase skills and the gate script, turning a one-flag removal into multi-file surgery.
+任何 core 文件（phase SKILL.md、编排器、hat-task-artifact-check）中出现插件专有逻辑，均 out of scope。插件的行为只住在它自己的 plugins/*.md（指令正文 + 顶部 frontmatter）；core 仅调用 hook 并执行返回的指令。
+Reason: 插件逻辑一旦泄漏进 core，翻 enabled:false 就不再能移除这段逻辑——关闭插件随之需要外科手术式地编辑 core 文件，可插拔的承诺静默破裂。当一个有状态插件的产物跨阶段时，它的生命周期逻辑往往散布到多个 phase skill 与门控脚本，把「翻一个 flag 即移除」变成多文件手术。
 </HARD-GATE>
 
 ### Cross-Phase State Litmus
@@ -68,24 +56,24 @@ Reason: when plugin logic leaks into core, flipping enabled:false no longer remo
 
 ### 1. Phase Transition Protocol
 
-每个阶段 skill 都有一个 transition section（如"Execute 完成 → 过渡"）。此 section 必须遵守：
+每个阶段 skill 都有一个 transition section（如"Execute 完成 → 过渡"）。此 section 的构成：
 
-**必须包含：**
+**包含项：**
 - 用用户配置的语言简要宣告阶段结果
 - 声明"Phase N 完成。"
 - 明确指令：**"此处停止输出，返回编排器 Step 3 执行过渡逻辑。"**
-- `<rule>` 禁止在 transition 中提示用户调用任何 skill
+- 一条 `<rule>` 把「transition 中提示用户调用任何 skill」划为 out of scope
 
-**必须避免：**
+**排除项（这些职责归编排器，transition 不承载）：**
 - 提示用户调用 `/task-end`、`/task-test` 或其他 skill
 - 自行判断下一阶段（过渡类型表由编排器维护）
-- 给出 compact 建议（这是编排器 Step 3 的职责）
+- 新会话交接建议（属编排器 Step 3 的职责）
 
-**唯一例外**：Test 阶段的 transition 是硬停，应该提示调用 `/task-end`。
+**唯一例外**：Test 阶段的 transition 是硬停，此处提示调用 `/task-end`。
 
 <rule>
-Phase skill transition sections MUST end with "返回编排器 Step 3" and MUST NOT suggest invoking any other skill. The orchestrator owns transition logic (artifact check, compact, unattended check).
-Reason: phase skills lack knowledge of phase_merge, compact rules, and unattended state. Self-directing transitions bypasses these checks.
+phase skill 的 transition section 以「返回编排器 Step 3」结束，不提示调用任何其他 skill。过渡逻辑（artifact check、新会话交接、unattended check）归编排器所有。
+Reason: phase skill 不掌握 phase_merge、交接规则与 unattended 状态。自作主张的过渡会绕过这些检查。
 </rule>
 
 ### 2. Phase 语义命名
@@ -103,7 +91,7 @@ Reason: phase skills lack knowledge of phase_merge, compact rules, and unattende
 
 **何时可以用序号**：phases.md 中的步骤编号（`4a. 执行任务`）、Phase 路由表中的状态匹配——这些是结构化数据，不受 phase_merge 影响。
 
-**何时必须用语义名**：过渡类型表、触发条件描述、compact/unattended 检查条件——这些描述逻辑关系，phase_merge 后序号会变化。
+**何时必须用语义名**：过渡类型表、触发条件描述、交接/unattended 检查条件——这些描述逻辑关系，phase_merge 后序号会变化。
 
 ### 3. Hook Artifact Verification
 
@@ -143,8 +131,8 @@ Task skill 在两种模式下执行：**Interactive**（用户在场）和 **Una
 无人值守的具体默认值见 `UNATTENDED_PROTOCOL.md`。
 
 <rule>
-Every stop point or user-decision branch added to a task skill MUST carry an explicit [Unattended] path that resolves without human input. Never leave a pause that only an interactive user can clear.
-Reason: an unattended run has no one to answer — a single unguarded AskUserQuestion or "wait for user reply" stalls the whole automated flow indefinitely. The pause must auto-resolve (default option, protocol decision, or notify-then-cancel), not block.
+task skill 中新增的每个停顿点或用户决策分支，都带一条无需人工即可解决的显式 [Unattended] 路径。只有交互式用户才能清除的停顿，out of scope。
+Reason: 无人值守的运行没有人来应答——单个未设防的 AskUserQuestion 或「等用户回复」会让整条自动化流程无限期卡死。该停顿靠自身自动解决（默认选项、协议决策，或 notify-then-cancel），而非阻塞。
 </rule>
 
 ### 6. Protocol File as Single Source
@@ -154,9 +142,11 @@ Reason: an unattended run has no one to answer — a single unguarded AskUserQue
 理由（本架构的 dogfooding 教训）：Block 4 中 `DESIGN_PROTOCOL.md` 与 `task-design/SKILL.md` 长期双写同一设计流程，运行时两份内容同时被加载，导致：① 提问节奏出现两个版本（"One question at a time" vs "合并提问"）；② 复杂度矩阵出现两个版本——任一版本的修改都不会同步到另一处，增加维护成本，并在 Design / Plan 阶段放大认知负担。
 
 <rule>
-When a phase SKILL.md pre-injects a protocol file via `!`cat``, the SKILL.md MUST NOT restate the protocol's process steps, question cadence, templates, or decision matrices. Those live only in the protocol file; the SKILL.md carries only orchestration-layer content (announce, hook invocations, transition, stop points).
-Reason: dual-writing the same content produces two diverging versions that both load at runtime. Any edit to one is silently missed by the other, creating contradictory instructions. The protocol file is the single source of truth for its domain; the phase skill is the single source of truth for orchestration.
+当 phase SKILL.md 经 `!`cat`` 预注入某协议文件时，该协议的流程步骤、提问节奏、模板与决策矩阵只留在那个协议文件里；在 SKILL.md 中重述它们 out of scope。SKILL.md 只承载编排层内容（announce、hook 调用、transition、停止点）。
+Reason: 双写同一内容会产生两份逐渐分叉的版本、且运行时都被加载。对其中一份的任何修改都会被另一份静默遗漏，从而产生互相矛盾的指令。协议文件是其领域的单一来源；phase skill 是编排的单一来源。
 </rule>
+
+**薄引用纪律**：把某 section 收敛为对权威文件的薄引用时，section 只列**触发点名 + 指回权威**，不复述 per-tier / 档位的具体动作——复述会与权威表二次漂移，且容易把分属不同触发点的动作捆进一句（实证：todo-sync 收敛时 worker section 复述「overview 仅更新概览符号」，与触发表的触发点归属冲突，到全量 review 才捕出）。
 
 ### 7. 剥离 / 删除类任务的验收 grep 范围
 
@@ -168,8 +158,8 @@ Reason: dual-writing the same content produces two diverging versions that both 
 **过滤的反向副作用**：`| grep -v <排除>` 是**行级**过滤——若一行同时含合法子串与真实残留，整行被丢弃，真残留被掩盖。故凡用 `grep -v` 收窄验收，须辅以对**被过滤掉的行**人工 / reviewer 抽查，或改用词边界精确模式（给关键词加 `\b` 词边界，只匹配独立词、不匹配作为子串嵌入合法标识符的情形）只排子串误命中而不吞同行真残留。
 
 <rule>
-A removal/strip task that uses a residual-grep as an acceptance gate MUST scope the grep to exclude (a) artifacts deliberately kept (later-block consumers, history, changelog) and (b) substring false-positives where a loose keyword matches a legitimate identifier. Otherwise the "zero residual" acceptance contradicts the Out-of-Scope set and can never pass.
-Reason: dogfooding found a strip task whose acceptance grep matched the very script names it was meant to keep — the gate was logically unsatisfiable. Define the grep's exclusions as part of the acceptance criterion, not as an afterthought.
+以 residual-grep 作验收门控的删除/剥离类任务，其 grep 范围排除两类合法命中：(a) 刻意保留的产物（后续 block 的消费侧、历史记录、changelog），以及 (b) 宽松关键词命中合法标识符的子串误报。否则「零残留」验收会与 Out-of-Scope 集合自相矛盾、永远无法通过。
+Reason: dogfooding 发现过一个剥离任务，其验收 grep 命中了它本应保留的脚本名——该门控在逻辑上不可满足。grep 的排除项属于验收标准本身，而非事后补救。
 </rule>
 
 ### 8. Hook Manifest Closure
@@ -183,8 +173,8 @@ Reason: dogfooding found a strip task whose acceptance grep matched the very scr
 - **⑤ 校验配方**：对每个 plugin 跑双向 grep——正向遍历 frontmatter 每个 `section` 在 `.md` body 查找标题；反向列 `.md` body 的非代码块 `## ` 标题与 frontmatter `section` 值集求差，差集为空即闭合。
 
 <rule>
-Every frontmatter `section` string MUST exist as a `## ` heading in the plugin .md body, and every hook-handler `## ` heading in the .md body MUST be referenced by some frontmatter `section`. Verify by set-inclusion of section strings in both directions — never by assuming the hook-point name equals the section name.
-Reason: an undeclared handler section is silently never emitted (the exact failure where a quality gate's body was written but never reached the agent), and a declared-but-missing section errors at hook time. Section strings are arbitrary and may be reused across hook points, so a name-equality check produces false positives that mask the real closure state.
+当每个 frontmatter `section` 字符串都在 plugin .md body 中存在为一个 `## ` 标题、且 .md body 中每个 hook-handler `## ` 标题都被某 frontmatter `section` 引用时，闭合成立。校验是 section 字符串在两个方向上的集合包含；名称相等判据（hook 点名 == section 名）不可靠。
+Reason: 未声明的 handler section 会被静默地永不 emit（正是「某质量门控的正文写了却从未到达 agent」那种失败），而声明了却缺失的 section 会在 hook 时报错。section 字符串是任意的、可跨 hook 点复用，因此名称相等判据会产生掩盖真实闭合状态的假阳性。
 </rule>
 
 **与约定 3「Hook Artifact Verification」的边界**：约定 3 管运行时——hook 输出后验证**预期产物**是否生成；本约定管静态结构——frontmatter ↔ .md body 的 **section 声明**是否闭合。两者单一职责，不合并。
@@ -199,36 +189,36 @@ Reason: an undeclared handler section is silently never emitted (the exact failu
 |---|---|
 | Init (P1) / Design (P2) | **收集一切需用户决策的事项**（提交节奏、验证命令、分支策略、无人值守时机、scope 等）。交互集中在此。 |
 | Plan (P3) | **尽量少交互**——只保留 plan review 收敛的轻量确认。新增交互前先问：能否前置到 Design？ |
-| Execute (P4) | **任何模式（含 Interactive）零阻塞交互**。不得新增 AskUserQuestion / 等用户应答的停顿。P4 真卡死时，终态是「在 session 内可见地停下并输出清晰报告」（用户回来即见），Telegram 通知为 best-effort **叠加**而非替代——**绝不**改成无投递路径的「静默暂停」。 |
+| Execute (P4) | **任何模式（含 Interactive）零阻塞交互**——不新增 AskUserQuestion / 等用户应答的停顿。P4 真卡死时，终态是「在 session 内可见地停下并输出清晰报告」（用户回来即见）；Telegram 通知为 best-effort **叠加**而非替代，无投递路径的「静默暂停」不在此终态之列。 |
 | Test (P5) / End (P6) | **豁免**。用户测试、End 决策（分支处理、CLAUDE.md、debt 对账确认）是自然决策点，受约定 4（Revise Confirmation）/ 约定 5（Interactive/Unattended Duality）管辖，不在本约定的「零交互」范围内。 |
 
 **边界澄清：**
 - 本约定的「零交互」只约束到 **Execute(P4) 末**。P5/P6 的既有交互合法。
 - 独立 on-demand skill（如 `/dogfooding`、各 spec-* skill）**不属于 task Execute 流程**，其交互不受本约定约束。
 - 因 P4 行为在两模式下一致（零阻塞），**Interactive 与 Unattended 的差异落在 P1-P3（交互收集）与 P5-P6（测试/End 决策）**，而非 Execute。
+- **对外不可逆动作的「就绪后确认」（发布 / push / 删除）天然无法前置**——它必须等产物全绿才有意义，无法在 Design 预先拍板。这类确认**不放进 P4**，而是建模为 **P6 End 决策**（P6 豁免本约定）由 End 阶段做门控；若任务在 P4 就撞上它，说明该动作本应是一条独立的收尾步骤，而非 Execute 的一环。
 
-**Rationalization 自检**（命中任意一条即停下，把交互前置）：
+**Patterns（正确默认 · 出现以下念头时按此校正）：**
 
-| Rationalization | Reality |
-|---|---|
-| "这个确认放 Execute 里问一下没关系" | P4 零阻塞交互是硬约束。把决策前置到 Design/Plan 一次性收集。 |
-| "Interactive 模式本来就允许运行中交互" | front-loading 让 Interactive 的 P4 也零交互——用户写完 Plan 就能离开，不该被 Execute 拦住。 |
-| "卡死了就弹个菜单让用户选" | P4 卡死应「可见停下 + 报告」，不是阻塞菜单（用户可能已离开）。 |
-| "Plan 阶段加个询问更稳妥" | 先问能否前置到 Design。Plan 交互要尽量少。 |
+- 确认事项一律前置到 Design/Plan 一次性收集；"放 Execute 里问一下"不在 P4 的零阻塞约束之内。
+- front-loading 让 Interactive 的 P4 也零交互——用户写完 Plan 即可离开，不被 Execute 拦住（Interactive 允许运行中交互不构成在 P4 加交互的理由）。
+- P4 卡死的终态是「可见停下 + 报告」，而非阻塞菜单（用户可能已离开）。
+- Plan 新增交互前先问能否前置到 Design；Plan 交互保持最小。
+- 发布/push/删除需等编译/测试全绿才有意义——这正说明它属 P6 而非 P4，建模为 End 决策（P6 豁免），不塞进 Execute 的零阻塞区。
 
 <rule>
-Any interaction (AskUserQuestion, plain-text confirmation, wait-for-user) added to the task workflow MUST be placed in Init/Design; Plan keeps interaction minimal; Execute(P4) has ZERO blocking interaction in all modes (including Interactive). A P4 dead-end resolves as a visible in-session stop + report (Telegram best-effort additive), never a silent pause or a blocking menu. P5/P6 decision points and standalone on-demand skills are exempt.
-Reason: the user's stated workflow is "finish Design/Plan, then leave and let Execute run to completion." A single blocking interaction in Execute breaks that — in Interactive mode it stalls until the (absent) user returns; routing it to a Telegram-only "pause" is worse, since an Interactive user may have no Telegram path and the run dies silently. Front-loading every decision to Init/Design is the only way to honor "leave after Plan."
+task 工作流中新增的任何交互（AskUserQuestion、纯文本确认、wait-for-user）都属于 Init/Design；Plan 保持交互最小化；Execute(P4) 在所有模式（含 Interactive）下零阻塞交互。P4 的死路终态是在 session 内可见地停下 + 输出报告（Telegram 为 best-effort 叠加）；静默暂停或阻塞菜单 out of scope。P5/P6 决策点与独立 on-demand skill 豁免。
+Reason: 用户声明的工作流是「写完 Design/Plan，然后离开、让 Execute 自动跑完」。Execute 中单个阻塞交互即破坏它——在 Interactive 模式下它会卡到（不在场的）用户回来；把它导向仅 Telegram 的「暂停」更糟，因为 Interactive 用户可能没有 Telegram 路径、运行会静默死掉。把每个决策前置到 Init/Design，是兑现「写完 Plan 即可离开」的唯一办法。
 </rule>
 
 ---
 
 ### 10. 任务文档路径引用约束
 
-任务文档内引用**当前任务**的其他文件时，必须使用 `任务文档/<relative_path>` 占位符。
+任务文档内引用**当前任务**的其他文件时，采用 `任务文档/<relative_path>` 占位符。
 
-- **禁止写入绝对路径**（worktree 路径、`.tasks/open/` 路径等），即使当下路径有效
-- **例外**：`docs/` 目录下的文档遵循原有路径写法（相对路径或直接文件名），不受占位符约束
+- **绝对路径**（worktree 路径、`.tasks/open/` 路径等）out of scope，即使当下路径有效
+- **例外**：`docs/` 目录下的文档沿用原有路径写法（相对路径或直接文件名），不受占位符约束
 - 完整规范见 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/path-placeholder.md`
 
 **Checklist**（任务文档编写处）：
@@ -254,5 +244,5 @@ Reason: the user's stated workflow is "finish Design/Plan, then leave and let Ex
 - [ ] Revise 相关步骤有确认循环？
 - [ ] 新增/修改的每个停顿点都有 `[Unattended]` 分支（不会阻塞无人值守）？
 - [ ] 若 SKILL.md 预注入了 PROTOCOL 文件，SKILL.md 中没有重述 PROTOCOL 的流程/模板/矩阵内容？
-- [ ] **Interaction Front-Loading（约定 9）**：新增交互是否前置到 Init/Design？Plan 交互是否最小化？Execute(P4) 是否零阻塞交互（含 Interactive）、卡死为「可见停下+报告」而非静默暂停/阻塞菜单？P5/P6 与独立 skill 豁免是否未被误伤？
+- [ ] **Interaction Front-Loading（约定 9）**：新增交互是否前置到 Init/Design？Plan 交互是否最小化？Execute(P4) 是否零阻塞交互（含 Interactive）、卡死为「可见停下+报告」而非静默暂停/阻塞菜单？对外不可逆动作（发布/push/删除）的就绪后确认是否建模为 P6 End 决策、而非塞进 P4？P5/P6 与独立 skill 豁免是否未被误伤？
 - [ ] Dependencies 中列出了所有 Writes？

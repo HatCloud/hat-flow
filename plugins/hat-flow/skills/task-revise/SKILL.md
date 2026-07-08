@@ -1,7 +1,8 @@
 ---
 name: task-revise
 user-invocable: false
-description: "Use when executing a Revise Cycle within Phase 4/5. Runs an adaptive single fix loop (root-cause → optional design/plan → execute → verify) to address systemic issues found during code review or testing. Triggered by task-execute (4b) or task-test (5d), routed by the orchestrator. 触发词: \"revise cycle\", \"修订循环\", \"修复系统性问题\""
+description: "Use when a systemic issue found during Phase 4/5 needs an adaptive fix cycle. Triggered by task-execute (4b) or task-test (5d), routed by the orchestrator. Do NOT use for feature-sized additions (start a new task). 触发词: \"revise cycle\", \"修订循环\", \"修复系统性问题\""
+word-budget: 1000
 ---
 
 # Task Revise — Revise Cycle
@@ -10,28 +11,17 @@ Revise Cycle 处理器。在 Phase 4/5 内部执行一个**自适应单循环**�
 
 **Announce at start:** "Using task-revise for Revise Cycle."
 
-**LANGUAGE RULE:** Write user-facing output in the user's configured language; keep technical terms and code identifiers in their original form.
-
 ## Runtime Context
 
 - Tasks: !`hat-task-detect .tasks 2>/dev/null || echo '{"open":[]}'`
 - Branch: !`git branch --show-current 2>/dev/null || echo 'NO_GIT'`
 - User input: $ARGUMENTS
 
-## Red Flags
-
-| If you think... | Reality |
-|---|---|
-| "The fix is obvious, skip root-cause analysis" | No fix without a root cause (hatflow-systematic-debugging Iron Law). Jumping to a patch produces band-aids. |
-| "I'll nest another revise inside this one" | Revise cycles do NOT nest. If new issues arise, complete current revise first. |
-| "This is a root problem — let me git reset the code back" | Revise never resets code. Root problems escalate to DEFERRED: commit the WIP, record the SHA, hand off to a human or a new task. |
-| "RN-verify means I should run the full regression myself" | RN-verify only marks Status = DONE. Actual regression runs in the return phase. |
-
----
-
 ## TODO Sync
 
-双层 TODO 同步契约见 `task/references/todo-sync.md`。要点：每步 `TaskUpdate`（开始 `in_progress`、完成 `completed`）并同步 phases.md；session 恢复时先 `TaskList`，无 `overview` 行则从 phases.md 重建（取最小 ID）再建 step 级 task。（恢复时同步 phases.md 中 Revise section 对应步骤）
+按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
+
+本 skill 触发点（phase 内子循环，概览符号停留当前 phase 不变）：`full`——按 Revise section 步骤建/更新 step（`update_step`）；`overview`/`off`——no-op。恢复时同步 phases.md 中 Revise section 对应步骤。
 
 ---
 
@@ -49,8 +39,6 @@ Revise Cycle 处理器。在 Phase 4/5 内部执行一个**自适应单循环**�
 
 > **本文件所有「Telegram 通知」均经 `UNATTENDED_PROTOCOL.md` §4 发送**：Telegram 为 opt-in（companion 插件 `telegram@claude-plugins-official`）；未配置 chat_id / 插件未装 / MCP 不可用时静默降级（打印告警、不阻断 revise 流程），自动推进不依赖通知送达。
 
-**[Unattended] 单循环自动推进**：根因分析后若需 design/plan 调整，按推荐方案自动选择并 Telegram 通知；遇根本性问题（见 Root-Problem Handling）→ 自动转新任务（commit WIP、标 DEFERRED、记 SHA），不靠人工，Telegram 通知后停止当前 revise。
-
 ---
 
 ## Process
@@ -66,6 +54,8 @@ Reason: PENDING 状态会导致编排器路由歧义——IN_PROGRESS 是唯一�
 Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → RN-execute → RN-verify
 ```
 
+- Revise cycle 不嵌套：执行期间新冒出的问题不在当前 revise 内开第二层 revise，先把当前 revise 走完（DONE / DEFERRED），新问题留给回归阶段或后续 revise 处理。
+
 ### Initialization
 
 1. 读取 phases.md，找到 `Status: IN_PROGRESS` 的 `## Revise RN` section（N 为编号，从标题 `## Revise R1` / `## Revise R2` 中提取数字。文档中 `RN` 泛指"当前 revise"，实际执行时替换为具体编号如 R1、R2）
@@ -78,15 +68,13 @@ Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → 
 接入 hatflow-systematic-debugging，先定位根因再决定改什么。
 
 1. `Read ${CLAUDE_PLUGIN_ROOT}/skills/hatflow-systematic-debugging/SKILL.md`（Iron Law：无根因不修——先复现/定位，再判断）
-2. 基于 code review findings 或 test failures 做根因分析：问题出在哪一层？是实现细节、计划遗漏，还是设计假设被证伪？
+2. 基于 code review findings 或 test failures 做根因分析：问题出在哪一层？是实现细节、计划遗漏，还是设计假设被证伪？**若 Revise section 含 `Rootcause hint`（5d 架构判别已给出层级+根因），以它为起点验证/细化，而非从零重做**——验证后若推翻则按实际改判。
 3. 据根因判定本次 revise 需要触及哪些步骤，**按需把对应步骤插入 section**（在 RN-rootcause 之后、RN-execute 之前）：
    - 根因是**设计假设错误**（仍可在本 revise 内修） → 插入 `- [ ] RN-design` 与 `- [ ] RN-plan`
    - 根因是**计划遗漏/任务拆分不当**（设计仍成立） → 仅插入 `- [ ] RN-plan`
    - 根因是**实现细节** → 不插入，直接进入 RN-execute
    - 根因是**根本性问题**（框架不可用 / 核心假设被完全证伪 / 修复远超当前 revise scope） → 不插入任何步骤，**直接触发 Root-Problem Handling**（见 RN-execute 章节）：跳过 design/plan/execute，commit 已有半成品后标 DEFERRED
 4. 标记 `RN-rootcause` 为 `[x]`，更新 phases.md
-
-**[Unattended]** 自动按上述判据决定插入哪些步骤，Telegram 通知"根因：[结论]，本次将触及：[步骤]"。
 
 ### RN-design（仅当根因需要设计调整）
 
@@ -116,8 +104,6 @@ Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → 
    - 用户说"继续" → 写入 design.md，标记 `RN-design` 为 `[x]`
    - 用户给建议 → 修改 → 重新展示 → 回到确认
 
-**[Unattended]** 按推荐选项自动选择，发送 Telegram 通知"自动选择修订方案：[方案名]"。
-
 ### RN-plan（仅当根因需要计划调整）
 
 生成针对性的任务列表。
@@ -140,11 +126,9 @@ Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → 
    - 用户给建议 → 修改 → 重新展示 → 回到确认
 
 <rule>
-When a revise touches design or plan, the RN-design / RN-plan step MUST include a confirmation loop before marking complete. Do NOT advance to RN-execute without explicit user approval of the revision plan.
-Reason: Revise without user review leads to band-aid fixes that miss the root cause, as observed in R1 of task-workflow-fixes.
+触及 design 或 plan 的 revise，在 RN-design / RN-plan 步骤标记完成前都带一个确认循环；推进到 RN-execute 需要用户对修订方案的显式批准。
+Reason: 缺少用户 review 的 revise 会得到只治标、错过根因的临时补丁，task-workflow-fixes 的 R1 已观察到这一现象。
 </rule>
-
-**[Unattended]** 跳过等待，按生成的任务列表直接推进。
 
 ### RN-execute
 
@@ -159,14 +143,12 @@ Reason: Revise without user review leads to band-aid fixes that miss the root ca
 **Root-Problem Handling**：如果**根因分析（RN-rootcause）判定**、或**执行中新暴露**了**根本性问题**（框架不可用、核心假设完全错误、修复需要远超当前 revise scope 的改动），无论问题在哪个步骤被发现，都走以下处理（rootcause 阶段触发时跳过 design/plan/execute）：
 
 <rule>
-On a root problem during revise execute, stop and AskUserQuestion. Options:
-1. **升级转人工** — current revise marked DEFERRED, hand off to a human.
-2. **转为新任务** — current revise marked DEFERRED, open a fresh task to handle the root problem.
-Never reset code. Before marking DEFERRED, commit the work-in-progress as `chore: WIP [DEFERRED Rn] <原因>` and record that commit SHA in the Revise section's **WIP Commit** field.
-Reason: resetting code throws away partial progress and pollutes the working tree on recovery; DEFERRED preserves the WIP behind a labelled commit so a human or the new task can pick up exactly where this left off.
+revise execute 期间出现根本性问题会终止循环并触发 AskUserQuestion。选项：
+1. **升级转人工** — 当前 revise 标记 DEFERRED，移交给人工处理。
+2. **转为新任务** — 当前 revise 标记 DEFERRED，新开一个任务来处理该根本性问题。
+代码从不 reset。标记 DEFERRED 前，半成品以 `chore: WIP [DEFERRED Rn] <原因>` 提交，该 commit SHA 记入 Revise section 的 **WIP Commit** 字段。
+Reason: reset 代码会丢弃部分进度、并在恢复时污染工作树；DEFERRED 把 WIP 留在一个带标记的 commit 后面，让人工或新任务能从恰好停下的地方接着干。
 </rule>
-
-**[Unattended]** 遇根本性问题 → 自动选「转为新任务」：commit WIP、标 DEFERRED、记 SHA、开新 task、Telegram 通知后停止当前 revise（不靠人工应答）。
 
 ### RN-verify
 
@@ -183,14 +165,12 @@ Reason: resetting code throws away partial progress and pollutes the working tre
 ## Chain Detection
 
 <rule>
-如果当前 Revise 编号为 R3 或更高（即已经有 2 个以上 Revise cycle），必须 AskUserQuestion 警告用户，选项：
+当 Revise 编号达到 R3 或更高（已完成 2 个以上 revise cycle），流程停止并触发一个 AskUserQuestion 警告。选项：
 1. **继续 R3** — 已理解风险，继续
 2. **拆分为新任务** — 当前任务 scope 可能过大，开新 task 处理
 3. **重新审视整体设计** — 回到 Phase 2 重做设计
-Reason: 多次 revise 暗示原始设计存在根本缺陷，继续 patch 不如重新设计。
+Reason: 反复 revise 意味着原始设计存在根本性缺陷；重新设计优于持续打补丁。
 </rule>
-
-**[Unattended]** R3+ 自动选「拆分为新任务」，Telegram 通知后停止。
 
 ---
 
@@ -200,9 +180,6 @@ Reason: 多次 revise 暗示原始设计存在根本缺陷，继续 patch 不如
 |----------|----------|
 | Revise execute 中卡壳/根本性问题 | 接 hatflow-systematic-debugging 定位根因；确为根本性问题 → Root-Problem Handling（DEFERRED + WIP commit + 转人工/新任务） |
 | Revise design 讨论无法达成共识 | AskUserQuestion：简化 revise 范围 / 转新任务（DEFERRED） / 取消 revise + patch in place |
-| 无人值守模式下触发 revise | 根因分析自动判定触及步骤；执行卡壳 → 转新任务（DEFERRED）+ Telegram |
-
-**[Unattended] DEFERRED→新任务流程**：commit WIP（`chore: WIP [DEFERRED Rn] <原因>`）、Revise section 标 DEFERRED 并记 WIP Commit SHA、创建后续任务的 `next-task-prompt.md`、发送 Telegram 通知后停止。
 
 ---
 
@@ -225,8 +202,8 @@ Revise RN 完成（Status = DONE），phases.md 已更新。
 编排器检测到 Revise DONE 且 Return 步骤仍为 `[ ]`，将路由回原 phase skill 重跑触发步骤。`DEFERRED` 为终态——编排器识别为"已终结、不再路由执行"，不依赖 Return 步骤是否 `[x]`。
 
 <rule>
-Revise 完成后必须返回编排器。不得在 transition 中提示用户调用任何 skill 或自行判断下一步。
-Reason: Revise 不知道 Return 步骤的完整上下文（回归模式、phase_merge 等），自行路由会跳过编排器的检查。
+revise 完成后，控制权交还编排器；该过渡不会提示用户去调用任何 skill，也不会自行决定下一步。
+Reason: revise 不具备 Return 步骤的完整上下文（回归模式、phase_merge 等）；自行路由会跳过编排器的检查。
 </rule>
 
 ---
@@ -240,10 +217,13 @@ Reason: Revise 不知道 Return 步骤的完整上下文（回归模式、phase_
 | RN-execute | 发现根本性问题 | 升级转人工 / 转新任务（均标 DEFERRED，不 reset 代码） |
 | Chain R3+ | 第 3 次以上 revise | 继续 / 拆分 / 重新设计 |
 
+> 无人值守下各停点的自动决策见 UNATTENDED_PROTOCOL.md §6（经上方 Unattended State 加载器进入）。
+> 停点状态信号（外部驱动可机读）由编排器停点 rule 统一写入，契约见 task/references/headless-driving.md。
+
 ## Dependencies
 
 - **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/phases.md`, `{task-folder}/task-config.json`
 - **Writes**: `{task-folder}/design.md`（按需追加 Revise section）, `{task-folder}/plan.md`（按需追加 Revise section）, `{task-folder}/phases.md`
-- **References**: `hatflow-systematic-debugging`（根因分析，RN-rootcause 步骤）
+- **References**: `hatflow-systematic-debugging`（根因分析，RN-rootcause 步骤）, `task/SKILL.md`（Revise 路由权威表，Initialization 读取）
 - **Invokes**: subagent for execute（按 task-config.json execution 配置）
 - **Git**: WIP commit on DEFERRED（无 git tag / 无 git reset）

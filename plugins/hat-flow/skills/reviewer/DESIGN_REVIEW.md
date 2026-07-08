@@ -14,13 +14,13 @@
 | Review focus | 本轮 review 的重点描述 |
 
 <rule>
-Check all required inputs before starting review. If any input is missing, output error listing missing items and terminate immediately.
-Reason: reviewing with partial context produces false negatives that are worse than no review.
+review 开始前先检查所有必要输入，缺失任一输入即以报错终止，并列出缺失项。
+Reason: 在残缺上下文上做 review 会产生 false negative，比不做 review 更糟。
 </rule>
 
 ## Round 1 — Structural Completeness
 
-Apply this checklist when round = 1. Do not mix with Round 2.
+round = 1 时执行本 checklist，与 Round 2 分开进行。
 
 逐条检查以下维度，对每个发现的问题按 SKILL.md Output Format 输出：
 
@@ -35,7 +35,7 @@ Apply this checklist when round = 1. Do not mix with Round 2.
 
 ## Round 2 — Adversarial Review
 
-Apply this checklist when round = 2. Do not mix with Round 1.
+round = 2 时执行本 checklist，与 Round 1 分开进行。
 
 以对抗性思维审视设计，主动寻找问题而非确认正确性：
 
@@ -50,7 +50,7 @@ Apply this checklist when round = 2. Do not mix with Round 1.
 
 ## Confidence Guidance
 
-Confidence 评分参考。每个区间附锚定示例，帮助校准评分——偏高的 confidence 会掩盖不确定性：
+Confidence 评分参考。每个区间附锚定示例帮助校准——偏高的 confidence 会掩盖不确定性：
 
 | Confidence | 适用场景 | 锚定示例 |
 |------------|---------|---------|
@@ -60,7 +60,7 @@ Confidence 评分参考。每个区间附锚定示例，帮助校准评分——
 | 60-74 | 风格或表述建议：不影响功能的改进 | "Non-Goals 的表述与 Goals 格式不一致" |
 | <60 | 纯推测：无法从文档中确认，仅凭经验猜测 | "未来可能需要支持 Round 3" |
 
-Confidence < 80 的 issue 放入 Low Confidence 节。当你犹豫该给 80 还是 75 时，选 75——宁可低估确定性也不要高估。
+Confidence < 80 的 issue 放入 Low Confidence 节。犹豫该给 80 还是 75 时选 75——低估确定性优于高估。
 
 ---
 

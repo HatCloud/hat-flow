@@ -1,6 +1,6 @@
 # Unattended Protocol
 
-本文件为 task 系列 skill 的无人值守模式**权威规则来源**。design.md 中的规则表为设计时快照，以本文件为准。
+本文件为 task 系列 skill 的无人值守模式**权威规则来源**。design.md 中的规则表为设计时快照，以本文件为准。外部驱动方（E2E / cron / 调度器）的机读契约见 `references/headless-driving.md`（state.json schema + 驱动判定算法）。
 
 各 skill 在 Process 步骤中**条件加载**本文件（仅当检测到 unattended.json 存在时 `Read` 本文件），**不应**在 Runtime Context 中 `!cat` 本文件以避免无效 token 消耗。
 
@@ -79,8 +79,10 @@ cat "{open[0].path}/unattended.json" 2>/dev/null
 
 <rule>
 `chat_id` 和 bot token 都是**用户个人信息**——任何 hardcode 进 `${CLAUDE_PLUGIN_ROOT}/skills/task/` 仓库的源文件都会污染 hat-flow 分发版。配置必须落在仓库外（personal local config 或 plugin 自己的 `.env`）。
-Reason: the hat-flow pipeline (`hat-task-package`) reads `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` to bake the public distribution. Any chat_id/bot_token in that file ships to every downstream user and leaks the author's private identifiers.
+Reason: hat-flow 流水线（`hat-task-package`）读取 `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json` 来烘焙公开分发版。该文件里的任何 chat_id/bot_token 都会随之发给每一个下游用户，泄漏作者的私有标识符。
 </rule>
+
+**显式关闭短路（先于整条探测链）**：项目本地 `task-defaults.json` 显式写 `"telegram_chat_id": null`（或 `false`）= 该项目**显式禁用** Telegram 通知——短路下方整条探测链，不再回退到 personal local 等其它来源。「显式禁用」与「字段缺失」语义不同：缺失才走探测链。适用：测试床 / 预演 / 不希望产生真实外部通知的项目。
 
 优先级顺序（取第一个成功的）：
 
@@ -115,8 +117,8 @@ curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" 
 - 独立场景：任何能调 `api.telegram.org` 的 bot token 都可，只要它在 `.env` 里或已 export 到环境。
 
 <rule>
-Use the Bot API directly, not the `mcp__plugin_telegram_telegram__reply` tool, for unattended notifications.
-Reason: `reply` requires a `message_id` to reply to (it's designed for the inbound-message flow where a Telegram user DMs the bot and the assistant replies). Unattended notifications are outbound broadcasts — there is no inbound message to reply to. Forcing the reply tool here either fails silently or invents a fake message_id, neither of which is honest.
+无人值守通知直接走 Bot API；不使用 `mcp__plugin_telegram_telegram__reply` 工具来发送它们。
+Reason: `reply` 需要一个 `message_id` 作为回复对象（它是为入站消息流设计的——Telegram 用户私信 bot、助手回复）。无人值守通知是出站广播，没有可回复的入站消息。在这里强用 reply 工具，要么静默失败、要么编造一个假的 message_id，两者都不诚实。
 </rule>
 
 **降级（任一缺失/失败都跳、不阻断）**：
@@ -148,7 +150,7 @@ Reason: `reply` requires a `message_id` to reply to (it's designed for the inbou
 
 ## 5. How to Create unattended.json
 
-**激活时机：** ① **Quiet 入口**（`-q`/`--quiet`/`--headless`/「无人值守」经编排器 Step 0 确立 `quiet_mode`）——由 task-init **1f** 直接物化 `unattended.json`（`enabled:true, activate_after:"now"`，并带 `degrade_policy`），Init 之后全程无人值守；② **交互入口**——P2 Step 2e 配置面板（主要交互入口）或 Phase 1/2/3 完成后（后备入口，仅当 unattended.json 尚不存在时）询问激活时机。
+**激活时机：** ① **Quiet 入口**（`-q`/`--quiet`/`--headless`/「无人值守」经编排器 Step 0 确立 `quiet_mode`）——由 task-init **1f** 直接物化 `unattended.json`（`enabled:true, activate_after:"now"`，并带 `degrade_policy`），Init 之后全程无人值守；② **交互主入口**——编排器 Step 2A.1（Phase 1/2/3 完成后的过渡点，仅当 unattended.json 尚不存在时询问；编排路径下 Init→Design 过渡必先经此，四个选项都写入文件）；③ **standalone 后备**——task-design Step 2e Activation Timing，仅在 task-design 被独立调用（未经编排器、文件尚不存在）时兜底询问。
 
 ### activate_after 字段语义（共享契约 SC3）
 
@@ -173,8 +175,8 @@ Reason: `reply` requires a `message_id` to reply to (it's designed for the inbou
 该哨兵**不含** `activate_after` 字段。其作用是把「用户已拒绝」这一决定持久化，使后续过渡点不再重复询问。消费侧守卫（编排器 Step 2A.1 / Step 3、task-design Step 2e）须遵守：
 
 <rule>
-Consumer guards MUST check `declined == true` first and short-circuit: skip the activation question, do not enter any activation branch, and do not infer `activate_after`.
-Reason: the declined sentinel carries no `activate_after`, so a guard that falls through to the "缺省视为 now" rule (§1) would misread an explicit rejection as immediate activation. Choosing an explicit `declined` field (rather than reusing bare `enabled:false`) keeps it distinct from the deferred-activation state, which also has `enabled:false` but carries `activate_after`.
+Consumer 侧守卫先检查 `declined == true` 并短路：跳过激活询问、不进入任何激活分支、不推断 `activate_after`。
+Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视为 now」规则（§1）的守卫会把显式拒绝误读为立即激活。选用显式的 `declined` 字段（而非复用裸 `enabled:false`），使其与延后激活状态区分开——后者同样是 `enabled:false`，但带 `activate_after`。
 </rule>
 
 **激活步骤：**
@@ -217,8 +219,8 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 
 | 停止点                          | 自动决策                                                                                                                                                  |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Design 完成后过渡               | 若 `activate_after == "design"` 且当前 `enabled:false` → 翻 `enabled:true` 并加载本文件（激活无人值守）；已 `enabled:true` → 静默推进，不询问、不 compact |
-| Plan 完成后过渡（compact 软停） | 已激活或本过渡点即将激活（`activate_after == "plan"`）→ 跳过 compact 建议（不输出 `/compact` 块），翻 `enabled:true` 后静默推进到 Execute                 |
+| Design 完成后过渡               | 若 `activate_after == "design"` 且当前 `enabled:false` → 翻 `enabled:true` 并加载本文件（激活无人值守）；已 `enabled:true` → 静默推进，不询问、不输出交接建议 |
+| Plan 完成后过渡（新会话交接软停） | 已激活或本过渡点即将激活（`activate_after == "plan"`）→ 跳过交接建议（不输出交接命令块），翻 `enabled:true` 后静默推进到 Execute                 |
 
 > 延后激活（`activate_after` 为 design/plan）在匹配过渡点由编排器翻 `enabled`；翻转后发送"无人值守模式已激活"通知。两条停顿路径（Design/Plan 过渡）均不靠人工应答推进。
 
@@ -226,21 +228,29 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 
 | 停止点                    | 自动决策                                                                                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 需求澄清（1b.1）          | quiet 下按最保守解释自行假设并记 `unattended-decisions.md`；关键歧义按 §8「低置信澄清问题」暂停（早于 1f 物化，按 quiet_mode 判定） |
+| 现有任务选择（1a）        | 继续现有任务（对齐编排器单任务恢复）                                                                                             |
+| 需求澄清（1b.1）          | quiet 下不调 AskUserQuestion：按最保守、最小范围解释自行假设并逐条记 `unattended-decisions.md`（任务文件夹未建则暂存内存、1f 落盘）；跳过纯文本确认、以假设的结构化理解直接推进 1b.2；关键歧义按 §8「低置信澄清问题」暂停（早于 1f 物化，按 quiet_mode 判定） |
+| 头脑风暴补完（1b.2b）     | 低分默认进入（不询问，记 `unattended-decisions.md`）；非低分跳过                                                                 |
+| 档位粗选（1b.3）          | 按推荐自动选择，不弹 AskUserQuestion                                                                                             |
 | Dirty 文件                | 忽略，直接继续                                                                                                                   |
-| 分支决策                  | 留在当前分支                                                                                                                     |
+| 分支决策                  | 不询问，按 effective config `branch.mode` 自动决定（默认 `keep` = 留在当前分支）                                                 |
+| worktree 隔离（1d-wt）    | 按已解析值自动决定（quiet 已在 1b.3 解析为 true/false，缺省 true；显式 true/false 直接生效），不进 `"ask"` 询问分支              |
 | 新分支分叉告警（ISSUE） | 仅「创建新分支」路径触发——Unattended 分支决策默认「留在当前分支」故通常不触发；若触发则记录告警、不阻塞（NO_GIT/git 关闭亦跳过） |
+| Linear issue 创建失败（1f checkpoint） | 不重试询问，自动跳过 Linear 集成继续                                                                                 |
+| `/rename` 提示（post-1f） | 自动跳过提示：不停顿、不执行 `/rename`                                                                                           |
 
 #### task-design
 
 | 停止点                   | 自动决策                                                                                 |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
-| 澄清问题（Step 2）       | 多轮 subagent 自讨论（见第 7 节）                                                        |
-| 选择方案（Step 3）       | 按推荐选项                                                                               |
-| 每节确认（Step 4）       | 自我检查通过即继续                                                                       |
-| 配置面板（Step 2e）      | 按启发式推荐档位                                                                         |
-| 批准 design.md（Step 8） | 有 reviewer 时 C/I 过线自动批准；无 reviewer 轮次（Low）直接自动批准；均不等待纯文本确认 |
-| Step 7 达 `max_rounds`   | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）                                 |
+| 联网调研门（Step 1.5）   | 不弹门：保守档默认跳过联网调研，仅当 `prompt.md` 显式要求外部调研时才跑；跑时给 `web-research` 引擎传 `unattended: true`（成本封顶、档位降级，见引擎「无人值守」节）。Headless 同样不弹门、按 prompt 信号决定跑或跳 |
+| 澄清问题（Step 2）       | 多轮 subagent 自讨论（见第 7 节）；跳过确认循环的纯文本等待                              |
+| 选择方案（Step 3）       | 按推荐选项自动选择（标注 "Recommended" 的，或综合判断的最优组合），Telegram 通知「自动选择方案：[方案名]」，不等待用户响应 |
+| 每节确认（Step 4）       | 跳过每节用户确认，自我检查通过即继续下一节                                               |
+| 配置面板（Step 2e）      | 合理时自动沿用已选 preset，明显偏离时按推荐值自动修正，不询问                            |
+| 敏感度升级（Step 2e.2b） | 不弹面板，沿用 checkpoint（即使评估为高敏感）——与 2e.2 的 headless 短路一致，无头流程不在此引入交互 |
+| 批准 design.md（Step 8） | 前置分支（不依赖是否执行 Step 7、不进入确认循环）：有 reviewer 时 C/I 过线（Critical = 0 且 Important = 0）自动批准；无 reviewer 轮次（Low）直接自动批准；均不等待纯文本确认 |
+| Step 7 达 `max_rounds`   | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）；`degrade_policy` conservative/headless 走 §9 A4 accept-with-findings 续跑（同点同 phase 至多一次） |
 
 #### task-plan
 
@@ -248,23 +258,24 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | Plan format        | 按 task-config.json 配置                                                                                                       |
 | 3b 收敛后确认循环  | `Verdict == Approved` 直接推进 3c（跳过“是否有补充/继续”）；`Verdict == Issues` 修复后重跑一次，仍 Issues 则 Telegram 通知暂停 |
-| 3b 达 `max_rounds` | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）                                                                       |
+| 3b 达 `max_rounds` | 不询问，Telegram 通知后暂停（等待 `/task` 恢复人工决策）；`degrade_policy` conservative/headless 走 §9 A4 accept-with-findings 续跑（同点同 phase 至多一次） |
 
 #### task-execute（Phase 4）
 
 | 停止点                     | 自动决策                                                                    |
 | -------------------------- | --------------------------------------------------------------------------- |
 | Light 验证未配置           | 跳过验证                                                                    |
-| BLOCKED                    | 重试一次（Opus）；系统性问题→转 Revise，非系统性问题→auto-cancel + Telegram |
+| BLOCKED（卡壳升级阶梯末端，≥3 次或架构级） | 重试一次（Opus）；按硬判据二选一——命中系统性问题（design 假设偏差 / 跨模块契约变更 / plan 任务边界需重划）→转 Revise，否则（局部实现卡点、非架构级）→Telegram 通知后 auto-cancel |
 | NEEDS_CONTEXT 2 次后仍失败 | 视为 BLOCKED                                                                |
 | 执行引擎                   | 按 `task_config.execution.mode` + `engine`                                  |
+| codex dirty-conflict escalate（4a·D） | 同各模式统一 escalate（session 内可见停下 + 冲突报告，等 `/task` 恢复走 resolution menu），额外发 Telegram 远程通知（best-effort 叠加） |
 
 #### task-test（Phase 5）
 
 | 停止点                | 自动决策                                                                                                                                                                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次 Opus），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判 SHOULD/MAY → deferred 不阻断；全 PASS（含 deferred）→ 更新 phases.md DONE，推进 task-end |
-| 验收清单（user_test） | Telegram 通知，停止                                                                                                                                                                                                                              |
+| 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次 Opus），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判人工项（MUST/SHOULD/MAY）→ 写入 acceptance-checklist.md 手动区、`→` 预填 `DEFERRED（待 task-end 后人工验收）`，**持久留痕**（不丢弃），交由 task-end Step 2.6 交还人工验收（design.md 无人工测试项则手动区为空）；全部可机判 MUST/SHOULD PASS（deferred 人工项不阻断）→ Telegram 通知（含 deferred 项数、自动推进到 Phase 6）→ 更新 phases.md DONE，推进 task-end |
+| 验收清单（user_test） | 生成完整清单文件 → Telegram 通知（验收清单已生成到 acceptance-checklist.md，请填写后回复）→ 停止，等待用户                                                                                                                                        |
 | 架构级问题判别（5d）  | §9 HARD-STOP：暂停 + Telegram（含问题描述 + 三选项），等 `/task` 恢复——不自动选向、不自动 Defer（避免静默吞掉架构偏差）                                                                                                                            |
 | 累计新功能 STOP（≥3 或体量超 Execute） | §9 HARD-STOP：暂停 + Telegram（含累计计数 + 体量），等 `/task` 恢复——不自动续过蠕变门                                                                                                                                              |
 
@@ -272,20 +283,44 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 
 | 停止点                   | 自动决策                                                                                                                                                |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 多 open task 选择        | 选 `Updated` 最新任务；无法判定则 Telegram 通知后暂停                                                                                                   |
+| 验证命令未配置（Step 0） | 跳过配置询问，继续执行                                                                                                                                  |
+| 多 open task 选择        | 选当前 session 最近更新（`Updated` 最新）的 open task；无法判定（无 phases.md 或时间戳并列）则 Telegram 通知后暂停，等 `/task` 恢复人工选择             |
 | 验证失败                 | 重试一次（Opus 修复），仍失败 → auto-cancel + Telegram                                                                                                  |
-| CLAUDE.md 更新           | 读 `end_decisions.claude_md`                                                                                                                            |
+| 债务对账（Step 1.5，§9 A3） | A 新债自动追加为 `- [ ]`；B 自动把**高置信**候选（本任务直接改动的文件/issue 命中的 open 项）标 `- [x] ... — resolved: <issue-id>`，低置信项保持 open；均写 `docs/debt.md`，不询问（conservative/headless 额外留痕见 §9 A3） |
+| 人工验收交还（Step 2.6） | 有 DEFERRED 人工项 → **不阻断归档**（非 HARD-STOP）：DEFERRED 清单写入 final.md「待人工验收」子段 + Telegram 通知用户验收；无 DEFERRED 项则跳过、同现状 |
+| CLAUDE.md 更新           | 自动更新，读 `end_decisions.claude_md`                                                                                                                  |
+| 意外代码变更（Step 3.3） | 自动加入当前 commit                                                                                                                                     |
+| 产物门控 FAIL（Step 3.3.7） | 补齐后核心仍缺失 → §9 HARD-STOP：**不归档**、停下 + Telegram 通知（含缺失清单）                                                                      |
+| worktree merge 冲突（Step 3.4.4） | 不强 merge（保留 worktree + 分支、登记 `docs/unmerged-branches.md`），Telegram 通知冲突需人工                                                  |
 | 分支处理 keep（ISSUE） | 追加 `docs/unmerged-branches.md` 登记（不提示）                                                                                                         |
 | 分支处理（4 选项菜单）   | 读 `end_decisions.branch` 映射：`auto_merge`→Merge locally / `keep`→Keep as-is；**`PR` / `Discard` 永不自动触发（跳过）**；字段缺失或非法值 → 默认 keep |
+
+> **`branch=keep` 下的验证口径**：代码变更活在任务分支 / worktree 内，主分支工作目录不含它——事后 / 外部验收（含 E2E 断言、人工抽查）须在**任务分支或 worktree 内**执行验证命令与产物检查，在主分支目录跑会得到「看起来没做完」的假阴性。流程内 P5 验证本就在 worktree 内跑，不受影响。
 | 提交压缩 squash          | 读 `end_decisions.squash`（缺省 true）：`auto_merge` 合并用 `merge --squash`；main 连续提交段在守卫全通过时 `reset --soft` 压缩，任一守卫不过则保守跳过（见 git plugin P6.post-archive 1.5 + `<rule>`） |
 
 #### task-cancel
 
 | 停止点       | 自动决策           |
 | ------------ | ------------------ |
-| 取消原因     | 从调用上下文推断   |
+| 取消原因     | 从调用上下文推断（BLOCKED / 验证失败 / 用户请求），不询问用户 |
 | 处置方式     | Cancel（不 Defer） |
-| 代码变更处理 | Keep（保留分支）   |
+| 代码变更处理 | Keep（保留分支，供参考） |
+| Process Review 改进建议（3.3b） | 自动写入 `{task-folder}/debt.md`，不讨论 |
+| Feature 分支处理（3.5） | 保留分支（不删除，与 Keep 代码一致） |
+| 取消完成通知 | 发送 Telegram `[task-name] 任务已取消：[原因]`（经 §4，Telegram 为 opt-in；未配置 / 插件未装则静默降级、不阻断取消流程） |
+
+#### task-revise（Revise Cycle）
+
+无人值守下单循环自动推进：根因分析后按需自动决定 design/plan 调整并 Telegram 通知；遇根本性问题自动转新任务，不靠人工应答。
+
+| 停止点       | 自动决策           |
+| ------------ | ------------------ |
+| 步骤插入（RN-rootcause） | 按根因判据自动决定插入哪些步骤，Telegram 通知「根因：[结论]，本次将触及：[步骤]」 |
+| 修订方案选择（RN-design） | 按推荐选项自动选择，Telegram 通知「自动选择修订方案：[方案名]」 |
+| 任务列表确认（RN-plan） | 跳过确认等待，按生成的任务列表直接推进 |
+| 根本性问题（Root-Problem Handling，RN-rootcause 判定或执行中新暴露） | 自动选「转为新任务」：commit WIP（`chore: WIP [DEFERRED Rn] <原因>`）、Revise section 标 DEFERRED 并记 WIP Commit SHA、创建后续任务的 `next-task-prompt.md`、Telegram 通知后停止当前 revise（不靠人工应答） |
+| Chain Detection（R3+） | 自动选「拆分为新任务」，Telegram 通知后停止 |
+| 执行卡壳 | 接 hatflow-systematic-debugging 定位根因；确为根本性问题 → 按上行 Root-Problem 处理（DEFERRED + WIP commit + 转新任务 + Telegram） |
 
 ### 插件条件化决策
 
@@ -303,7 +338,7 @@ Reason: the declined sentinel carries no `activate_after`, so a guard that falls
 | 停止点            | 自动决策             |
 | ----------------- | -------------------- |
 | 创建 Linear issue | 自动创建             |
-| Linear API 失败   | 跳过，继续（不通知） |
+| Linear API 失败   | 跳过，继续（不通知；含 task-init 1f checkpoint 创建失败——不重试、自动跳过） |
 | 子 issue          | Cancel together      |
 
 #### review plugin (`plugins.review.enabled`)
@@ -358,6 +393,11 @@ A: [答案]
 
 若有 Medium 或 Low 置信答案，再派发 Devil's Advocate subagent 反驳低置信答案，综合两轮结论。
 
+<rule>
+无人值守模式下，澄清问题的答案来自外部来源（subagent）；即使答案看起来显而易见，主 agent 直接 inline 作答也不在范围内。
+Reason: Self-Discussion Protocol 要求一个独立的视角。
+</rule>
+
 ### 结果处理
 
 1. 写入 `{task-folder}/unattended-decisions.md`
@@ -389,6 +429,8 @@ A: [答案]
 
 **暂停恢复：** 任务停在当前阶段（phases.md 状态不变）。用户下次运行 `/task` 时恢复。
 
+**执行环境前置（自动格式化 / 文件 watcher 竞争）：** 无人值守执行依赖「agent 是当前工作树的唯一写者」。worktree 隔离（headless 缺省 true）已隔离主树上编辑器的 format-on-save / watcher；但若有**直接监视任务工作树**的进程（保存即格式化、`tsc --watch`、dev server 热重载、非 git-hook 的 file watcher），它会与 agent 的 Edit 写入竞争、产生隐形改动与 diff 漂移（Aider/OpenHands 同类坑）。启动无人值守前确保此类进程不监视任务工作树——git plugin 在 commit 时跑的格式化 hook 是预期内的、不在此列。
+
 ---
 
 ## 9. Degrade Policy（撞卡点分级处理）
@@ -398,7 +440,7 @@ A: [答案]
 | 卡点 | `standard`（缺省=现状） | `conservative` | `headless`（后续） |
 |------|------------------------|----------------|--------------------|
 | A4 design/plan review 达 `max_rounds` 不收敛 | 暂停 + Telegram 通知（§6/§8） | **accept-with-findings 续跑**：剩余 findings 原文写 `## Unresolved Review Findings`（design.md / plan.md）+ `unattended-decisions.md`，续跑；**同点同 phase 至多一次**——判重读 `unattended-decisions.md` 的 `## Headless Degraded Decisions` 段，该「卡点+phase」键已有一条 AUTO-DEGRADE 记录即视为已用过、第二次退回 `standard`（暂停）。design/plan/revise 三处统一用此判重。兜底：P4 review + P5 验收双网 | 同 conservative + 全局 degrade_budget |
-| A3 task-end 债务对账 | 现降级 + 高置信关/低置信留 | 维持现降级 + 关闭动作 / 低置信疑似项汇总进 `unattended-decisions.md`，final.md P6 引用 | 同 conservative + degrade_budget |
+| A3 task-end 债务对账 | 现降级 + 高置信关/低置信留（仅 final.md 记「疑似解决待人工确认」，无额外留痕） | 维持现降级 + 关闭动作 / 低置信疑似项汇总进 `unattended-decisions.md`，final.md P6 引用 | 同 conservative + degrade_budget |
 | A2 user_test | 停（按 task_type） | 停 | 转 self_test + deferred（后续） |
 
 ### 强制留痕（conservative / headless）
@@ -411,9 +453,10 @@ A: [答案]
 ### HARD-STOP 硬下限（任何 degrade_policy 都不自动续，必停）
 
 <rule>
-The following are HARD-STOP points that NO degrade_policy may auto-continue past: branch PR/Discard decisions, git operation failure, verification command crash, machine-judgeable MUST/SHOULD acceptance FAIL, artifact gate FAIL, multiple parallel open tasks, Test-phase architectural-issue triage (5d), the cumulative new-feature creep gate, and orchestrator state-file (phases.md) corruption. These always pause (Telegram notify) and wait for a human.
-Reason: these are irreversible or high-risk — auto-continuing past them can destroy work (discard), ship broken code (verification crash / MUST FAIL), corrupt task state (artifact gate / phases.md corruption), or silently swallow a scope/architecture deviation (5d triage, creep gate) that needs a human to re-scope. Graduated degradation only applies to reversible/degradable points (review non-convergence, debt reconciliation); the hard floor is non-negotiable.
+以下是任何 degrade_policy 都不会自动越过的 HARD-STOP 点——每一处都暂停（Telegram 通知）并等待人工：分支 PR/Discard 决策、git 操作失败、验证命令崩溃、可机判的 MUST/SHOULD 验收 FAIL、artifact gate FAIL、多个并行 open task、Test phase 架构性问题分流（5d）、累计新功能蔓延 gate、以及编排器状态文件（phases.md）损坏。
+Reason: 这些都是不可逆或高风险的——自动越过它们可能销毁工作（discard）、交付坏代码（验证崩溃 / MUST FAIL）、损坏任务状态（artifact gate / phases.md 损坏），或静默吞掉一个需要人工重新界定范围的范围/架构偏离（5d 分流、creep gate）。分级降级只适用于可逆/可降级的点（review 不收敛、债务清算）；这道硬底线不容妥协。
 </rule>
 
+- **人工验收交还（task-end Step 2.6）非 HARD-STOP**：DEFERRED 人工测试项不可机判，不在「可机判 MUST/SHOULD FAIL」硬下限之列；无人值守下 deferred + final.md「待人工验收」留痕 + Telegram 通知用户，归档照常推进、不阻断（HARD-STOP 仅拦截可机判的 MUST/SHOULD FAIL）。
 - A4 的「续跑」仅适用于 **design/plan review 不收敛**（可逆——findings 留痕、P4/P5 双网兜底）；**绝不**适用于上方 HARD-STOP 清单。
 - `degrade_policy` 缺省（字段不存在）或为 `standard` 时，A4/A3 走原暂停路径——现有任务零行为变更。
