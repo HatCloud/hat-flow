@@ -9,6 +9,8 @@ word-budget: exempt
 
 任务生命周期编排器。读取任务文件夹中的 `phases.md` 决定从哪个阶段继续，加载对应的阶段 skill 执行，支持跨 session 恢复。
 
+工具落点按 `${CLAUDE_SKILL_DIR}/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task to orchestrate the task lifecycle."
 
 **Unattended / Quiet Mode：** 入口 **Step 0** 统一解析 `$ARGUMENTS`，由显式信号（`-q` / `--quiet` / `--headless` / 「无人值守」关键词）确立 `quiet_mode` 与 `flag_overrides`。quiet_mode=true 时在进入 Init 前即按无人值守语义执行，并由 task-init 1f 物化 `unattended.json`（新任务）；恢复既有任务时若 `unattended.json` 已存在则静默沿用。非 quiet 的交互路径下，Step 2A.1（Phase 过渡、仅文件不存在时询问）为交互激活主入口（入口序见 `UNATTENDED_PROTOCOL.md` §5）。
@@ -24,6 +26,8 @@ word-budget: exempt
 - 自进化准则（受管注入）: (本分发版已停用自进化，无注入)
 - User input: $ARGUMENTS
 
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
+
 > 以上数据在 skill 加载时已预获取，视为权威事实，无需重新查询。
 
 ## NO_GIT Mode
@@ -32,7 +36,7 @@ word-budget: exempt
 
 ## Trivial Task Exemption
 
-仅当以下**三个条件全部满足**时，才可以通过 AskUserQuestion 询问用户是否跳过此工作流：
+仅当以下**三个条件全部满足**时，才可以 向用户提问（结构化选项优先），确认用户是否同意跳过此工作流：
 
 1. 变更纯粹是外观性的，不影响逻辑（拼写错误、空格、常量值）
 2. 整个变更可以用一条 commit message 描述
@@ -43,19 +47,19 @@ word-budget: exempt
 > **与 lite/hotfix 档位的分界**（避免混淆）：**Trivial = 完全跳过工作流**（不建任务文件夹、直接改+commit），仅限上述三条全中的外观性改动；**lite/hotfix = 仍走工作流但精简档位**（建任务、跑裁剪后的 phase），用于"小但有逻辑/新行为"的改动。拿不准是否 Trivial 时选 lite，而非跳过。本节三条件是 Step 1 Step 1B「Trivial Task Check」的唯一判据来源，勿在别处另立。
 
 <rule>
-跳过工作流的前提是先发起一次 AskUserQuestion：三个免除条件全部成立、且用户明确同意。两者缺一时，走完整工作流。
+跳过工作流的前提是先发起一次 向用户提问（结构化选项优先）：三个免除条件全部成立、且用户明确同意。两者缺一时，走完整工作流。
 Reason: 自我判定为「trivial」的变更经常隐藏着未被察觉的复杂度。
 </rule>
 
 ---
 
-## TODO Sync (TaskCreate / TaskUpdate)
+## TODO Sync（维护进度清单）
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的确定性触发点表 + 4 命名模板执行——三档语义、双层结构、显示效果、全生命周期触发契约均以该文件为唯一权威。
 
 本 skill（orchestrator）触发点：
 - **phase 切换**（Step 3）：`update_overview` 更新概览符号（`full`/`overview`）；`off` no-op。
-- **Bootstrap / 跨 session RESUME**（Step 2B）：先 `TaskList`——有 overview→`TaskUpdate` 刷新符号到 phases.md 当前态，无→重建（首个 TaskCreate 取最小 ID）+ `in_progress`（`full` 再按 phases.md 重建当前 phase step）；`off` no-op（不重建、不刷新、不清理）。
+- **Bootstrap / 跨 session RESUME**（Step 2B）：先查进度清单列表（Claude 落点见 harness-tools.md）——有 overview→刷新符号到 phases.md 当前态，无→重建并保持最小 ID + `in_progress`（`full` 再按 phases.md 重建当前 phase step）；`off` no-op（不重建、不刷新、不清理）。
 
 ---
 
@@ -81,11 +85,11 @@ Reason: phases.md 是唯一的跨 session 状态源，每个 phase SKILL.md 持�
 | 信号 | 来源 | 结果 |
 |------|------|------|
 | **显式（兜底保证）** | `$ARGUMENTS` 含 `-q` / `--quiet` / `--headless`，或「无人值守」关键词 | `quiet_mode = true` |
-| **自动探测（尽力，仅参考）** | 无稳定信号——实测交互会话 `CLAUDE_CODE_ENTRYPOINT=cli` 且工具内 `test -t 0` 恒非 TTY，`claude -p` 无官方专用环境变量 | **不据此翻转** `quiet_mode`（避免误把交互会话判为无头而静默吞掉交互） |
+| **自动探测（尽力，仅参考）** | 无稳定信号——实测交互会话 `CLAUDE_CODE_ENTRYPOINT=cli` 且工具内 `test -t 0` 恒非 TTY，无头（`-p`）调用无官方专用环境变量 | **不据此翻转** `quiet_mode`（避免误把交互会话判为无头而静默吞掉交互） |
 
 <rule>
 quiet_mode 只由显式信号确立（`-q`/`--quiet`/`--headless`/「无人值守」）；自动探测 env/TTY 不会将其翻开。
-Reason: 实测没有稳定的无头信号——交互会话同样会显示 `CLAUDE_CODE_ENTRYPOINT=cli`、且工具调用内 stdin 非 TTY，因此自动探测会产生误报，在有用户在场的会话里静默吞掉交互。`claude -p` 用户会传 `-q`（README 已记载）。显式信号才是有保证的契约。
+Reason: 实测没有稳定的无头信号——交互会话同样会显示 `CLAUDE_CODE_ENTRYPOINT=cli`、且工具调用内 stdin 非 TTY，因此自动探测会产生误报，在有用户在场的会话里静默吞掉交互。无头（`-p`）用户会传 `-q`（README 已记载）。显式信号才是有保证的契约。
 </rule>
 
 **flag 解析（从 `$ARGUMENTS` 剥离后，剩余文本作需求/Linear ID/tier 关键词交给 task-init 1b 继续解析）：**
@@ -108,18 +112,18 @@ Reason: 实测没有稳定的无头信号——交互会话同样会显示 `CLAU
 2. task-init 1b.3 第 5 步解析 config 时追加 `--quiet`（使 `branch.worktree` 的 `"ask"` 解析为 true）；
 3. task-init 1f 物化 `task-config.json`（`_source:"headless"`）+ `unattended.json`（`enabled:true, activate_after:"now", task_type:"self_test", degrade_policy, end_decisions` 取 config 默认），使 Init 之后全程无人值守（详见 task-init 1f 与 `UNATTENDED_PROTOCOL.md`）。
 
-**[Unattended]** 本步骤无交互——纯解析 `$ARGUMENTS`，无 AskUserQuestion。quiet_mode 与 flag_overrides 在后续 Init/Design/... 全程可用。
+**[Unattended]** 本步骤无交互——纯解析 `$ARGUMENTS`，无 向用户提问（结构化选项优先）。quiet_mode 与 flag_overrides 在后续 Init/Design/... 全程可用。
 
 ### Step 1: Determine State
 
 **A. Check open tasks** (from Runtime Context Tasks JSON):
 
-- **No open tasks** AND `$ARGUMENTS` 为空 → AskUserQuestion 询问任务描述
+- **No open tasks** AND `$ARGUMENTS` 为空 → 向用户提问（结构化选项优先） 询问任务描述
 - **No open tasks** → 新任务，跳到 Step 2A（Init）
 - **1 open task** → 读取该任务文件夹的 `phases.md`（如果存在），跳到 Step 2B（Resume）
-- **多个 open tasks** → 先拿 `$ARGUMENTS` 与各 open task 的文件夹名 / 任务名做子串匹配：**唯一命中 → 直接选中，跳到 Step 2B（Resume），不询问**（新会话交接命令自带任务名，恢复时不多问一次）；无命中或多重命中 → AskUserQuestion 让用户选择；选定后跳到 Step 2B（Resume）
+- **多个 open tasks** → 先拿 `$ARGUMENTS` 与各 open task 的文件夹名 / 任务名做子串匹配：**唯一命中 → 直接选中，跳到 Step 2B（Resume），不询问**（新会话交接命令自带任务名，恢复时不多问一次）；无命中或多重命中 → 向用户提问（结构化选项优先） 让用户选择；选定后跳到 Step 2B（Resume）
 
-**B. Trivial Task Check** (仅对新任务): 如果 `$ARGUMENTS` 满足全部 3 个免除条件，AskUserQuestion 确认后跳过工作流。
+**B. Trivial Task Check** (仅对新任务): 如果 `$ARGUMENTS` 满足全部 3 个免除条件，向用户提问（结构化选项优先） 确认后跳过工作流。
 
 ### Step 2A: New Task — Phase 1
 
@@ -135,7 +139,7 @@ Phase 1 完成后（task-init SKILL.md 指示 DONE），执行 **Step 2A.1**，�
 
 > **主要激活入口已移至 P2 Step 2e 配置面板。** Phase 过渡时的询问为后备入口，仅当 Phase 1/2/3 完成且 unattended.json 不存在时触发。
 >
-> **与 Step 3 步骤 3 的关系（单一机制，勿各自演化）**：Phase 过渡时的无人值守判定权威序列（declined 短路 → activate_after 激活 → 文件不存在则询问 → 否则静默）定义在 **Step 3 步骤 3**；本 Step 2A.1 是其中「文件不存在 → 询问激活时机」分支的**询问子过程**（拥有下方 AskUserQuestion 选项），同时供 Step 2A（新任务 Init 完成后）直接调用。两处的 declined 短路 / 「已存在则静默」语义必须一致——改其一须同步改另一。
+> **与 Step 3 步骤 3 的关系（单一机制，勿各自演化）**：Phase 过渡时的无人值守判定权威序列（declined 短路 → activate_after 激活 → 文件不存在则询问 → 否则静默）定义在 **Step 3 步骤 3**；本 Step 2A.1 是其中「文件不存在 → 询问激活时机」分支的**询问子过程**（拥有下方 向用户提问（结构化选项优先） 选项），同时供 Step 2A（新任务 Init 完成后）直接调用。两处的 declined 短路 / 「已存在则静默」语义必须一致——改其一须同步改另一。
 
 在以下任一时机执行（刚标记为 DONE 且 `unattended.json` 不存在）：
 - Init 完成 → 进入 Design
@@ -144,12 +148,12 @@ Phase 1 完成后（task-init SKILL.md 指示 DONE），执行 **Step 2A.1**，�
 
 1. 读取 `{task-folder}/unattended.json`
    - **declined 短路（最先判断）**：若文件存在且 `declined == true` → 用户已拒绝无人值守，静默继续、不询问、不进激活分支、不推断 `activate_after`（见 `UNATTENDED_PROTOCOL.md` §5）。跳过本 Step 2A.1 剩余步骤。
-2. 若文件不存在：AskUserQuestion——无人值守激活时机？（共享契约 SC3，措辞与 task-design Activation Timing 一致）
+2. 若文件不存在：向用户提问（结构化选项优先）——无人值守激活时机？（共享契约 SC3，措辞与 task-design Activation Timing 一致）
    - **现在启用** — 立即进入无人值守，写 `unattended.json`（`enabled: true`, `activate_after: "now"`）
    - **Design 阶段结束后启用** — 本阶段仍交互，写 `unattended.json`（`enabled: false`, `activate_after: "design"`），由 Step 3 在 Design 完成后激活
    - **Plan 阶段结束后启用** — Design + Plan 交互，写 `unattended.json`（`enabled: false`, `activate_after: "plan"`），由 Step 3 在 Plan 完成后激活
    - **否** — 全程交互，写拒绝哨兵 `unattended.json`（`{"enabled": false, "declined": true}`），使后续过渡点不再重复询问
-3. 若选择 **现在启用**：追问任务类型（AskUserQuestion）：
+3. 若选择 **现在启用**：追问任务类型（向用户提问（结构化选项优先））：
    - **自测任务（Recommended）** — 自动推进到 task-end
    - **需要用户测试** — 推进到 task-test 完毕后 Telegram 通知（经 `UNATTENDED_PROTOCOL.md` §4，opt-in；未配置则静默降级）
    选 **自测任务** 时再追加 End 阶段决策收集（分支处理：自动合并到 main / 保留分支；CLAUDE.md 更新：自动更新 / 跳过），写入 `unattended.json` 的 `end_decisions` 字段
@@ -159,8 +163,8 @@ Phase 1 完成后（task-init SKILL.md 指示 DONE），执行 **Step 2A.1**，�
 **[Unattended]** 此处为无人值守询问入口本身——已有 unattended.json（含延后激活的 `enabled:false`）时静默继续，不阻塞。
 
 <rule>
-被拒绝/取消而没有语义回答的 AskUserQuestion 不推断任何默认值，等同于「未选任何选项」；用户意图先以纯文本确认。
-Reason: 被取消的提问不是一个选择——推断「用户指的是推荐选项」会静默落定一个用户从未做出的决定（分支策略、无人值守激活、范围）。这适用于整个工作流的所有 AskUserQuestion 调用，包括 Interactive 模式下「UI 拒绝」不同于「真实回答」的停顿点。
+被拒绝/取消而没有语义回答的 向用户提问（结构化选项优先） 不推断任何默认值，等同于「未选任何选项」；用户意图先以纯文本确认。
+Reason: 被取消的提问不是一个选择——推断「用户指的是推荐选项」会静默落定一个用户从未做出的决定（分支策略、无人值守激活、范围）。这适用于整个工作流的所有 向用户提问（结构化选项优先） 调用，包括 Interactive 模式下「UI 拒绝」不同于「真实回答」的停顿点。
 </rule>
 
 ### Step 2B: Resume Existing Task
@@ -169,13 +173,13 @@ Reason: 被取消的提问不是一个选择——推断「用户指的是推荐
 
 若选定的 open task 含 `worktree` 字段（来自主仓库 stub 的 `.worktree` 指针，由 `hat-task-detect` 读出）且当前 CWD 不在该 worktree 内（正从主仓库恢复）：
 
-1. `EnterWorktree(path="{worktree 指针路径}")` 切入已注册的 worktree（session CWD 随之切换）。
+1. `进入隔离工作树(path="{worktree 指针路径}")` 切入已注册的 worktree（session CWD 随之切换）。
 2. 切入后重新 `hat-task-detect .tasks` 定位 worktree 内真实任务文件夹（含 phases.md / design.md / task-config.json / unattended.json）。
 3. **追加当前 session-id 到 worktree 内的 session.json**（见下方第 4 步逻辑）。后续所有状态读取均针对 worktree 内的任务文件夹。
 
-若指针路径不存在（worktree 被手动删除）→ **[Interactive]** AskUserQuestion：在主仓库继续（放弃隔离）/ 中止；**[Unattended]** 按 `UNATTENDED_PROTOCOL.md` §8 暂停 + Telegram 通知（无法自动重建隔离环境，不擅自在主仓库续跑）。
+若指针路径不存在（worktree 被手动删除）→ **[Interactive]** 向用户提问（结构化选项优先）：在主仓库继续（放弃隔离）/ 中止；**[Unattended]** 按 `UNATTENDED_PROTOCOL.md` §8 暂停 + Telegram 通知（无法自动重建隔离环境，不擅自在主仓库续跑）。
 
-**[Unattended]** worktree 回切无交互——指针有效则自动 `EnterWorktree`；失效才暂停通知。
+**[Unattended]** worktree 回切无交互——指针有效则自动 `进入隔离工作树`；失效才暂停通知。
 
 读取恢复所需的状态文件：
 
@@ -186,19 +190,9 @@ Reason: 被取消的提问不是一个选择——推断「用户指的是推荐
    - 降级时**不**写入 task-config.json（留给 P2 Step 2e 正式生成）
 3. 读取 `{task-folder}/unattended.json`（无人值守状态，可选）
 3.5. **戳运行态信号**：`hat-task-state running "{task-folder}"`（外部驱动可机读的状态文件，契约见 `references/headless-driving.md`；graceful——失败仅 stderr 告警，不阻断恢复）。
-4. **追加当前 session-id**：跨 session 恢复时，本次的 `$CLAUDE_CODE_SESSION_ID` 可能不在 `{task-folder}/session.json` 的 `sessions` 数组中。若该 id 非空且不在数组则追加（保持 `{"sessions": [...]}` schema）；`session.json` 不存在则创建。这样多 session 任务的会话导出（task-end / `/dogfooding`）能覆盖全部 session。env 缺失或写失败 → 跳过（不阻断恢复）。
+4. **追加当前 session-id**：跨 session 恢复时，本次的会话标识（Claude 落点见 harness-tools.md「会话标识」行）可能不在 `{task-folder}/session.json` 的 `sessions` 数组中。若该 id 非空且不在数组则追加（保持 `{"sessions": [...]}` schema）；`session.json` 不存在则创建。这样多 session 任务的会话导出（task-end / `/dogfooding`）能覆盖全部 session。env 缺失或写失败 → 跳过（不阻断恢复）。
 
-   ```bash
-   sid="${CLAUDE_CODE_SESSION_ID:-}"; sj="{task-folder}/session.json"
-   [ -n "$sid" ] && python3 -c 'import json,sys,os
-   sj,sid=sys.argv[1],sys.argv[2]
-   d={"sessions":[]}
-   if os.path.exists(sj):
-       try: d=json.load(open(sj))
-       except Exception: d={"sessions":[]}
-   d.setdefault("sessions",[])
-   if sid not in d["sessions"]: d["sessions"].append(sid); json.dump(d,open(sj,"w"))' "$sj" "$sid" 2>/dev/null || true
-   ```
+   按 harness-tools.md「会话标识」行的**追加/合并模板**（非首写覆写模板）执行——去重、文件不存在则创建、损坏 JSON 按空数组兜底；无会话标识或写失败则跳过（不阻断恢复）。
 
 **先检查 Revise section，再检查 Phase 状态**。
 
@@ -214,7 +208,7 @@ Reason: 被取消的提问不是一个选择——推断「用户指的是推荐
 | 所有 Revise section 均为 DONE/DEFERRED 且 DONE 的 Return 步骤为 `[x]` | 忽略这些 section，继续下方 Phase 路由 |
 
 **编排器层错误处理**：
-- phases.md 格式损坏（无法解析 Revise section）→ **[Interactive]** AskUserQuestion：手动修复 / 忽略 Revise 继续正常路由；**[Unattended]** 暂停 + Telegram 通知，等 `/task` 恢复（状态文件损坏属 §9 HARD-STOP：自动「忽略 Revise 续跑」可能丢 IN_PROGRESS 的 revise 半成品，倾向暂停而非 auto-cancel，见 `UNATTENDED_PROTOCOL.md` §8/§9）
+- phases.md 格式损坏（无法解析 Revise section）→ **[Interactive]** 向用户提问（结构化选项优先）：手动修复 / 忽略 Revise 继续正常路由；**[Unattended]** 暂停 + Telegram 通知，等 `/task` 恢复（状态文件损坏属 §9 HARD-STOP：自动「忽略 Revise 续跑」可能丢 IN_PROGRESS 的 revise 半成品，倾向暂停而非 auto-cancel，见 `UNATTENDED_PROTOCOL.md` §8/§9）
 - Revise section 引用的 Return 步骤不存在 → 忽略该 Revise section，按正常 Phase 路由
 
 #### Phase 路由
@@ -252,8 +246,8 @@ Reason: 每个 phase SKILL.md 携带产出该 phase 产物的 hook 调用（revi
 | "这个 phase 很简单，直接做就行" | 觉得简单正是漏 hook 的高发场景（bin-unit-tests 元 bug 即如此）。 |
 
 <rule>
-经 Read 加载的 phase SKILL.md 中动态注入行不会展开——正文出现字面 `!`cat <路径>`` 时当场 Read 该路径文件，出现字面 `!`<命令>`` 时当场用 Bash 执行取结果，再继续该步骤。
-Reason: `!` 注入只在技能经 Skill / 斜杠激活时由 harness 展开；编排器用 Read 工具路由 phase skill，注入行原样留在正文——DESIGN_PROTOCOL / PLAN_PROMPT 等协议正文与 Runtime Context 探测结果会静默缺失，而按「协议单一来源」约定 SKILL.md 不重述这些内容，缺了等于整段流程丢失（ISSUE 审计 F5 实证）。
+动态注入行未展开时（任何加载路径——编排器 Read 路由、Codex 原生技能加载等），正文出现字面 `!`cat <路径>`` 即当场 Read 该路径文件，出现字面 `!`<命令>`` 即当场执行该命令取结果，再继续该步骤。
+Reason: `!` 注入只在 Claude 侧技能激活时由 harness 展开；其余加载路径（编排器 Read 路由、Codex 原生加载）注入行原样留在正文——DESIGN_PROTOCOL / PLAN_PROMPT 等协议正文与 Runtime Context 探测结果会静默缺失，而按「协议单一来源」约定 SKILL.md 不重述这些内容，缺了等于整段流程丢失（ISSUE 审计 F5 实证）。
 </rule>
 
 <rule>
@@ -293,11 +287,9 @@ Reason: 派发无超时曾致 codex review 续接挂起超过 10 分钟无信号
    - **其他过渡**：不给交接建议
    - 触发时无条件给出交接建议（不评估上下文大小）：任务状态已全量落盘（phases.md / task-config.json / plan.md），新会话从文件态恢复比压缩后续跑更干净（无摘要失真、无残留上下文计费）。输出一个可直接复制的命令块：
 
-     ```bash
-     cd {项目根绝对路径} && claude -n "{task-folder-name}" "/task 继续任务「{任务名}」：任务目录 {task-folder}，Plan 已完成、从 Execute 开始。先读该目录下 phases.md 与 task-config.json 恢复进度，按 Resume 流程继续。任务目标：{一句话摘要}"
-     ```
+     命令块模板见 harness-tools.md「新会话交接」行。占位符取值：{项目根绝对路径} = 当前 session 的项目根（worktree 任务即 worktree 根）；{task-folder} = 相对项目根的任务目录路径；{一句话摘要} 从 prompt.md 提炼、一句以内。
 
-     占位符取值：{项目根绝对路径} = 当前 session 的项目根（worktree 任务即 worktree 根）；{task-folder} = 相对项目根的任务目录路径；{一句话摘要} 从 prompt.md 提炼、一句以内。
+     
    - 建议后等待用户回复。用户在新终端执行该命令 → 本会话直接弃用（状态已落盘，无需收尾动作）；用户回复"继续" → 留在当前会话推进
 
 **[Unattended]** 新会话交接软停是面向交互用户的停顿——前置门跳过 `enabled:true`（已激活）与"本过渡点即将激活（`enabled:false` 且 activate_after 匹配）"两种无人值守情形，不输出任何等待用户回复的交接命令块（见上方 HARD-GATE）。
@@ -319,7 +311,7 @@ Reason: 交接建议是等待用户回复的软停顿。无人值守模式下没
 重复直到 Test 完成（End 由用户手动触发）。
 
 <rule>
-任何等待用户输入的回合结束前（AskUserQuestion 之前、纯文本停点之前、硬停宣告之前），先运行 `hat-task-state waiting "{task-folder}" --phase N --stop-point <语义 slug> --resume-hint approve|choice|free_text --expect "<一句人读提示>"` 再停；写失败仅 stderr 告警、照常停下（graceful，非硬依赖）。此规则为全 phase 共用的编排纪律——phase skill 停点表不重复写入指令。
+任何等待用户输入的回合结束前（向用户提问（结构化选项优先） 之前、纯文本停点之前、硬停宣告之前），先运行 `hat-task-state waiting "{task-folder}" --phase N --stop-point <语义 slug> --resume-hint approve|choice|free_text --expect "<一句人读提示>"` 再停；写失败仅 stderr 告警、照常停下（graceful，非硬依赖）。此规则为全 phase 共用的编排纪律——phase skill 停点表不重复写入指令。
 Reason: 外部驱动方（E2E 回归、cron、调度器）依赖 state.json 机械判定「在等什么、回什么能推进」，不再解析输出文本猜停点（E2E 首跑实证 3 次 UNMATCHED）；契约与消费算法见 `references/headless-driving.md`。
 </rule>
 

@@ -1,18 +1,19 @@
 {
   "name": "hat-flow",
-  "description": "HatCloud marketplace for hat-flow — the spec-driven task workflow plugin.",
-  "owner": {
-    "name": "HatCloud"
-  },
   "plugins": [
     {
       "name": "hat-flow",
       "description": "Spec-driven task workflow for Claude Code: a 6-phase lifecycle (Init/Design/Plan/Execute/Test/End) with plugin hooks, code/design/plan review, optional Linear and Telegram integration, and TDD discipline.",
       "version": "0.6.0",
-      "source": "./plugins/hat-flow",
-      "author": {
-        "name": "HatCloud"
-      }
+      "source": {
+        "source": "local",
+        "path": "./plugins/hat-flow"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
     }
   ]
 }

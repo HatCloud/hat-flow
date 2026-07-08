@@ -2,6 +2,17 @@
 
 > 最新在最上。每条记录一次改动及缘由。
 
+## 2026-07-08 约定 11：多 harness 工具落点单一权威（ISSUE）
+
+**为何**：task 系列的工具落点分散直呼会破坏共享树；确立 `harness-tools.md` 为唯一权威（先落表、再引用，不得反序），Compliance Checklist 增对应检查项。
+
+## 2026-07-08 Codex 中性化批①——task skill 规范停点词汇
+
+**为何**：为 Codex 引擎兼容铺垫，spec-task-skill 的交互 / 无人值守约定不应直呼 Claude 专属提问工具。
+
+- `SKILL.md` 与 `README.md` 中的停顿点、无人值守分支、约定 9 P4 零阻塞交互说明改用「向用户提问（结构化选项优先）」。
+- 原 Interactive / Unattended 双路径要求、默认决策、notify-then-cancel 与 P4 硬约束不变。
+
 ## 2026-07-08 约定 1/2 机制名：compact → 新会话交接
 
 编排器 Plan 完成后的软停机制由 compact 建议改为新会话交接建议（skill-revise 定向修订，动因与全量改动见 task 套件 changelog 2026-07-08 条），本规范约定 1（Phase Transition Protocol 的排除项与 rule）、约定 2（语义命名示例）中的机制名同步换词。约定本身的语义（过渡逻辑归编排器、语义命名判据）不变。

@@ -10,6 +10,8 @@ word-budget: 2000
 
 任务设计阶段的**编排薄层**：announce、加载 runtime context、嵌入 DESIGN_PROTOCOL、调用 hooks、TODO sync、resume、配置精调、过渡。完整设计流程（步骤、模板、复杂度矩阵、原则）的单一来源是下方 `!cat` 嵌入的 DESIGN_PROTOCOL.md——本文件不重述其内容。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-design for Phase 2: Design."
 
 ## Runtime Context
@@ -17,6 +19,8 @@ word-budget: 2000
 - Tasks: !`hat-task-detect .tasks 2>/dev/null || echo '{"open":[]}'`
 - Branch: !`git branch --show-current 2>/dev/null || echo 'NO_GIT'`
 - User input: $ARGUMENTS
+
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
 
 ## DESIGN_PROTOCOL (pre-loaded):
 
@@ -28,11 +32,13 @@ word-budget: 2000
 !`cat ${CLAUDE_PLUGIN_ROOT}/skills/task/DESIGN_PROTOCOL.md`
 </DESIGN_PROTOCOL>
 
+> 若上方 DESIGN_PROTOCOL 未展开（仅见字面注入行），先 Read `${CLAUDE_PLUGIN_ROOT}/skills/task/DESIGN_PROTOCOL.md` 再继续——按「协议单一来源」约定本文件不重述其内容，协议缺失等于整段设计流程丢失。
+
 ## TODO Sync
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
 
-本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；每个 Step 完成后将对应 phases.md 行标记 `[x]`（`full` 另 `TaskUpdate(completed)`）。
+本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；每个 Step 完成后将对应 phases.md 行标记 `[x]`（`full` 另 `维护进度清单，状态置 `completed``）。
 
 ---
 
@@ -79,7 +85,7 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 将评估出的复杂度与 P1 Step 1b.3 已选 preset 对应的复杂度对比：
 
 - **一致 / 仅小幅偏离** → 静默沿用现有 task-config.json，不弹面板，直接进入 2e.3 写 design.md 策略段。
-- **明显偏离**（如 preset 为 lite 但 design.md 评估为 High，或反之）→ 弹 AskUserQuestion 配置面板修正：
+- **明显偏离**（如 preset 为 lite 但 design.md 评估为 High，或反之）→ 弹 向用户提问（结构化选项优先） 配置面板修正：
 
   | 配置项 | 当前值 | 推荐值 | 说明 |
   |--------|--------|--------|------|
@@ -98,7 +104,7 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 仅当 `code_review ∈ {medium, full}` 且当前 `per_task_review == "checkpoint"` 时评估（否则跳过本步）。基于 design.md 判断本任务是否触及**高敏感面**：对外契约/API、认证授权、资金/支付、数据迁移、安全边界、不可逆操作、核心数据 schema。
 
 - **非高敏感** → 不动 `per_task_review`，沿用 checkpoint。
-- **高敏感** → 弹 AskUserQuestion 建议把**整个任务**的 `per_task_review` 升级为 `each`（任务级，对所有 plan task 逐个派 code-reviewer）：选项 `升级 each（逐 task review，质量优先）` / `保持 checkpoint（仅全量兜底）`，并在问题里点明命中的敏感面。用户选 `each` → 并入下方 2e.3 写入 `task-config.json`（per_task_review 变更不改 phases.md 结构，phases.md 重生成对它为 no-op）。
+- **高敏感** → 弹 向用户提问（结构化选项优先） 建议把**整个任务**的 `per_task_review` 升级为 `each`（任务级，对所有 plan task 逐个派 code-reviewer）：选项 `升级 each（逐 task review，质量优先）` / `保持 checkpoint（仅全量兜底）`，并在问题里点明命中的敏感面。用户选 `each` → 并入下方 2e.3 写入 `task-config.json`（per_task_review 变更不改 phases.md 结构，phases.md 重生成对它为 no-op）。
 
 **Step 2e.3: 变更执行**（仅当面板触发且有变更并经用户确认时执行前 2 步）
 
@@ -129,7 +135,7 @@ design.md 初稿（DESIGN_PROTOCOL Step 5）完成后执行。task-config.json �
 
 **守卫（先判）**：读取 `{task-folder}/unattended.json`。**文件已存在即跳过询问**——无论 `declined == true`（已拒绝，短路优先于 activate_after）、`enabled:true`（已激活，含 quiet 入口在 1f 物化的 headless 状态）还是 `enabled:false` 带 `activate_after`（延后激活已选定，重复询问即双问），各状态语义见 `UNATTENDED_PROTOCOL.md` §5。
 
-文件不存在时用 AskUserQuestion 提供四个选项：
+文件不存在时用 向用户提问（结构化选项优先） 提供四个选项：
 
 | 选项 | 含义 | 动作 |
 |------|------|------|
@@ -165,7 +171,7 @@ Reason: dogfooding 发现 design_rounds > 0 时 review 被静默跳过，导致�
 
 **Reviewer 解析（codex-aware，派发前先判）**：按 `review.md ## P2.post-design-draft` 的「Reviewer-aware 派发（codex 分支）」解析 reviewer（读 `task-config.json` `plugins.review.reviewer` + `capabilities.codex`；过期/跨 phase → 派发点二次 `codex-check` 刷新）。
 - **解析为 `claude`/`sonnet`/`opus`** → 走下面 native design-reviewer 收敛循环（并行 R1/R2 矩阵）。
-- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 改走 review.md codex 分支：经 `/codex:rescue`（read-only）**串行** R1/R2（codex 不并发），输出 `## Critical/Important/Minor` + 末行计数，`codex-findings-count` 判 **C=0 & I=0** 收敛，round≥2 `SendMessage(to: agentId)` 续接。下面第 2–5 步的批判评估/修复/收敛检查逻辑**不变**，仅派发载体（codex vs native）与并发性（串行 vs 并行）不同。中途 `FALLBACK:`/quota → 降级 native design-reviewer（见 review.md，写 `fallback-log.jsonl`）。
+- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 改走 review.md codex 分支：经 `/codex:rescue`（read-only）**串行** R1/R2（codex 不并发），输出 `## Critical/Important/Minor` + 末行计数，`codex-findings-count` 判 **C=0 & I=0** 收敛，round≥2 `定向续接某代理（按具体 agentId）` 续接。下面第 2–5 步的批判评估/修复/收敛检查逻辑**不变**，仅派发载体（codex vs native）与并发性（串行 vs 并行）不同。中途 `FALLBACK:`/quota → 降级 native design-reviewer（见 review.md，写 `fallback-log.jsonl`）。
 
 <rule>
 Reviewer 解析为 codex（reviewer=auto 且 `codex-check` READY，或 reviewer=codex）时，派发走 review.md 的 codex 分支。只有在 hard-fallback 触发条件下（需要 network / sandbox gate / quota / codex 输出 `FALLBACK:`）才允许降级到 native design-reviewer，且每次降级都向 `{task-folder}/fallback-log.jsonl` 追加一行（`requested_engine:"codex", actual_engine:"claude", reason:<text>`）。"native 更简单 / 更快" 不构成 fallback 触发条件。
@@ -174,12 +180,12 @@ Reason: dogfooding 抓到一次运行解析为 codex（auto + READY）却"为了
 
 **收敛模式核心循环：**
 
-1. **并行派发** R1（结构审查）+ R2（对抗审查），均用 `subagent_type: design-reviewer`（保留 model override，按下方矩阵在派发时指定）：
+1. **并行派发** R1（结构审查）+ R2（对抗审查），均派发只读 reviewer 子代理 `design-reviewer`（保留模型档位 override，按下方矩阵在派发时指定；Claude 档位见 `harness-tools.md`）：
 
    | 轮次类型 | Low | Medium | High |
    |----------|-----|--------|------|
-   | 常规轮次 (R1) | Sonnet | Sonnet | Opus |
-   | 对抗轮次 (R2) | Sonnet | Opus | Opus |
+   | 常规轮次 (R1) | 常规档 | 常规档 | 加强档 |
+   | 对抗轮次 (R2) | 常规档 | 加强档 | 加强档 |
 
    R2 prompt 追加"对抗审查员"角色说明 + R1 findings + design.md diff。
 
@@ -192,7 +198,7 @@ Reason: dogfooding 抓到一次运行解析为 codex（auto + READY）却"为了
    - 两者都有 → 下轮并行重跑两者
 5. **下轮 prompt** 注入上轮 findings + 修复/反驳清单（防止已反驳问题反复出现）。
 6. 循环直到收敛或达 `max_rounds`。
-7. **max_rounds 退出**时：展示剩余 findings + AskUserQuestion 确认是否接受当前状态推进。
+7. **max_rounds 退出**时：展示剩余 findings + 向用户提问（结构化选项优先） 确认是否接受当前状态推进。
 
 轮次数量由 `review.design_rounds` 决定（auto 按复杂度：Low:0, Medium:1, High:2），`max_rounds` 上限兜底（**reviewer-aware**：`max_rounds` 为标量则两 reviewer 共用；为对象 `{claude:N, codex:M}` 时 claude 取 `.claude`、codex 取 `.codex`，缺省 claude 3 / codex 8——codex 更严、收敛更慢）。`design_rounds: 0` 时跳过本步骤。
 
@@ -250,16 +256,16 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、新会话交
 
 ## Visual / Semantic Decisions — Use Previews
 
-设计期遇到**视觉 / 语义选择**（图标 / emoji、命名格式与缩写、键位、文案、布局）时，在 Step 2 澄清里用 AskUserQuestion 的 `preview` 字段把候选**画出来**让用户一次性选定，并写进 design.md 的验收/决策。这类选择在设计期用 preview 一次性定下，归属设计期决策。
+设计期遇到**视觉 / 语义选择**（图标 / emoji、命名格式与缩写、键位、文案、布局）时，在 Step 2 澄清里用 向用户提问（结构化选项优先） 的 `preview` 字段把候选**画出来**让用户一次性选定，并写进 design.md 的验收/决策。这类选择在设计期用 preview 一次性定下，归属设计期决策。
 
 <rule>
-视觉 / 语义选择（图标 / emoji、命名格式与缩写、keybindings、文案、布局）在 Step 2 澄清阶段经 AskUserQuestion preview 呈现并记入 design.md。一旦推迟到实现阶段，它们在纯文字往返中迭代代价高昂。
-Reason: 视觉 / 语义决策在前期用并排 preview 能廉价收敛，但若拖到实现阶段在纯文字里反复迭代则代价高昂——已有真实案例：emoji / 缩写 / keybinding 的选择耗费约 25 轮 AskUserQuestion，且大多发生在实现阶段内。在设计期用 preview 定下它们能大幅压缩这些往返。
+视觉 / 语义选择（图标 / emoji、命名格式与缩写、keybindings、文案、布局）在 Step 2 澄清阶段经 向用户提问（结构化选项优先） preview 呈现并记入 design.md。一旦推迟到实现阶段，它们在纯文字往返中迭代代价高昂。
+Reason: 视觉 / 语义决策在前期用并排 preview 能廉价收敛，但若拖到实现阶段在纯文字里反复迭代则代价高昂——已有真实案例：emoji / 缩写 / keybinding 的选择耗费约 25 轮 向用户提问（结构化选项优先），且大多发生在实现阶段内。在设计期用 preview 定下它们能大幅压缩这些往返。
 </rule>
 
 ### 浏览器 Visual Companion（像素级 mockup）
 
-AskUserQuestion preview 适合终端内的 ASCII / 语义选择；当问题需要**真实像素级渲染**（UI 线框图、布局对比、架构图）时 preview 表达不出，改用浏览器 visual companion——纯 node（零 npm）本地 server 把 HTML mockup 推到用户浏览器、用户点选、选择写回事件文件。
+向用户提问（结构化选项优先） preview 适合终端内的 ASCII / 语义选择；当问题需要**真实像素级渲染**（UI 线框图、布局对比、架构图）时 preview 表达不出，改用浏览器 visual companion——纯 node（零 npm）本地 server 把 HTML mockup 推到用户浏览器、用户点选、选择写回事件文件。
 
 just-in-time 提供：第一次真正遇到「画出来比说出来清楚」的视觉问题时，单独发一条消息征询（不与澄清问题或其它内容捆绑），用户同意后再起 server；整个设计期没有视觉问题就不提。逐问决定通道——内容本身是视觉的（mockup / 线框 / 布局对比 / 架构图）走浏览器，内容是文字的（需求 / 概念选择 / 取舍清单 / 文字 A/B/C）走终端。仅 Interactive；无头 / 无人值守模式跳过（无浏览器）。
 

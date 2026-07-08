@@ -2,7 +2,7 @@
 
 审核 skill 文件（SKILL.md + README.md）的质量。基于 spec-skill 规范。
 
-**调用方式**：调用方派发 Agent subagent，将本协议内容 + spec-skill 规范内容 + 待审 SKILL.md + README.md 全部以文本形式注入 prompt（路径 B）。不依赖 `${CLAUDE_POSITIONAL_ARGS}` 动态路由。
+**调用方式**：调用方派发只读 review 子代理（派发方式见 harness-tools.md「派发子代理」行），将本协议内容 + spec-skill 规范内容 + 待审 SKILL.md + README.md 全部以文本形式注入 prompt（路径 B）。不依赖斜杠位置参数动态路由（见 harness-tools.md「斜杠位置参数注入」行）。
 
 **范围**：只审**我们自有**的技能。外部导入 / 第三方技能不在审查范围——它们统一登记在忽略表 `~/.claude/skill-maintenance-ignore`（gitignore 风格 glob，按技能名匹配，如 `lark-*`、`surge`）。调用方派发前先读这份表，命中的技能过滤掉、不派审（以忽略表为准，不靠"是不是软链"）。
 
@@ -32,7 +32,7 @@ Reason: 在残缺上下文上做 review 会产生 false negative，比不做 rev
 - [ ] **Frontmatter** 完整（name、description 字段）
 - [ ] **LANGUAGE RULE** 段落存在且明确（中文主体 + 英文技术术语）
 - [ ] **Red Flags 表格** 存在，列出常见错误思维模式
-- [ ] **Mandatory Stop Points 表格** 存在，每个 Gate 有明确的 AskUserQuestion 说明
+- [ ] **Mandatory Stop Points 表格** 存在，每个 Gate 有明确的 向用户提问（结构化选项优先） 说明
 - [ ] **流程步骤** 存在且编号连续
 - [ ] **触发方式** 在 SKILL.md 或 README.md 中有明确列出
 
@@ -54,7 +54,7 @@ Reason: 在残缺上下文上做 review 会产生 false negative，比不做 rev
 
 **CC 特有语法黑名单**（以下语法不得出现在需要兼容 an alternate runtime 的 skill 中）：
 
-- `${CLAUDE_POSITIONAL_ARGS}`
+- 斜杠位置参数注入变量（字面词表见 harness-tools.md「斜杠位置参数注入」行）
 - `${CLAUDE_SKILL_DIR}`
 - `${CLAUDE_USER_ARGS}`
 - `` !`command` `` 注入语法
@@ -62,7 +62,7 @@ Reason: 在残缺上下文上做 review 会产生 false negative，比不做 rev
 检查项：
 - [ ] SKILL.md 中不包含上述黑名单语法
 - [ ] README.md 中不包含上述黑名单语法
-- [ ] 工具调用使用通用名称（如 "AskUserQuestion"、"Agent"），不使用平台特有 API
+- [ ] 工具调用使用 `harness-tools.md` 中定义的中性动作短语，不直呼 harness 专属 API（如 Claude 专属提问工具名、Agent 等平台特有名称）
 
 **ASCII 命名**（对照 spec-skill「File Organization → Naming: ASCII Only」）：
 - [ ] skill 目录下文件名 / 文件夹名全为 ASCII 英文（无中文 / 空格 / 点）。发现中文名 → `Important`，Fix 写出对应英文 kebab-case 译名 + 提示同步更新所有引用

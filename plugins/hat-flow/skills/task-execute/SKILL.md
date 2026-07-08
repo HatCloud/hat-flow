@@ -10,6 +10,8 @@ word-budget: 2000
 
 主 session 协调逐个执行 plan.md 的任务，每个任务后轻量验证，全部完成后代码审查。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-execute for Phase 4: Execute."
 
 ## Runtime Context
@@ -19,11 +21,13 @@ word-budget: 2000
 - Check (light): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('light','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '轻量' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
 - Check (full): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('full','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '完整' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
 
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
+
 ## TODO Sync
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。本 skill 触发点：**phase 入口与 resume 重建**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step）；每个 plan task 开始 `in_progress`、完成 `completed`（4b 同理，仅 `full`）。下方展开规则仅 `full` 档适用。
 
-**Phase 4 的 step 级 task 展开规则**（入口与 resume 重建同用）：解析 `{task-folder}/plan.md`，为每个 plan task 建独立 step 级 TODO（而非只建 `4a`/`4b` 两项），末尾附 `→ 4b. 代码 review` 作最后一个 step。每个 plan task 一个 `TaskCreate`，metadata `{"level": "step", "phaseNum": 4, "stepId": "4a-taskN"}`。已完成的 plan task（据 plan.md checkbox 或 Commit Checkpoint 推断）标 `completed`。auto/parallel-agents 模式下，批内每 task 派发即翻 `in_progress`、完成即翻 `completed`，不等整批。
+**Phase 4 的 step 级 task 展开规则**（入口与 resume 重建同用）：解析 `{task-folder}/plan.md`，为每个 plan task 建独立 step 级 TODO（而非只建 `4a`/`4b` 两项），末尾附 `→ 4b. 代码 review` 作最后一个 step。每个 plan task 一个 `维护进度清单`，metadata `{"level": "step", "phaseNum": 4, "stepId": "4a-taskN"}`。已完成的 plan task（据 plan.md checkbox 或 Commit Checkpoint 推断）标 `completed`。auto/parallel-agents 模式下，批内每 task 派发即翻 `in_progress`、完成即翻 `completed`，不等整批。
 
 **减少往返**：phase 切换的 delete/create 在单条消息内批量并行；耗时可忽略的步骤可只标 `completed`。
 
@@ -105,7 +109,7 @@ Reason: `subagent` 是旧 schema 值，已被 auto/parallel-agents 取代；未�
 - 写 **gitignored 路径** → 经 `--ignored` 快照归因，escalate（不自动处置 ignored 内容）。
 - 任一不确定 → escalate。**绝不 `git reset --hard` / 绝不全局 `git clean`**。
 
-**escalate（所有模式统一，P4 零阻塞交互）**：写 `fallback-log.jsonl`（`action=paused_dirty_conflict`）+ 保存 baseline，**在 session 内可见地停下并输出冲突报告**，等 `/task` 恢复经下方 resolution menu 决定保留/回滚——不调 AskUserQuestion、不自动续 Claude executor。
+**escalate（所有模式统一，P4 零阻塞交互）**：写 `fallback-log.jsonl`（`action=paused_dirty_conflict`）+ 保存 baseline，**在 session 内可见地停下并输出冲突报告**，等 `/task` 恢复经下方 resolution menu 决定保留/回滚——不调 向用户提问（结构化选项优先）、不自动续 Claude executor。
 
 **`/task resume` 后 dirty-conflict resolution menu**：检测到 `paused_dirty_conflict` → 三选项（基于 baseline/fallback artifact）：① **keep codex edits** → 继续 Claude executor 接续；② **rollback using baseline**（用 baseline 还原冲突路径）→ 继续 Claude executor 重做；③ **cancel** → 转 task-cancel。**菜单优先读 `TASK_RESUME_CHOICE` 环境变量 / 可注入 menu input fixture（自动化测试接缝）**，把 `resolution=keep|rollback|cancel` 与 executor continuation 写入 `fallback-log`。
 
@@ -150,18 +154,18 @@ Reason: `subagent` 是旧 schema 值，已被 auto/parallel-agents 取代；未�
 
 | 信号 | 规则 |
 |------|------|
-| 难度基线 | easy/medium → Sonnet；hard → Opus |
-| TDD 加权 | tdd.mode=full 且 hard 且**无**架构触发（机械型，spec 清晰 + 红绿灯兜底）→ 降 Sonnet |
-| 架构 override（最高优先级，**即"复杂度/影响面"信号的落地**） | task 触 3+ 文件 **或** 含架构关键词（设计/架构/重构/状态机/调度/路由）→ Opus，**不被 TDD 权重压下** |
+| 难度基线 | easy/medium → 常规档；hard → 加强档（Claude 档位见 `harness-tools.md`） |
+| TDD 加权 | tdd.mode=full 且 hard 且**无**架构触发（机械型，spec 清晰 + 红绿灯兜底）→ 降常规档 |
+| 架构 override（最高优先级，**即"复杂度/影响面"信号的落地**） | task 触 3+ 文件 **或** 含架构关键词（设计/架构/重构/状态机/调度/路由）→ 加强档，**不被 TDD 权重压下** |
 
 - engine=sonnet / opus：全部用该模型，不做 per-task 选型。
 - **inline task 跑主 agent 当前模型**，不做 per-task 选型。
-- **成本依据**：执行大头走 Sonnet（≈ Opus 1/5 价）；parallel-agents 只省墙钟、不减 token 总量（前提 plan 任务已切细自足）。
+- **成本依据**：执行大头走常规档（约为加强档 1/5 价）；parallel-agents 只省墙钟、不减 token 总量（前提 plan 任务已切细自足）。
 
 **模型分级两原则（阈值不变）**：
 
-1. **mid-tier 下限**：派发的 executor 与 design/plan reviewer **不低于 Sonnet**（现有矩阵已满足：难度基线与 reviewer 矩阵均以 Sonnet 为底、code review 恒 Opus/claude）。以防今后误降到 Sonnet 以下。
-2. **便宜模型多步反而更贵**：hard / 架构类 task 让 Sonnet 硬扛多步往返时，试错 token 与返工成本常超过 Opus 一次做对——这正是「架构 override → Opus、不被 TDD 权重压下」的理由。
+1. **mid-tier 下限**：派发的 executor 与 design/plan reviewer **不低于常规档**（现有矩阵已满足：难度基线与 reviewer 矩阵均以常规档为底、code review 恒加强档/claude）。以防今后误降到常规档以下。
+2. **便宜模型多步反而更贵**：hard / 架构类 task 让常规档硬扛多步往返时，试错 token 与返工成本常超过加强档一次做对——这正是「架构 override → 加强档、不被 TDD 权重压下」的理由。
 
 #### 执行循环（每个 plan task）
 
@@ -207,7 +211,7 @@ Light verify 失败、或 inline 卡壳、或被派发 task-executor 返回 BLOC
    - **计数由主 agent 在会话上下文维护**（task-executor 无状态、重派不记得上一轮）。每次 BLOCKED / inline 卡死时比对卡点描述是否与上次同一（同 task + 同根因症状），是则 +1，否则视为新卡点从 1 起算。
    - **< 3 次** → 回到本阶梯第 1 步（hatflow-systematic-debugging 的根因定位，**不是** task 的 Phase 1 Init）继续调试。
    - **≥ 3 次，或判定为架构级问题** → 升级。
-4. **升级动作**（subagent BLOCKED 与 inline 卡死同属此阶梯）：补上下文重派 → 换更强模型（Sonnet→Opus）重试一次 → 拆小 task → 仍无解则按模式终结，**不弹阻塞菜单**（约定 9：Execute 零阻塞交互）：在 session 内**可见地停下并输出清晰报告**（卡点描述 + 已尝试的根因修复 + 建议下一步如转 Revise/拆分），phases.md 状态不变，用户回来后 `/task` 恢复。Telegram 通知为 best-effort **叠加**，不替代可见停止。
+4. **升级动作**（subagent BLOCKED 与 inline 卡死同属此阶梯）：补上下文重派 → 换加强档重试一次 → 拆小 task → 仍无解则按模式终结，**不弹阻塞菜单**（约定 9：Execute 零阻塞交互）：在 session 内**可见地停下并输出清晰报告**（卡点描述 + 已尝试的根因修复 + 建议下一步如转 Revise/拆分），phases.md 状态不变，用户回来后 `/task` 恢复。Telegram 通知为 best-effort **叠加**，不替代可见停止。
 
 完成后（所有 plan tasks 执行完）：更新 phases.md，将 `4a. 执行任务` 标记为 `[x]`。
 
@@ -235,7 +239,7 @@ Reason: 部分执行 hook 会静默丢掉 revise-detection 段，于是本应触
 - review 阶段的修复提交顺序：分析 → 修复 → 用户测试 → 用户确认 → 之后才提交（即便修复看似显然，commit 前置于用户确认）
 
 **4b 收敛是跨回合异步 join 循环**（机制单一来源 = `review.md ## P4.post-execute/convergence`，此处仅接线）：
-- Round 1 reviewer 用 `run_in_background=true` 派发、捕获 agentId；主线程派发/复活后**结束本回合**，completion notification 按 `task-id` 重入累积，收齐「期待 agentId 集合」才推进判 C/I（未命中的 linear-sync / 用户 notification 正常吸收、不推进）。
+- Round 1 reviewer 后台派发（类型与调用方式见 `harness-tools.md` 映射）、捕获 agentId；主线程派发/复活后**结束本回合**，completion notification 按 `task-id` 重入累积，收齐「期待 agentId 集合」才推进判 C/I（未命中的 linear-sync / 用户 notification 正常吸收、不推进）。
 - agent→{维度}→agentId 映射写入 phases.md 4b 行 `[→ 收敛 Rn agents:...]` 标注，与 `[→ REVISE RN]` 回归标注**互斥**（进入 Revise 即清收敛标注；回归检测精确匹配 `REVISE` 前缀、不误捕 `收敛`）。
 - **进入 4b 标注分诊**（resume / compaction / 首次统一适用，消除入口歧义）：① 有 `[→ REVISE RN]` → 回归模式；② 否则有 `[→ 收敛 Rn agents:...]` → 从标注恢复 agentId 尝试复活，失效（agent 已死 / resume 新 session）则该维度全新派发（兜底见 review.md convergence）；③ 皆无 → 正常首轮。
 
@@ -266,7 +270,7 @@ Reason: 阶段 skill 不知道完整的过渡逻辑（phase_merge、新会话交
 
 ## Mandatory Stop Points
 
-> **约定 9 Interaction Front-Loading**：Execute(P4) 零阻塞交互。下表无「要求用户应答才能继续」的停顿点——P4 不弹 AskUserQuestion。
+> **约定 9 Interaction Front-Loading**：Execute(P4) 零阻塞交互。下表无「要求用户应答才能继续」的停顿点——P4 不弹 向用户提问（结构化选项优先）。
 
 | Step | When | 行为（非阻塞） |
 |------|------|-------------|

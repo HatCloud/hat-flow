@@ -78,4 +78,4 @@ return { confirmed, counts, dropped_as_false_positive: flat.length - confirmed.l
 
 ## A/B 对账（首次启用必做）
 
-对同一 task 跑两次：现状（主 session `SendMessage` 复活，基线 avg 3426 token/次）vs Workflow（journal-resume）。对账 output token + 稳定性（漏审率、误报过滤准确度），净收益为正再常开 `review.workflow_backend`。
+对同一 task 跑两次：现状（主 session `定向续接某代理` 复活，基线 avg 3426 token/次）vs Workflow（journal-resume）。对账 output token + 稳定性（漏审率、误报过滤准确度），净收益为正再常开 `review.workflow_backend`。

@@ -26,7 +26,7 @@ hook 委托后必须验证预期产物，缺失时执行 fallback 而非跳过�
 Revise 流程的 RN-design 和 RN-plan 必须包含确认循环。
 
 ### Interactive / Unattended Duality
-改 task skill 的任何步骤都要同时设计正常（Interactive）和无人值守（Unattended）两条路径。每个停顿点（AskUserQuestion / 纯文本确认 / 等待用户测试 / 硬阻断）必须有 `[Unattended]` 分支，保证无人值守不被阻塞——自动按默认决定、或通知后 auto-cancel。
+改 task skill 的任何步骤都要同时设计正常（Interactive）和无人值守（Unattended）两条路径。每个停顿点（向用户提问（结构化选项优先） / 纯文本确认 / 等待用户测试 / 硬阻断）必须有 `[Unattended]` 分支，保证无人值守不被阻塞——自动按默认决定、或通知后 auto-cancel。
 
 ### 剥离 / 删除类任务的验收 grep 范围
 以 residual-grep 作验收门控的删除/剥离类任务，其 grep 范围与模式必须排除两类合法命中：刻意保留的产物（后续 block 消费侧、历史记录、changelog）与宽松关键词命中合法标识符的子串误报；否则「零残留」验收会与 Out-of-Scope 自相矛盾、永远 FAIL。

@@ -34,6 +34,9 @@
 ---
 # Linear Plugin
 
+> **记法**：下文 `linear:<op>` 指 Linear MCP server 的同名操作；宿主暴露名见 `harness-tools.md`「调用 Linear MCP 的 <op>」行（操作名跨宿主一致，仅前缀/连接形式不同）。插件启用检测 = 当前会话 Linear MCP 工具可用性探测。
+
+
 ## P1.phase-end
 
 ### Linear Issue 创建/关联
@@ -44,23 +47,23 @@
 
 用户粘贴 `<issue identifier="PROJ-123">...</issue>` XML：
 - 解析 XML 提取 `issueId`、`issueUrl`
-- `mcp__linear__get_issue({ id: "PROJ-123" })` 获取 `issueUuid`
+- `linear:get_issue({ id: "PROJ-123" })` 获取 `issueUuid`
 - 写入 `{task-folder}/linear.json`
 
 ### Path 2: Issue ID Direct Input
 
 用户提供标识符如 `PROJ-123`：
-- `mcp__linear__get_issue({ id: "PROJ-123" })` 获取完整信息
+- `linear:get_issue({ id: "PROJ-123" })` 获取完整信息
 - 写入 `{task-folder}/linear.json`
 
 ### Path 3: No Linear Context
 
-- **[Interactive]** AskUserQuestion：创建新 issue / 跳过 Linear
+- **[Interactive]** 向用户提问（结构化选项优先）：创建新 issue / 跳过 Linear
 - **[Unattended]** 创建新 issue
 
 创建 issue（team/project 标识来自项目 `CLAUDE.md ## Linear 配置`）：
 ```
-mcp__linear__create_issue({
+linear:create_issue({
   teamId: "<CLAUDE.md ## Linear 配置 的 Team id>",
   title: "任务标题",
   description: "描述",
@@ -72,7 +75,7 @@ mcp__linear__create_issue({
 
 各状态的 UUID 随 workspace 而异，**不内嵌任何固定值**——运行时按 name 动态解析并缓存：
 
-1. 确定 team 后（来自 `CLAUDE.md ## Linear 配置`），调用 `mcp__linear__get_status_map({ teamId: "<team id>" })`（或按 team key），返回该 team 的 status `name → UUID` 映射。
+1. 确定 team 后（来自 `CLAUDE.md ## Linear 配置`），调用 `linear:get_status_map({ teamId: "<team id>" })`（或按 team key），返回该 team 的 status `name → UUID` 映射。
 2. 将映射缓存到 `{task-folder}/linear.json` 的 `statusMap` 字段（首次创建/关联 issue 时写入），后续各 phase 按 **name** 索引（大小写不敏感容错）。
 3. 所有状态更新引用 `statusMap` 中对应 name 的 UUID，不出现裸 UUID。
 
@@ -80,7 +83,7 @@ mcp__linear__create_issue({
 
 创建/关联后设为 In Progress（`state` 取 `linear.json.statusMap["In Progress"]`）：
 ```
-mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['In Progress']>" })
+linear:update_issue({ id: "<issueUuid>", state: "<statusMap['In Progress']>" })
 ```
 
 ### linear.json 格式
@@ -99,7 +102,7 @@ mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['In Progress']
 ### Missing Project / Team Config Handling
 
 若项目 `CLAUDE.md` 缺少 `## Linear 配置`（无 Team / Project id）：
-1. **[Interactive]** AskUserQuestion：调 `mcp__linear__list_teams` / `list_projects` 列出可选项，用户选择后写入项目 `CLAUDE.md ## Linear 配置`
+1. **[Interactive]** 向用户提问（结构化选项优先）：调 `linear:list_teams` / `list_projects` 列出可选项，用户选择后写入项目 `CLAUDE.md ## Linear 配置`
 2. **[Unattended]** 或用户跳过 → linear plugin **优雅关闭**（不报错，不中止主流程），本任务后续 Linear 同步整体 no-op
 
 ### 错误处理
@@ -112,16 +115,16 @@ P3.phase-end 一次完成两步：更新 Issue 描述 + 上传文档评论。
 
 ### 1. 更新 Issue 描述（不受 upload_docs gate）
 
-1. `mcp__linear__get_issue({ id: "<issueUuid>" })` 取当前 description 长度。
+1. `linear:get_issue({ id: "<issueUuid>" })` 取当前 description 长度。
 2. 仅当 description **少于 30 字符**时更新：从分支 `design.md` 提取 Overview 文本作为描述：
-   `mcp__linear__update_issue({ id: "<issueUuid>", description: "<design.md Overview 文本>" })`
+   `linear:update_issue({ id: "<issueUuid>", description: "<design.md Overview 文本>" })`
 3. description ≥30 字符 → 整步 no-op（幂等）。
 
 ### 2. 上传文档到 Linear（评论，指针式）
 
 当 `task-config.json` 的 `plugins.linear.upload_docs` 为 true 时，创建**指针式**评论——事实取 **design.md 的 Overview 1-2 行**，指向分支文档，**不 inline design/plan 全文**；前缀 `## 设计+计划摘要`：
 ```
-mcp__linear__create_comment({
+linear:create_comment({
   issueId: "<issueUuid>",
   body: "## 设计+计划摘要\n\n{design.md Overview 1-2 行}\n\n设计+计划已提交，详见分支 `{branch}`：design.md / plan.md"
 })
@@ -133,14 +136,14 @@ mcp__linear__create_comment({
 
 验收完成后（`state` 取 `linear.json.statusMap["In Review"]`）：
 ```
-mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['In Review']>" })
+linear:update_issue({ id: "<issueUuid>", state: "<statusMap['In Review']>" })
 ```
 
 ### 验收评论（指针式）
 
 状态置 In Review 后，创建**指针式**验收评论（前缀 `## 验收`，不 inline acceptance-checklist 全文）：
 ```
-mcp__linear__create_comment({
+linear:create_comment({
   issueId: "<issueUuid>",
   body: "## 验收\n\n验收通过，状态已置 In Review。详见分支 `{branch}` / PR（acceptance-checklist.md）"
 })
@@ -153,14 +156,14 @@ mcp__linear__create_comment({
 
 1. 状态设为 Done（`state` 取 `linear.json.statusMap["Done"]`）：
 ```
-mcp__linear__update_issue({ id: "<issueUuid>", state: "<statusMap['Done']>" })
+linear:update_issue({ id: "<issueUuid>", state: "<statusMap['Done']>" })
 ```
 
 2. 归档 comment——**摘要 + 指向**（不再 inline final.md 全文）：
 
    用 **final.md 的摘要**（最终状态 + 3-5 行摘要 + 关键 changelog，从 final.md 提取），并指向 final.md 全文所在位置（git 分支 + 归档目录），构建 comment body（Markdown、用户配置语言）：
    ```
-   mcp__linear__create_comment({
+   linear:create_comment({
      issueId: "<issueUuid>",
      body: "## 任务归档：{task-name}\n\n**最终状态**：{Done / Canceled / ...}\n\n{3-5 行摘要}\n\n完整报告见 final.md：分支 `{branch}` / 归档目录 `.tasks/done/{task-name}/final.md`"
    })

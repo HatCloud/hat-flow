@@ -41,7 +41,7 @@
 
 # Git Plugin
 
-> **关于交互（spec-task-skill 约定 9 Interaction Front-Loading）**：本插件仅 **P4.per-task-post 为零阻塞交互**（commit 自动、不弹确认）。P1.phase-start 的 dirty 处理与 P6.post-archive 的分支菜单**保留 AskUserQuestion**——它们分属 Init / End 决策点，受约定 9 豁免（Init 集中收集决策、P5-P6 自然决策点）。修改时勿误把 P1/P6 的交互当作违反 P4 零交互。
+> **关于交互（spec-task-skill 约定 9 Interaction Front-Loading）**：本插件仅 **P4.per-task-post 为零阻塞交互**（commit 自动、不弹确认）。P1.phase-start 的 dirty 处理与 P6.post-archive 的分支菜单**保留 向用户提问（结构化选项优先）**——它们分属 Init / End 决策点，受约定 9 豁免（Init 集中收集决策、P5-P6 自然决策点）。修改时勿误把 P1/P6 的交互当作违反 P4 零交互。
 
 ## P1.phase-start
 
@@ -49,7 +49,7 @@
 
 1. 运行 `git status --porcelain` 检查工作目录状态
 2. 如有未提交的变更：
-   - **[Interactive]** AskUserQuestion：stash / commit / 继续（可能混入无关变更）
+   - **[Interactive]** 向用户提问（结构化选项优先）：stash / commit / 继续（可能混入无关变更）
    - **[Unattended]** 忽略继续（不 stash、不 commit）——与 `UNATTENDED_PROTOCOL.md §6` 一致；安全靠后续 commit-checkpoint「仅 add 指定文件范围」承接
 3. 确认当前分支名和 git 规范（Conventional Commits 等）
 4. **记录 base_ref（供 End 阶段 squash 用）**：把任务开始时的 HEAD 写入 `{task-folder}/.git-base-ref`，作为「本任务在 main 上连续提交段」的起点（仅在本任务尚未产生提交时记录；文件已存在则不覆盖）。NO_GIT 跳过。
@@ -134,7 +134,7 @@ hookManaged: false  → formatter 存在？ → 是：运行 formatCommand
 **读取 `end_decisions.squash`**（来自 `unattended.json` 的 `end_decisions.squash`，或交互模式取 effective config `end_decisions.squash`；缺省 `true`）。
 
 1. **分支处理（4 选项菜单，参考 finishing-a-development-branch 范式，不导入该 skill）**：
-   - **[Interactive]** AskUserQuestion，4 选项：
+   - **[Interactive]** 向用户提问（结构化选项优先），4 选项：
      - **Merge locally** — `git checkout main` 后按 squash 开关合并：
        - `squash == true`（缺省）→ `git merge --squash {branch} && git commit -m "{conventional msg} [{task}]"`（把分支全部改动压成单 commit）+ `git branch -D {branch}`（squash 后 git 不视为已合并，用 `-D`）
        - `squash == false` → `git merge --no-ff {branch} && git branch -d {branch}`

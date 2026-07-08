@@ -2,7 +2,7 @@
 
 通用文档审核协议。通过动态注入 Guide 文件实现类型特有检查。
 
-**调用方式**：调用方（distill/dive/card-refine）派发 Agent subagent，将本协议内容 + 对应 Guide 文件内容 + 待审文档内容全部以文本形式注入 prompt（路径 B）。不依赖 `${CLAUDE_POSITIONAL_ARGS}` 动态路由。
+**调用方式**：调用方（distill/dive/card-refine）派发只读 review 子代理（派发方式见 harness-tools.md「派发子代理」行），将本协议内容 + 对应 Guide 文件内容 + 待审文档内容全部以文本形式注入 prompt（路径 B）。不依赖斜杠位置参数动态路由（见 harness-tools.md「斜杠位置参数注入」行）。
 
 ## Required Input
 

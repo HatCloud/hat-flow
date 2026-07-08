@@ -75,6 +75,38 @@
    claude -p '/task -q <任务或 issue-id>'
 ```
 
+## Codex CLI
+
+hat-flow 同时提供 Codex 插件薄壳（同一份 skills 树）：
+
+```
+codex plugin marketplace add HatCloud/hat-flow
+codex plugin add hat-flow@hat-flow
+```
+
+Codex 侧要求：
+
+- review 子代理派发需开启 multi-agent 特性——在 `~/.codex/config.toml` 加：
+
+  ```toml
+  [features]
+  multi_agent = true
+  ```
+
+- 可选 Linear 集成——配置同一 MCP server：
+
+  ```toml
+  [mcp_servers.linear]
+  command = "npx"
+  args = ["-y", "@hatcloud/linear-mcp@latest"]
+  env = { LINEAR_API_KEY = "<你的 key>" }
+  ```
+
+两侧 harness 差异集中于
+`plugins/hat-flow/skills/task/references/harness-tools.md`（工具映射唯一权威）。
+交互停点在 Codex 侧退化为纯文本提问；无人值守为 Claude 专属、在 Codex 侧一律
+交互降级。
+
 ## 升级
 
 插件**无自动升级**——必须手动触发，且需重启 Claude Code 后新版本才会生效。

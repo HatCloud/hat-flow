@@ -10,6 +10,8 @@ word-budget: 1000
 
 任务规划阶段。按模板编写 plan.md、运行 review 轮次、提交任务文档、同步 Linear。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-plan for Phase 3: Plan + Commit."
 
 ## Runtime Context
@@ -18,11 +20,13 @@ word-budget: 1000
 - Branch: !`git branch --show-current 2>/dev/null || echo 'NO_GIT'`
 - User input: $ARGUMENTS
 
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
+
 ## TODO Sync
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
 
-本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；步骤完成同步 phases.md（`full` 另 `TaskUpdate(completed)`）。
+本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；步骤完成同步 phases.md（`full` 另 `维护进度清单，状态置 `completed``）。
 
 ---
 
@@ -66,6 +70,8 @@ plan 模板（Plan Format / File Structure 职责图 / Dependency 并行切割 /
 !`cat ${CLAUDE_PLUGIN_ROOT}/skills/task/PLAN_PROMPT.md`
 </PLAN_PROMPT>
 
+> 若上方 PLAN_PROMPT 未展开（仅见字面注入行），先 Read `${CLAUDE_PLUGIN_ROOT}/skills/task/PLAN_PROMPT.md` 再继续——plan 模板缺失时不得凭记忆代写 plan 格式。
+
 ---
 
 ### P3.post-plan Hook
@@ -87,7 +93,7 @@ hook 完成后：在终端输出可视化任务清单：
 ...（共 N 个任务）
 ```
 
-> **注意**：此处仅文本展示，不创建 Exec 级 TaskCreate。各 plan task 的 TODO 拆分在 Phase 4 (Execute) Bootstrap 时统一创建——避免 Phase 3 还未提交就在终端显示大量 pending 任务。
+> **注意**：此处仅文本展示，不创建 Exec 级 维护进度清单。各 plan task 的 TODO 拆分在 Phase 4 (Execute) Bootstrap 时统一创建——避免 Phase 3 还未提交就在终端显示大量 pending 任务。
 
 完成后：更新 phases.md，将 `3a. 生成 plan` 标记为 `[x]`。
 
@@ -101,13 +107,13 @@ hook 完成后：在终端输出可视化任务清单：
 
 **Reviewer 解析（codex-aware，派发前先判）**：按 `review.md ## P3.post-plan` 的「Reviewer-aware 派发（codex 分支）」解析 reviewer（读 `plugins.review.reviewer` + `capabilities.codex`；过期/跨 phase → 派发点二次 `codex-check` 刷新）。
 - **解析为 `claude`/`sonnet`/`opus`** → 上述 SC2 二元 `Verdict` 契约不变，下方收敛循环按 Verdict 判。
-- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 经 `/codex:rescue`（read-only）派，注入 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md` 维度 + 项目约定 + plan.md/design.md。输出格式覆盖（仅 codex 路径）：改用 `## Critical/Important/Minor` 三段 + 末行 `Critical=N Important=M Minor=K`，`codex-findings-count` 判 `C=0 & I=0` 收敛。映射到下方循环：`C=0 & I=0` 等价 `Verdict==Approved`，`C>0 或 I>0` 等价 `Verdict==Issues`。派发为串行（无并发）；`max_rounds` reviewer-aware（对象取 `.codex`，缺省 8）；round≥2 经 `SendMessage(to: agentId)` 续接。中途遇 `FALLBACK:`/quota → 降级 native plan-reviewer（恢复 SC2 verdict 判据）并写 `{task-folder}/fallback-log.jsonl`（`phase=P3, integration_point=plan-review, ...`）。claude plan-reviewer 的 SC2 verdict 契约不受此路径影响。
+- **解析为 `codex`**（`auto` 且 codex-first 成立亦归此）→ 经 `/codex:rescue`（read-only）派，注入 `${CLAUDE_PLUGIN_ROOT}/skills/reviewer/PLAN_REVIEW.md` 维度 + 项目约定 + plan.md/design.md。输出格式覆盖（仅 codex 路径）：改用 `## Critical/Important/Minor` 三段 + 末行 `Critical=N Important=M Minor=K`，`codex-findings-count` 判 `C=0 & I=0` 收敛。映射到下方循环：`C=0 & I=0` 等价 `Verdict==Approved`，`C>0 或 I>0` 等价 `Verdict==Issues`。派发为串行（无并发）；`max_rounds` reviewer-aware（对象取 `.codex`，缺省 8）；round≥2 经 `定向续接某代理（按具体 agentId）` 续接。中途遇 `FALLBACK:`/quota → 降级 native plan-reviewer（恢复 SC2 verdict 判据）并写 `{task-folder}/fallback-log.jsonl`（`phase=P3, integration_point=plan-review, ...`）。claude plan-reviewer 的 SC2 verdict 契约不受此路径影响。
 
 **判断逻辑（收敛循环）：**
 
 - **Verdict == Approved**（Issues 桶为空）→ 进入确认循环。Advisory 桶（如有）仅供参考，不阻断。
 - **Verdict == Issues** → 主 agent 批判性评估 Issues 桶每条 Critical / Important 发现（Accept/Reject 附理由），修复接受的问题后重跑 hook 评估。循环直到 Verdict == Approved 或达 `max_rounds`。
-- max_rounds 退出时：AskUserQuestion：**接受当前状态推进** / **重新生成 plan** / **手动修改**
+- max_rounds 退出时：向用户提问（结构化选项优先）：**接受当前状态推进** / **重新生成 plan** / **手动修改**
 
 **确认循环（Plan review 收敛后）：**
 

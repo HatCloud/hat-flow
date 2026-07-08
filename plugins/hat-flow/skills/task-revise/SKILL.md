@@ -9,6 +9,8 @@ word-budget: 1000
 
 Revise Cycle 处理器。在 Phase 4/5 内部执行一个**自适应单循环**：根因分析 →（按需）调整 design/plan → 执行修复 → 验证收尾，处理 code review 或 testing 发现的系统性问题。不再有 Full/Partial/Lite 深度档位——是否动 design/plan 由根因分析决定。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-revise for Revise Cycle."
 
 ## Runtime Context
@@ -80,7 +82,7 @@ Initialization → RN-rootcause → [按需] RN-design → [按需] RN-plan → 
 
 精简版设计讨论，聚焦于 Reason 与根因分析定位的问题区域。
 
-1. 与用户讨论修订方案（AskUserQuestion 提出 2-3 个选项）
+1. 与用户讨论修订方案（向用户提问（结构化选项优先） 提出 2-3 个选项）
 2. 将设计修订追加到 `{task-folder}/design.md`：
 
 ```markdown
@@ -143,7 +145,7 @@ Reason: 缺少用户 review 的 revise 会得到只治标、错过根因的临�
 **Root-Problem Handling**：如果**根因分析（RN-rootcause）判定**、或**执行中新暴露**了**根本性问题**（框架不可用、核心假设完全错误、修复需要远超当前 revise scope 的改动），无论问题在哪个步骤被发现，都走以下处理（rootcause 阶段触发时跳过 design/plan/execute）：
 
 <rule>
-revise execute 期间出现根本性问题会终止循环并触发 AskUserQuestion。选项：
+revise execute 期间出现根本性问题会终止循环并触发 向用户提问（结构化选项优先）。选项：
 1. **升级转人工** — 当前 revise 标记 DEFERRED，移交给人工处理。
 2. **转为新任务** — 当前 revise 标记 DEFERRED，新开一个任务来处理该根本性问题。
 代码从不 reset。标记 DEFERRED 前，半成品以 `chore: WIP [DEFERRED Rn] <原因>` 提交，该 commit SHA 记入 Revise section 的 **WIP Commit** 字段。
@@ -165,7 +167,7 @@ Reason: reset 代码会丢弃部分进度、并在恢复时污染工作树；DEF
 ## Chain Detection
 
 <rule>
-当 Revise 编号达到 R3 或更高（已完成 2 个以上 revise cycle），流程停止并触发一个 AskUserQuestion 警告。选项：
+当 Revise 编号达到 R3 或更高（已完成 2 个以上 revise cycle），流程停止并触发一个 向用户提问（结构化选项优先） 警告。选项：
 1. **继续 R3** — 已理解风险，继续
 2. **拆分为新任务** — 当前任务 scope 可能过大，开新 task 处理
 3. **重新审视整体设计** — 回到 Phase 2 重做设计
@@ -179,7 +181,7 @@ Reason: 反复 revise 意味着原始设计存在根本性缺陷；重新设计�
 | 异常场景 | 处理方式 |
 |----------|----------|
 | Revise execute 中卡壳/根本性问题 | 接 hatflow-systematic-debugging 定位根因；确为根本性问题 → Root-Problem Handling（DEFERRED + WIP commit + 转人工/新任务） |
-| Revise design 讨论无法达成共识 | AskUserQuestion：简化 revise 范围 / 转新任务（DEFERRED） / 取消 revise + patch in place |
+| Revise design 讨论无法达成共识 | 向用户提问（结构化选项优先）：简化 revise 范围 / 转新任务（DEFERRED） / 取消 revise + patch in place |
 
 ---
 

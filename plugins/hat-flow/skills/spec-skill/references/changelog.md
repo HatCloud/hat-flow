@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-07-08 多 harness 兼容原则（ISSUE）
+
+**为何**：hat-flow 以单一共享树分发到 Claude Code / Codex，正文直呼 harness 专属工具名会让另一侧执行失败，事后成批清理代价高。Design Principles 新增「多 harness 兼容」小节 + `<rule>`（写动作不写工具名、专属机制给退化措辞或映射指路），Self-Compliance Check 增对应自查项。
+
+---
+
+## 2026-07-08 Codex 批⑤——advanced-features 斜杠位置参数指路化
+
+**为何**：斜杠位置参数变量为 Claude 专属注入机制，字面直呼阻碍多 harness 共享树；限制说明保留、字面词表移交 task 套件 harness-tools.md「斜杠位置参数注入」行。
+
+---
+
+## 2026-07-08 Codex 中性化批③——受管母本会话标识指路化
+
+**为何**：`self-evolution-canonical.md` 摩擦记录命名规则中 `$CLAUDE_CODE_SESSION_ID` 为 Claude 专属 env 直呼；改为「会话标识环境变量（Claude 落点见 harness-tools.md）」，规则语义与结构零变化（仅词汇，多 harness 兼容）。
+
+---
+
+## 2026-07-08 Codex 中性化批①——spec-skill 工具动作短语
+
+**为何**：为 Codex 引擎兼容铺垫，spec-skill 规范与参考模式不应把 Claude 专属提问工具名写成通用协议。
+
+- `SKILL.md` 与 `references/proven-patterns.md`、`references/self-evolution-canonical.md`、`references/advanced-features.md` 中的用户确认点、Stop Points、BLOCKED 处理、静默写入等说明改用「向用户提问（结构化选项优先）」。
+- 保留原有确认门、纯文本确认例外、pre-gate 语义与自进化静默规则。
+
 ## 2026-07-07 负向自进化：第 3 类摩擦（规范失真）+ 负向候选出口（用户诊断「只加不减」）
 
 - **背景**：用户指出自进化系统只增不减——薄弱/无用/幽灵内容没有修改或删除的路径。同日舰队审计实证：幽灵 `claude-dispatch verify`、过时 permission_mode 枚举、断裂调用链声明，全部只能靠一次性人工审计发现，两段式闭环对它们零感知。
@@ -162,6 +187,10 @@ spec 类不面向用户直接调用，靠触发词/被引用激活；隐藏后�
 > 触发来源：用户提出「task 这种系列技能（编排 + 子技能）的经验该落哪」的真空地带。配套 revise-skill（族模式审查）+ hat-doctor（Phase 1.7 分类前置）同批改动。
 
 ---
+
+## 2026-07-08 Codex 中性化批②——后台派发示例去工具旗标化
+
+`advanced-features.md` 的 checkpoint pitfall 表将三处 `run_in_background` 字面旗标改为「后台派发」，只替换 harness 机制词，不触碰 Strong/Medium/Weak 的跨 provider 模型示例。
 
 ## 2026-06-15 经验库整合改为「触发式」（每轮评估、酌情跳过）
 

@@ -21,7 +21,7 @@ for layer in layers:
     # 并行派发后端：默认主 session（≤3）；dispatch_backend==workflow 且探测到 Workflow 工具 → Workflow parallel() barrier
     for task in layer (up to 3 parallel):
       model = route_model(task)                # 见 SKILL.md「模型自动分流」
-      dispatch task-executor(subagent_type=task-executor, model=model,
+      dispatch task-executor(agent_role=task-executor, model=model,
                              prompt = IMPLEMENTER_PROMPT.md 全文
                                     + 该 task 的 plan 段落 + Guardrails + TDD 指令)
     await_all(layer); handle_hooks_and_checkpoints(results)   # barrier + 主 session 收口（恒主 session）

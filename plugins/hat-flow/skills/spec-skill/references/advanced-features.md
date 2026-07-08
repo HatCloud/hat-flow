@@ -42,7 +42,7 @@ Skill 会被不同 LLM 执行（Claude Opus, Sonnet, MiniMax 等）。为最弱�
 
 **Instruction Density**：~1 concept per 6-8 lines——密度过高时弱模型容易丢失上下文。优先扁平结构而非深层嵌套（3-4 phases > 8 steps with sub-steps）。条件逻辑用表格，不用嵌套列表。
 
-**Stop Points**：仅在用户输入会真正改变下一步动作时才停（AskUserQuestion）。不必要的停止会打断流程。
+**Stop Points**：仅在用户输入会真正改变下一步动作时才停（向用户提问（结构化选项优先））。不必要的停止会打断流程。
 
 反例: "Setup complete. Ready to continue?"（答案永远是 yes）
 正例: "Which approach do you prefer? A or B?"（答案决定下一步）
@@ -85,7 +85,7 @@ Skill 加载时执行 shell 命令，输出替换占位符：
 
 **变量替换**：`$ARGUMENTS`（用户参数）、`$1`（位置参数）、`${CLAUDE_SKILL_DIR}`（skill 目录路径）。
 
-**`${CLAUDE_POSITIONAL_ARGS}` 限制**：此变量在 subagent 模式下为空字符串（2026-03-28 dogfooding 验证）。因此 subagent 调用 skill 时**必须使用路径 B**——直接在 Agent prompt 中注入 protocol 内容，不可依赖动态路由加载。
+**斜杠位置参数注入限制**（字面变量与两侧落点见 task 套件 harness-tools.md「斜杠位置参数注入」行）：该变量在 subagent 模式下为空字符串（2026-03-28 dogfooding 验证）。因此 subagent 调用 skill 时**必须使用路径 B**——直接在子代理 prompt 中注入 protocol 内容，不可依赖动态路由加载。
 
 | 调用场景 | 路径 A（Skill 内部路由） | 路径 B（直接注入） |
 |---------|----------------------|------------------|
@@ -142,9 +142,9 @@ ${CLAUDE_PLUGIN_ROOT}/skills/task/
 
 | 模式 | 效果 | 示例 |
 |------|------|------|
-| `run_in_background` + **阻塞 checkpoint** | ✅ 从未跳过 | `TaskOutput block:true` 在 Phase 1f |
-| `run_in_background` + 仅文字说明 | ❌ 系统性跳过 | Phase 3d 被跳过（ISSUE） |
-| `run_in_background` + **pre-gate before AskUserQuestion** | ✅ 保留效率 | Phase 3 Stop 前检查 3d 完成 |
+| 后台派发 + **阻塞 checkpoint** | ✅ 从未跳过 | `TaskOutput block:true` 在 Phase 1f |
+| 后台派发 + 仅文字说明 | ❌ 系统性跳过 | Phase 3d 被跳过（ISSUE） |
+| 后台派发 + **pre-gate before 向用户提问（结构化选项优先）** | ✅ 保留效率 | Phase 3 Stop 前检查 3d 完成 |
 
 ## Process Review Loop
 

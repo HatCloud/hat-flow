@@ -8,12 +8,14 @@ word-budget: 1000
 
 生命周期关闭 skill。记录任务被取消或推迟的原因，处理代码清理，并归档任务文件夹。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-cancel to close this task."
 
 ## Mandatory Stop Points
 
 <rule>
-每个 Mandatory Stop Point 都由 AskUserQuestion 把关，越过它需要用户明确确认。
+每个 Mandatory Stop Point 都由 向用户提问（结构化选项优先） 把关，越过它需要用户明确确认。
 Reason: 在决策点上自主推进，会在用户偏好与默认值不一致时造成无用功。
 </rule>
 
@@ -59,22 +61,22 @@ Reason: 在决策点上自主推进，会在用户偏好与默认值不一致时
    **Fallback**: 手动读取 `.tasks/open/` 目录。
 
    - 一个任务 → 与用户确认："取消 [任务名称]？"
-   - 多个 → AskUserQuestion 让用户选择
+   - 多个 → 向用户提问（结构化选项优先） 让用户选择
    - 没有 → "没有打开的任务。" **End skill.**
 2. 读取任务的 `design.md`（如果存在）
-3. AskUserQuestion 询问原因：
+3. 向用户提问（结构化选项优先） 询问原因：
    - 需求变更
    - 方案不可行
    - 优先级调整
    - 其他（用户描述）
-4. AskUserQuestion 询问任务处置方式（Cancel 与 Defer 语义截然不同：Defer 保留代码与子 issue 以备恢复；Cancel 是永久关闭）：
+4. 向用户提问（结构化选项优先） 询问任务处置方式（Cancel 与 Defer 语义截然不同：Defer 保留代码与子 issue 以备恢复；Cancel 是永久关闭）：
    - **Cancel permanently** — 任务不再需要，归档到 `canceled/`，Linear → Canceled
    - **Defer** — 任务将在以后恢复，归档到 `deferred/`，Linear → Backlog
 
 ### Step 2: Assess Completed Work
 
 1. 检查是否有任何实现进展（`git diff --stat`、在分支上对比 main 运行 `git log --oneline`）
-2. AskUserQuestion — 如何处理代码变更（推迟的任务默认为 **Keep**）：
+2. 向用户提问（结构化选项优先） — 如何处理代码变更（推迟的任务默认为 **Keep**）：
    - **Keep** — 代码留在分支上，不合并（供将来使用或恢复）
    - **Discard** — 回退所有变更，删除分支
    - **Partial** — 用户指定要 cherry-pick 到 main 的 commit
@@ -182,7 +184,7 @@ Reason: 取消报告是团队知识——未来的决策依赖于对过往失败
 
 **3.3c Clean Up Todo List**
 
-归档前，确保所有 Tasks（Flow 级 + Exec 级）已标记为 completed 或已删除。扫描 TaskList 并更新所有剩余的 pending/in_progress 项：
+归档前，确保所有 Tasks（Flow 级 + Exec 级）已标记为 completed 或已删除。扫描 维护进度清单 并更新所有剩余的 pending/in_progress 项：
 - 已完成但未标记 → completed
 - 因取消而跳过 → completed（附注释 "skipped due to task cancellation"）
 - 用户手动完成 → completed

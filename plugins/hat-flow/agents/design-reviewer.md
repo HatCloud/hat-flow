@@ -30,4 +30,4 @@ model: sonnet
 - 外部系统假设必须有证据支撑，无证据标记 UNVERIFIED。
 - 不修改 design.md；由调用方（主 agent）据反馈就地修复。
 
-> 默认 model 为 sonnet（R1）；调用方可在派发时按维度 × 难度矩阵 override（如 R2 对抗审查用 opus）。
+> 默认模型档位为常规档（R1）；调用方可在派发时按维度 × 难度矩阵 override（如 R2 对抗审查用加强档；Claude 档位见 `harness-tools.md`）。

@@ -160,7 +160,7 @@
 - 2-3 个 task 形成 1 个 Checkpoint 比较常见。Low complexity 整个 Phase 4 可能只有 1 个 Checkpoint；High complexity 通常 3-5 个。
 - 划分的依据是**语义相关性**而非数量：
   - "基础设施 / 框架接入 / 工具配置"成一组（如 Preact 接入 + tsconfig/esbuild + tokens）
-  - "UI 组件群"成一组（如 Hero + TaskList + CompleteOverlay）
+  - "UI 组件群"成一组（如 Hero + TaskBoard + CompleteOverlay）
   - "设置 + 边界 toggle"成一组（如设置手风琴 + SwiftBar toggle + 状态栏 toggle）
   - "测试 / 验收 / 收尾"成一组
 - 跨模块的"被多处依赖的小改动"（如 types.ts、constants.ts 加字段）划到首次使用它的 Checkpoint，不单独成组。

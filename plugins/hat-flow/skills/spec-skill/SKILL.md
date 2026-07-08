@@ -58,7 +58,7 @@ Overview 用用户配置语言。**不在每个 skill 写 LANGUAGE RULE 块**—
 
 ### 4. Process
 
-每个步骤需要包含：触发条件、完成条件、失败处理、用户确认点 (AskUserQuestion)。
+每个步骤需要包含：触发条件、完成条件、失败处理、用户确认点 (向用户提问（结构化选项优先）)。
 
 ### 5. README.md
 
@@ -141,6 +141,15 @@ Reason: 模型有时会跳过阅读以路径引用的文件，导致 silent fail
 
 ## Design Principles
 
+### 多 harness 兼容（Codex 等）
+
+技能正文写**动作**不写 harness 专属工具名——「向用户提问」而非某个具体提问工具、「派发子代理」而非某个派发 API。Claude 专属机制（结构化提问、宿主 todo、会话变量、动态注入等）在正文出现时，须给退化措辞或指向工具映射表（task 套件的权威映射是 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md`，其左列动作短语即正文用词）。
+
+<rule>
+新增或修改技能正文时不引入 harness 专属工具名直呼；Claude 专属机制以「动作 + 映射指路 / 退化措辞」表达。
+Reason: 技能以单一共享树分发到多 harness（Claude Code / Codex）；直呼某一 harness 的工具名会让其它 harness 读者执行失败或静默跳过，且事后成批清理的代价远高于写作时遵守（ISSUE 实证：107 文件全量中性化耗一整个任务）。
+</rule>
+
 | Principle | Rule |
 |-----------|------|
 | **Evidence Over Claims** | 运行命令、读输出、确认结果；不写「应该没问题」式断言。 |
@@ -197,7 +206,7 @@ Reason: 跨技能手工复制的同一套过程准则会彼此漂移，并被它
 </rule>
 
 <rule>
-创建或修改重复使用型（流程类）技能时，经 AskUserQuestion 询问用户是否加入完整自进化能力。若是，脚手架出各组件并设 `self-evolving: true`。spec 类技能不设常驻经验库，但保留一个 `lessons.md` 作暂存 inbox：运行段沉候选（带「建议出口」标记）、skill-revise 固化进正文后清空，不做冷归档 / 整合、不自注入。
+创建或修改重复使用型（流程类）技能时，经 向用户提问（结构化选项优先） 确认是否加入完整自进化能力。若是，脚手架出各组件并设 `self-evolving: true`。spec 类技能不设常驻经验库，但保留一个 `lessons.md` 作暂存 inbox：运行段沉候选（带「建议出口」标记）、skill-revise 固化进正文后清空，不做冷归档 / 整合、不自注入。
 Reason: 两段式自进化要求运行段「只沉 lessons、不直接改正文」对所有技能统一——spec 类若完全没有 lessons.md，其运行段经验就无处可沉（实测 gap：「改 plugin 须重生 golden」这类经验卡住）。inbox 是 transient 收件箱、非常驻 library，固化即清空，不构成「垃圾桶」；它的读者是 skill-revise 的固化端，故不进 spec 类自身的启动注入。
 </rule>
 
@@ -228,6 +237,8 @@ Skill 写完 / 改完后，必须用它跑一次真实任务来验证。目的�
 Skill 修改完成后，用自身 Checklist 逐项审核。这既是验收步骤（确保改动不破坏已有规范），也是 dogfooding 的一种形式（检验 Checklist 本身是否完备）。
 
 不合规项必须修复后才算完成。如果发现 Checklist 本身有遗漏，同时补充。
+
+多 harness 检查项：本次改动是否引入 harness 专属工具名直呼（对照 task 套件权威映射 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 的 Claude 落点列，析出其中的工具/命令名后 grep 自查）？
 
 ---
 
@@ -284,7 +295,7 @@ Reason: 非 ASCII 路径会破坏工具链、跨平台同步以及 Claude Code �
 - [ ] 关键节点有 Iron Laws（`<rule>` 标签，正文中文）？
 - [ ] 约束陈述式（写成事实状态；祈使 / 强调只留少数真硬约束，无 NEVER / ALL-CAPS 堆砌）？
 - [ ] 每步有失败处理？
-- [ ] 用户决策点有 AskUserQuestion？
+- [ ] 用户决策点有 向用户提问（结构化选项优先）？
 - [ ] 无硬编码路径 / 版本、无具体项目信息 / 本地绝对路径 / 跨项目引用（用 `${CLAUDE_SKILL_DIR}` / 相对路径；项目级 skill 只引用自身项目）？
 - [ ] 文件名 / 文件夹名全 ASCII 英文（无中文 / 空格 / 点）？
 - [ ] description 含中文触发词、只写触发条件不概述流程？
@@ -297,7 +308,7 @@ Reason: 非 ASCII 路径会破坏工具链、跨平台同步以及 Claude Code �
 - [ ] Dogfooding 已计划？
 - [ ] 用户决策点已定义为 Mandatory Stop Points（若有）？
 - [ ] VDD 策略已注明（Full TDD / Lite TDD / N/A）？
-- [ ] 重复使用型流程类：已用 AskUserQuestion 询问是否加入自进化能力？
+- [ ] 重复使用型流程类：已用 向用户提问（结构化选项优先） 询问是否加入自进化能力？
 - [ ] 若 `self-evolving: true`：自有组件齐备（经验库表格化 + 硬上限 / 冷归档 / 修订日志 / 收尾 Dogfooding，见 `references/self-evolution-spec.md`）；过程准则由启动注入区直接注入全局母本绝对路径（`spec-skill/references/self-evolution-canonical.md`），非各存副本、非手写进正文？
 - [ ] frontmatter 的 `self-evolving` 标记与实际组件状态一致（不空挂）？
 - [ ] 若属编排族：经验按「检索点归属」分流（执行细节→worker，编排决策→orchestrator），无 series 级公共经验库，无同一软经验跨技能镜像？

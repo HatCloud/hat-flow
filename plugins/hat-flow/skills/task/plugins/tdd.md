@@ -90,6 +90,6 @@ The following is this project's test-writing specification. Follow it when writi
 
 检查 task 执行结果：
 - 如果 TDD mode 为 Full 且 RED 步骤意外通过（验证命令在实现前成功）：
-  - **on_error: blocking** — 停止推进该 task（所有模式统一，P4 零阻塞交互，约定 9）：在 session 内可见地停下并输出异常报告——哪个 task、验证命令、RED 意外通过的初判（验收标准本就被满足 / 测试无区分度 / 实现已存在），不弹 AskUserQuestion。
+  - **on_error: blocking** — 停止推进该 task（所有模式统一，P4 零阻塞交互，约定 9）：在 session 内可见地停下并输出异常报告——哪个 task、验证命令、RED 意外通过的初判（验收标准本就被满足 / 测试无区分度 / 实现已存在），不弹 向用户提问（结构化选项优先）。
   - **[Unattended]** 叠加 Telegram 通知 `[task-name] TDD RED 步骤异常：验证在实现前通过`（best-effort）。
   - 处置在 `/task` 恢复时决定：修正验收标准重跑 RED / 确认实现已存在则跳过该 task / 继续执行。

@@ -89,7 +89,7 @@
   },
   "todo_sync": "full",
   "_todo_sync_values": "off | overview | full",
-  "_todo_sync_note": "TODO（TaskCreate/Update）同步档位。off = 完全静默（不建概览、不调任何 Task 工具，Bootstrap 亦 no-op）；overview = 只维护 1 行概览（1f 建、phase 切换更新符号、收尾置完成），不建 step；full = 双层（概览 + 当前 phase step），现状行为。触发契约 + 4 命名模板见 references/todo-sync.md。legacy boolean 向后兼容：resolver 规范化 true→full、false→off、非法/缺失→full。",
+  "_todo_sync_note": "进度清单（TODO）同步档位（工具落点见 harness-tools.md「维护进度清单」行）。off = 完全静默（不建概览、不调任何进度清单工具，Bootstrap 亦 no-op）；overview = 只维护 1 行概览（1f 建、phase 切换更新符号、收尾置完成），不建 step；full = 双层（概览 + 当前 phase step），现状行为。触发契约 + 4 命名模板见 references/todo-sync.md。legacy boolean 向后兼容：resolver 规范化 true→full、false→off、非法/缺失→full。",
   "phase_merge": [],
   "_phase_merge_note": "数组的数组，如 [[3,4]] 表示 P3→P4 无停顿。P5→P6 永不可合并。当前默认全部不合并（所有 preset 均为 []，每个阶段都重要）。",
   "overrides": {},

@@ -61,7 +61,7 @@ digraph when_to_use {
 
 ### 3. Dispatch in Parallel
 
-用 Agent 工具并发派发；每个 agent 独立运行，不共享上下文。
+并发派发子代理；每个 agent 独立运行，不共享上下文。
 
 ### 4. Review and Integrate
 

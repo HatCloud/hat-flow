@@ -1,6 +1,6 @@
 {
   "returncode": 0,
-  "stdout": "<!-- plugin:git hook:P1.phase-start on_error:blocking -->\n\n### Git 规范 + Dirty File 检查\n\n1. 运行 `git status --porcelain` 检查工作目录状态\n2. 如有未提交的变更：\n   - **[Interactive]** AskUserQuestion：stash / commit / 继续（可能混入无关变更）\n   - **[Unattended]** 忽略继续（不 stash、不 commit）——与 `UNATTENDED_PROTOCOL.md §6` 一致；安全靠后续 commit-checkpoint「仅 add 指定文件范围」承接\n3. 确认当前分支名和 git 规范（Conventional Commits 等）\n4. **记录 base_ref（供 End 阶段 squash 用）**：把任务开始时的 HEAD 写入 `{task-folder}/.git-base-ref`，作为「本任务在 main 上连续提交段」的起点（仅在本任务尚未产生提交时记录；文件已存在则不覆盖）。NO_GIT 跳过。\n   ```bash\n   [ -f \"{task-folder}/.git-base-ref\" ] || git rev-parse HEAD > \"{task-folder}/.git-base-ref\"\n   ```\n",
+  "stdout": "<!-- plugin:git hook:P1.phase-start on_error:blocking -->\n\n### Git 规范 + Dirty File 检查\n\n1. 运行 `git status --porcelain` 检查工作目录状态\n2. 如有未提交的变更：\n   - **[Interactive]** 向用户提问（结构化选项优先）：stash / commit / 继续（可能混入无关变更）\n   - **[Unattended]** 忽略继续（不 stash、不 commit）——与 `UNATTENDED_PROTOCOL.md §6` 一致；安全靠后续 commit-checkpoint「仅 add 指定文件范围」承接\n3. 确认当前分支名和 git 规范（Conventional Commits 等）\n4. **记录 base_ref（供 End 阶段 squash 用）**：把任务开始时的 HEAD 写入 `{task-folder}/.git-base-ref`，作为「本任务在 main 上连续提交段」的起点（仅在本任务尚未产生提交时记录；文件已存在则不覆盖）。NO_GIT 跳过。\n   ```bash\n   [ -f \"{task-folder}/.git-base-ref\" ] || git rev-parse HEAD > \"{task-folder}/.git-base-ref\"\n   ```\n",
   "stderr": "",
   "args": [
     "<TASK>",

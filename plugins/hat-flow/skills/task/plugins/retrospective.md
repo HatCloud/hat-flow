@@ -43,7 +43,7 @@
 
 **跳过前置**：若无建议，或全部建议仅为 Minor（锦上添花、无明确流程偏差/配置缺失证据），**跳过 Part B 交互**——将这些建议记入 final.md（随归档 commit），不打断用户。仅当存在 ≥1 条实质建议（命中流程偏差 / token 浪费 / 配置缺失）时才进入下方交互。（Part A 分析与建议汇总照常做，本前置只裁交互、不减分析深度。）
 
-**有实质建议时**，用**单次** AskUserQuestion 汇总（每条实质建议一个 question，最多 4 条；超出的直接记 debt.md），每个 question 附：
+**有实质建议时**，用**单次** 向用户提问（结构化选项优先） 汇总（每条实质建议一个 question，最多 4 条；超出的直接记 debt.md），每个 question 附：
 - 问题描述（一句话）
 - 具体的改进方案
 - 选项：**沉淀到 lessons / 配置** / **Record to debt.md for later** / **Skip**
@@ -75,5 +75,5 @@ In unattended mode, never auto-edit severity-escalation.yaml. Only propose the c
 Reason: severity-escalation.yaml drives review gating — an unreviewed auto-appended rule could mis-escalate or mis-downgrade every future review. The rule file changes only under human review.
 </rule>
 
-**[Interactive]** AskUserQuestion：加入 severity-escalation.yaml / 仅记录到 final.md / 跳过。
+**[Interactive]** 向用户提问（结构化选项优先）：加入 severity-escalation.yaml / 仅记录到 final.md / 跳过。
 **[Unattended]** 仅写入 final.md 的 severity-case 提案节（随归档 commit），不改 severity-escalation.yaml。

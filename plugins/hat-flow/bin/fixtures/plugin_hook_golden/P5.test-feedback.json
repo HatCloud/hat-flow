@@ -1,6 +1,6 @@
 {
   "returncode": 0,
-  "stdout": "<!-- plugin:review hook:P5.test-feedback on_error:graceful -->\n\n### 测试阶段 Revise 检测\n\n测试发现架构级问题时，评估是否需要触发 Revise Cycle（5e 架构问题判别）：\n\n- 功能级 bug（局部修复即可）→ 不触发 Revise，正常修复\n- 架构级问题（修复需跨多个模块/重新设计）→ 建议触发 Revise\n- **[Interactive]** AskUserQuestion：触发 Revise / 局部修复 / 终止\n- **[Unattended]** 自动评估并决定\n",
+  "stdout": "<!-- plugin:review hook:P5.test-feedback on_error:graceful -->\n\n### 测试阶段 Revise 检测\n\n测试发现架构级问题时，评估是否需要触发 Revise Cycle（5e 架构问题判别）：\n\n- 功能级 bug（局部修复即可）→ 不触发 Revise，正常修复\n- 架构级问题（修复需跨多个模块/重新设计）→ 建议触发 Revise\n- **[Interactive]** 向用户提问（结构化选项优先）：触发 Revise / 局部修复 / 终止\n- **[Unattended]** 自动评估并决定\n",
   "stderr": "",
   "args": [
     "<TASK>",

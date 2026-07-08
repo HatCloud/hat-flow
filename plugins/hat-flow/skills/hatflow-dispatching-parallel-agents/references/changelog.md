@@ -4,6 +4,10 @@
 
 ---
 
+## 2026-07-08 Codex 中性化批②——派发工具名中性化
+
+将正文中的「Agent 工具」直呼改为「并发派发子代理」，与 task 套件的 `harness-tools.md` 子代理派发动作词保持一致，避免绑定 Claude Code 工具名。
+
 ## 2026-07-07 正式收编瘦身（D6a）
 
 description 补 Do NOT use 排除条件；删除与消费方/harness 重叠的 Real Example、Key Benefits、Task() 伪代码段（536→307 词），Verification 四步并入「4. Review and Integrate」去重；README 去镜像，只留摘要 + 收编背景。

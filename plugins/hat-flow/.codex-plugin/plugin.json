@@ -1,0 +1,20 @@
+{
+  "name": "hat-flow",
+  "version": "0.6.0",
+  "description": "Spec-driven task workflow for Claude Code: a 6-phase lifecycle (Init/Design/Plan/Execute/Test/End) with plugin hooks, code/design/plan review, optional Linear and Telegram integration, and TDD discipline.",
+  "author": {
+    "name": "HatCloud"
+  },
+  "homepage": "https://github.com/HatCloud/hat-flow",
+  "repository": "https://github.com/HatCloud/hat-flow",
+  "license": "MIT",
+  "keywords": [
+    "task-workflow",
+    "planning",
+    "tdd",
+    "code-review",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "hooks": {}
+}

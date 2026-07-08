@@ -53,9 +53,9 @@ Reason: 一次多 agent 扫描花费的 token 是普通 review 的数倍（一�
 
 ## Dynamic Routing
 
-!`cat ${CLAUDE_SKILL_DIR}/${CLAUDE_POSITIONAL_ARGS}_REVIEW.md 2>/dev/null || echo "ERROR: unknown review type '${CLAUDE_POSITIONAL_ARGS}'. Expected: DESIGN, PLAN, CODE, DOCUMENT, or SKILL"`
+按调用方指明的 review 类型 Read `${CLAUDE_SKILL_DIR}/<TYPE>_REVIEW.md`（TYPE ∈ DESIGN / PLAN / CODE / DOCUMENT / SKILL）后再继续；未指明类型 → 输出错误并提示有效类型。维度规范缺失时不得凭记忆开审。
 
-**调用方式（已验证）**：调用方使用路径 B（直接注入 protocol 内容）。`${CLAUDE_POSITIONAL_ARGS}` 在 subagent 模式下为空字符串（2026-03-28 dogfooding 验证）。调用方读取对应的 `_REVIEW.md`，将内容直接注入 Agent subagent prompt。
+**调用方式（已验证）**：调用方使用路径 B（直接注入 protocol 内容）——斜杠位置参数在 subagent 模式下恒空（见 harness-tools.md「斜杠位置参数注入」行），故调用方读取对应 `_REVIEW.md` 并将内容直接注入子代理 prompt。
 
 | 直接调用 | subagent 模式 |
 |---------|-------------|
@@ -105,7 +105,7 @@ DESIGN / DOCUMENT / SKILL 共享下方模板。Confidence ≥ 80 的 issue 按�
 
 ## Error Handling
 
-- **Route failure**: `${CLAUDE_POSITIONAL_ARGS}` 无法匹配 protocol 文件 → 输出错误信息，提示有效类型（DESIGN, PLAN, CODE, DOCUMENT, SKILL）
+- **Route failure**: 调用方指明的类型无法匹配 protocol 文件 → 输出错误信息，提示有效类型（DESIGN, PLAN, CODE, DOCUMENT, SKILL）
 - **Missing context**: 必要输入缺失 → 直接报错终止，列出缺失项，要求调用方补发
 - **Input size exceeded**: 输入超过 token 预算 → 直接报错终止，返回实际大小和上限
 - **No issues found**: 明确输出"未发现问题"节，避免调用方误判为失败
@@ -113,6 +113,6 @@ DESIGN / DOCUMENT / SKILL 共享下方模板。Confidence ≥ 80 的 issue 按�
 
 ## Dependencies
 
-- 预注入: `${CLAUDE_SKILL_DIR}/${CLAUDE_POSITIONAL_ARGS}_REVIEW.md`（通过 Dynamic Routing 按需加载）
+- 按需加载: `${CLAUDE_SKILL_DIR}/<TYPE>_REVIEW.md`（类型由调用方指明）
 - 调用方: task skill（Phase 2 design review, Phase 3 plan review, Phase 4 code review）、distill / dive / card-refine（DOCUMENT review）
 - 引用: spec-skill（skill 格式规范）、Knowledge_Base Guide 文件（DOCUMENT review 动态注入）

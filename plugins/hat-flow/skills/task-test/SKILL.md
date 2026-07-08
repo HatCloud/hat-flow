@@ -10,6 +10,8 @@ word-budget: 2000
 
 任务测试阶段。运行完整验证，更新 Linear 状态，逐项引导用户验收。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-test for Phase 5: Test."
 
 ## Runtime Context
@@ -19,11 +21,13 @@ word-budget: 2000
 - Check (light): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('light','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '轻量' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
 - Check (full): !`tc=$(find .tasks/open -maxdepth 2 -name task-config.json 2>/dev/null | head -1); v=$([ -n "$tc" ] && python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('check',{}).get('full','') or '')" "$tc" 2>/dev/null); if [ -n "$v" ]; then echo "$v"; else r=$(grep -A1 '完整' CLAUDE.md 2>/dev/null | tail -1 | sed 's/^- //'); [ -n "$r" ] && echo "$r" || echo 'NOT_CONFIGURED'; fi`
 
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
+
 ## TODO Sync
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
 
-本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；步骤完成同步 phases.md（`full` 另 `TaskUpdate(completed)`）。
+本 skill 触发点：**phase 入口**（`full` 删上一 phase step + 建本 phase step；`overview`/`off` 不动 step——概览符号由 orchestrator 在 phase 切换时更新）；步骤完成同步 phases.md（`full` 另 `维护进度清单，状态置 `completed``）。
 
 ---
 
@@ -277,7 +281,7 @@ hat-plugin-hook {task-folder} P5.test-feedback
 #### Architectural Issue Triage（架构级问题判别）
 
 <rule>
-5d 测试发现的问题分两类：**局部 bug**（在 design 前提之内，原地修复）和 **架构级问题**（与 design 前提相悖，原地修复会让 task 边界失控）。后者必须 STOP 当前修补，AskUserQuestion 决定走向。
+5d 测试发现的问题分两类：**局部 bug**（在 design 前提之内，原地修复）和 **架构级问题**（与 design 前提相悖，原地修复会让 task 边界失控）。后者必须 STOP 当前修补，向用户提问（结构化选项优先） 决定走向。
 
 判别一个问题是否属于架构级 — 满足任一即是：
 - 根因落在 design.md 显式或隐式假设之外（例如 design 假设"X 由 A 模块负责"，实际 X 落在 B）
@@ -286,7 +290,7 @@ hat-plugin-hook {task-folder} P5.test-feedback
 - 修复引入新的长期运行实体（进程、守护、bot、cron、外部依赖）
 - 修复改变跨进程 / 跨 session / 跨服务的契约（路由、状态语义、消息格式）
 
-确认是架构级后，AskUserQuestion 三个选项：
+确认是架构级后，向用户提问（结构化选项优先） 三个选项：
 1. **触发 Revise Cycle** — 结构化的自适应单循环（根因分析 → 按需 design/plan → execute → verify），有完整状态追踪（phases.md 中 Revise section）。**不再选深度**——是否触及 design/plan 由 task-revise 的根因分析决定。
 2. **Defer to a new task** — 本 task 仅做最小兜底（或不做），开新 task 处理
 3. **Patch in place** — 仅限真正的局部修补（无状态追踪，直接改→测→commit），涉及多文件/多步骤时应选 Revise Cycle
@@ -302,13 +306,13 @@ hat-plugin-hook {task-folder} P5.test-feedback
 - 如有：进入回归模式——仅重跑触发 revise 的相关测试项，而非完整验收
 - 回归通过后：**task-test（非编排器、非 task-revise）负责**标记 Revise RN Return 步骤完成 + 5c `[x]`
 
-**用户主动触发**：如果用户在 Phase 5 任意时刻主动提出大 bug 或新需求（超出逐 bug 修复范围），提供 Revise Cycle 作为选项：AskUserQuestion——**触发 Revise Cycle** / **Defer to new task** / **继续逐 bug 修复**
+**用户主动触发**：如果用户在 Phase 5 任意时刻主动提出大 bug 或新需求（超出逐 bug 修复范围），提供 Revise Cycle 作为选项：向用户提问（结构化选项优先）——**触发 Revise Cycle** / **Defer to new task** / **继续逐 bug 修复**
 
 Reason: 架构级问题若在 5d 直接原地修，会出现：commit 序列与 plan.md 脱节；final.md 难以解释偏差；后续相关 task 的 design 失去前置上下文。Revise Cycle 通过结构化子流程让偏差被显式记录而非隐式吞掉。
 </rule>
 
 <rule>
-Test 阶段累计追踪已接受的**新功能**（不含 bug 修复）。累计达 3 项，或新功能改动体量明显超过本 task 的 Execute 阶段时，触发停点 + AskUserQuestion：开新任务（记入 next-task-prompt.md）/ 触发 Revise Cycle / 继续。单次请求体量并非唯一触发条件，累计蔓延同样触发。
+Test 阶段累计追踪已接受的**新功能**（不含 bug 修复）。累计达 3 项，或新功能改动体量明显超过本 task 的 Execute 阶段时，触发停点 + 向用户提问（结构化选项优先）：开新任务（记入 next-task-prompt.md）/ 触发 Revise Cycle / 继续。单次请求体量并非唯一触发条件，累计蔓延同样触发。
 Reason: Test 阶段的新需求常是渐进式的——每条单看都低于单次请求阈值，合起来却把 Test 变成第二个 Execute（已有真实案例：P5 占产出 42% 反超 P4 的 35%，命名/状态/恢复/palette 全在 P5 内迭代）。累计闸门能捕获逐条检查漏掉的蔓延。
 </rule>
 

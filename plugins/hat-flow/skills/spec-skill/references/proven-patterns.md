@@ -19,7 +19,7 @@ Skill 中涉及实现步骤时，应在 Plan 阶段指定 VDD 模式（Full/Lite
 
 当 skill 包含多个需要用户决策的节点时，使用集中式停止点表格 + `<rule>` 保护模式：
 
-1. 在 skill 顶部定义 **Mandatory Stop Points** 表格，列出所有需要 AskUserQuestion 的节点
+1. 在 skill 顶部定义 **Mandatory Stop Points** 表格，列出所有需要 向用户提问（结构化选项优先） 的节点
 2. 每个停止点在流程中用 `<rule>` 包裹，防止 agent 自主跳过
 
 ```markdown
@@ -54,7 +54,7 @@ Reason: 在错误的代码上 review 质量既浪费 token，又会产生误导�
 | **DONE** | 完成 | 进入 review |
 | **DONE_WITH_CONCERNS** | 完成但有疑虑 | 正确性问题先解决；观察性记录后继续 |
 | **NEEDS_CONTEXT** | 缺少信息 | 提供上下文 + 进度报告，重派（最多 2 次） |
-| **BLOCKED** | 无法完成 | AskUserQuestion：更多上下文 / 更强模型 / 拆分 / 终止 |
+| **BLOCKED** | 无法完成 | 向用户提问（结构化选项优先）：更多上下文 / 更强模型 / 拆分 / 终止 |
 
 在 implementer subagent prompt 末尾要求声明状态：`Report your status as one of: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED.`
 
@@ -63,7 +63,7 @@ Reason: 在错误的代码上 review 质量既浪费 token，又会产生误导�
 设计批准后，范围变更需要显式用户确认。来源：ISSUE 中范围从 8→13 组扩大了 62%。
 
 <rule>
-设计批准之后，任何范围扩张都须先经 AskUserQuestion 确认再继续。
+设计批准之后，任何范围扩张都须先经 向用户提问（结构化选项优先） 确认再继续。
 Reason: 执行过程中失控的 scope creep 会导致 token 浪费和交付延迟（ISSUE lesson）。
 </rule>
 
@@ -94,12 +94,12 @@ Skill 写完/改完后用它跑一次真实任务验证的具体做法（spec-sk
 在任何需要用户审核产物（设计方案、计划、review 结果等）的环节使用统一的确认循环模式：
 
 1. **展示结果**（产物内容或变更差异）
-2. **纯文本询问**（非 AskUserQuestion）："是否有需要调整的地方？"
+2. **纯文本询问**（非 向用户提问（结构化选项优先））："是否有需要调整的地方？"
 3. **用户说"继续"** → 推进到下一步
 4. **用户给建议** → 澄清 → 修改 → 重新展示 → 回到步骤 2
 
 关键规则：
-- 确认使用纯文本（非 AskUserQuestion），让用户可以自由输入反馈
+- 确认使用纯文本（非 向用户提问（结构化选项优先）），让用户可以自由输入反馈
 - 差异展示每轮重置——只展示本轮修改，不累积
 - 若涉及自动审查（reviewer subagent），审查轮次计数跨循环累积不重置
 

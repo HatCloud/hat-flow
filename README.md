@@ -85,6 +85,39 @@ Install and configure the hat-flow task workflow plugin for me.
    unattended task with:  claude -p '/task -q <task or issue-id>'
 ```
 
+## Codex CLI
+
+hat-flow ships a Codex plugin shell over the same skills tree:
+
+```
+codex plugin marketplace add HatCloud/hat-flow
+codex plugin add hat-flow@hat-flow
+```
+
+Codex-side requirements:
+
+- Subagent review dispatch needs the multi-agent feature — add to
+  `~/.codex/config.toml`:
+
+  ```toml
+  [features]
+  multi_agent = true
+  ```
+
+- Optional Linear integration — configure the same MCP server:
+
+  ```toml
+  [mcp_servers.linear]
+  command = "npx"
+  args = ["-y", "@hatcloud/linear-mcp@latest"]
+  env = { LINEAR_API_KEY = "<your key>" }
+  ```
+
+Harness differences are centralized in
+`plugins/hat-flow/skills/task/references/harness-tools.md` (tool mapping,
+single authority). Interactive stop points degrade to plain-text questions on
+Codex; unattended mode is Claude-only and degrades to interactive.
+
 ## Upgrade
 
 The plugin has **no auto-update** — you must trigger it manually and restart

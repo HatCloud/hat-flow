@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-07-08 Codex 批⑤——协议加载入口改陈述式
+
+**为何**：动态路由注入行依赖斜杠位置参数，其在 subagent 模式恒空、Codex 无此机制（两侧均不可靠，实证见 harness-tools.md「斜杠位置参数注入」行）；入口改「按调用方指明类型 Read `<TYPE>_REVIEW.md`」陈述式加载，Route failure 判据同步改写；SKILL_REVIEW/DOCUMENT_REVIEW 的派发措辞与 checklist 字面词表指路化。
+
+---
+
+## 2026-07-08 Codex 批④——协议注入站点 inline 兜底
+
+**为何**：`SKILL.md` 的动态协议注入行在 Read 路由 / Codex 原生加载下不展开，维度规范缺失会诱发凭记忆开审。注入行后就地加兜底句（未展开则直接 Read 对应 `<TYPE>_REVIEW.md`）。
+
+---
+
+## 2026-07-08 Codex 中性化批①——reviewer 工具直呼检查口径
+
+**为何**：为 Codex 引擎兼容铺垫，reviewer 自身的 portability checklist 不应把 Claude 专属工具名当作通用正例。
+
+- `SKILL_REVIEW.md` 将工具调用检查改为要求使用 `harness-tools.md` 中定义的中性动作短语，并把 harness 专属 API 作为应避免的反例类别。
+- 同步把 Mandatory Stop Points 检查项中的提问工具直呼替换为「向用户提问（结构化选项优先）」。
+
 ## 2026-07-07 word-budget 档位声明回填
 
 frontmatter 补 `word-budget: 1000`，依据 2026-07-07 Length Budget 三档声明制回填（多阶段流程技能，下沉已做完仍需此量）。

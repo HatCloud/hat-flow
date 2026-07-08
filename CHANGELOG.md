@@ -4,6 +4,29 @@ All notable changes to hat-flow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions use the plugin's
 `hat-flow--vX.Y.Z` tag scheme.
 
+## [0.6.0]
+
+### Added
+- **Codex CLI support** (same skills tree, thin manifest shell): install with
+  `codex plugin marketplace add HatCloud/hat-flow` then
+  `codex plugin add hat-flow@hat-flow`. Ships
+  `.codex-plugin/plugin.json` (empty `hooks` to suppress accidental discovery
+  of the Claude-side hooks) and a repo-root `.agents/plugins/marketplace.json`.
+- `skills/task/references/harness-tools.md` — the single authoritative
+  mapping from neutral action vocabulary to per-harness tool endpoints
+  (structured questions, progress lists, subagent dispatch, worktrees, MCP
+  naming, path tokens, headless driving). Skill bodies now name actions, not
+  harness-specific tools (superpowers-style shared tree).
+- README (EN/zh) gained a "Codex CLI" section: multi-agent feature flag and
+  optional Linear MCP `config.toml` sample.
+
+### Changed
+- All packaged skill bodies neutralized to action vocabulary; `!` injection
+  fallback generalized to any loading path, with inline guards at
+  protocol-bearing embed sites. Interactive stop points degrade to plain-text
+  questions on Codex; unattended mode stays Claude-only (degrades to
+  interactive elsewhere).
+
 ## [0.5.0]
 
 ### Changed
@@ -60,6 +83,7 @@ All notable changes to hat-flow are documented here. Format follows
   stop-points (non-converging review, debt reconciliation) continue with a
   recorded trace; irreversible / high-risk points still hard-stop.
 
+[0.6.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.6.0
 [0.5.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.5.0
 [0.4.0]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.4.0
 [0.3.1]: https://github.com/HatCloud/hat-flow/releases/tag/hat-flow--v0.3.1

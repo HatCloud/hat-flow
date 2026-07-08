@@ -119,11 +119,11 @@ Revise 流程（task-revise）中的 RN-design 和 RN-plan 步骤必须包含确
 
 ### 5. Interactive / Unattended Duality
 
-Task skill 在两种模式下执行：**Interactive**（用户在场）和 **Unattended**（无人值守，无人应答）。**任何新增或修改的步骤都必须同时设计这两条路径**——尤其是带停顿的地方（AskUserQuestion、纯文本确认循环、等待用户测试/回复、需人工的硬阻断）。每个停顿点用 `**[Unattended]**` 标注无人值守下如何**不靠人工就推进**。
+Task skill 在两种模式下执行：**Interactive**（用户在场）和 **Unattended**（无人值守，无人应答）。**任何新增或修改的步骤都必须同时设计这两条路径**——尤其是带停顿的地方（向用户提问（结构化选项优先）、纯文本确认循环、等待用户测试/回复、需人工的硬阻断）。每个停顿点用 `**[Unattended]**` 标注无人值守下如何**不靠人工就推进**。
 
 | 停顿元素 | Interactive | Unattended |
 |---|---|---|
-| AskUserQuestion 决策点 | 正常询问 | 按默认/协议选项自动决定，不询问 |
+| 向用户提问（结构化选项优先） 决策点 | 正常询问 | 按默认/协议选项自动决定，不询问 |
 | 纯文本确认循环 | 等用户回复 | 跳过等待，直接推进 |
 | 等待用户测试/填写 | 停下等待 | 按 `task_type` 自测继续，或 Telegram 通知后按约定停/继续 |
 | 需人工的硬阻断（如验证失败） | 报错停下 | 重试 → 仍失败则 Telegram 通知 + auto-cancel |
@@ -132,7 +132,7 @@ Task skill 在两种模式下执行：**Interactive**（用户在场）和 **Una
 
 <rule>
 task skill 中新增的每个停顿点或用户决策分支，都带一条无需人工即可解决的显式 [Unattended] 路径。只有交互式用户才能清除的停顿，out of scope。
-Reason: 无人值守的运行没有人来应答——单个未设防的 AskUserQuestion 或「等用户回复」会让整条自动化流程无限期卡死。该停顿靠自身自动解决（默认选项、协议决策，或 notify-then-cancel），而非阻塞。
+Reason: 无人值守的运行没有人来应答——单个未设防的 向用户提问（结构化选项优先） 或「等用户回复」会让整条自动化流程无限期卡死。该停顿靠自身自动解决（默认选项、协议决策，或 notify-then-cancel），而非阻塞。
 </rule>
 
 ### 6. Protocol File as Single Source
@@ -189,7 +189,7 @@ Reason: 未声明的 handler section 会被静默地永不 emit（正是「某�
 |---|---|
 | Init (P1) / Design (P2) | **收集一切需用户决策的事项**（提交节奏、验证命令、分支策略、无人值守时机、scope 等）。交互集中在此。 |
 | Plan (P3) | **尽量少交互**——只保留 plan review 收敛的轻量确认。新增交互前先问：能否前置到 Design？ |
-| Execute (P4) | **任何模式（含 Interactive）零阻塞交互**——不新增 AskUserQuestion / 等用户应答的停顿。P4 真卡死时，终态是「在 session 内可见地停下并输出清晰报告」（用户回来即见）；Telegram 通知为 best-effort **叠加**而非替代，无投递路径的「静默暂停」不在此终态之列。 |
+| Execute (P4) | **任何模式（含 Interactive）零阻塞交互**——不新增 向用户提问（结构化选项优先） / 等用户应答的停顿。P4 真卡死时，终态是「在 session 内可见地停下并输出清晰报告」（用户回来即见）；Telegram 通知为 best-effort **叠加**而非替代，无投递路径的「静默暂停」不在此终态之列。 |
 | Test (P5) / End (P6) | **豁免**。用户测试、End 决策（分支处理、CLAUDE.md、debt 对账确认）是自然决策点，受约定 4（Revise Confirmation）/ 约定 5（Interactive/Unattended Duality）管辖，不在本约定的「零交互」范围内。 |
 
 **边界澄清：**
@@ -207,7 +207,7 @@ Reason: 未声明的 handler section 会被静默地永不 emit（正是「某�
 - 发布/push/删除需等编译/测试全绿才有意义——这正说明它属 P6 而非 P4，建模为 End 决策（P6 豁免），不塞进 Execute 的零阻塞区。
 
 <rule>
-task 工作流中新增的任何交互（AskUserQuestion、纯文本确认、wait-for-user）都属于 Init/Design；Plan 保持交互最小化；Execute(P4) 在所有模式（含 Interactive）下零阻塞交互。P4 的死路终态是在 session 内可见地停下 + 输出报告（Telegram 为 best-effort 叠加）；静默暂停或阻塞菜单 out of scope。P5/P6 决策点与独立 on-demand skill 豁免。
+task 工作流中新增的任何交互（向用户提问（结构化选项优先）、纯文本确认、wait-for-user）都属于 Init/Design；Plan 保持交互最小化；Execute(P4) 在所有模式（含 Interactive）下零阻塞交互。P4 的死路终态是在 session 内可见地停下 + 输出报告（Telegram 为 best-effort 叠加）；静默暂停或阻塞菜单 out of scope。P5/P6 决策点与独立 on-demand skill 豁免。
 Reason: 用户声明的工作流是「写完 Design/Plan，然后离开、让 Execute 自动跑完」。Execute 中单个阻塞交互即破坏它——在 Interactive 模式下它会卡到（不在场的）用户回来；把它导向仅 Telegram 的「暂停」更糟，因为 Interactive 用户可能没有 Telegram 路径、运行会静默死掉。把每个决策前置到 Init/Design，是兑现「写完 Plan 即可离开」的唯一办法。
 </rule>
 
@@ -227,6 +227,10 @@ Reason: 用户声明的工作流是「写完 Design/Plan，然后离开、让 Ex
 
 ---
 
+### 11. 多 harness 工具落点单一权威
+
+（本条为 spec-skill「多 harness 兼容」rule 在 task 族的增量约束。）task 系列正文禁止 harness 专属工具名直呼；全部工具落点（提问 / 进度清单 / 子代理 / worktree / 脚本执行 / MCP 前缀 / 注入变量 / 无头驱动等）的唯一权威是 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md`，正文用其左列动作短语并按需指路该表对应行。新增 Claude 或 Codex 专属机制时先在映射表加行，再在正文引用——不得反序（先散落正文再事后收编）。
+
 ## Compliance Checklist
 
 在 spec-skill 的通用 Checklist 基础上，task skill 额外检查：
@@ -238,6 +242,7 @@ Reason: 用户声明的工作流是「写完 Design/Plan，然后离开、让 Ex
 - [ ] Hook Manifest Closure 反向：每个 plugin `.md` body 的 hook handler `## ` section 都被某 frontmatter `section` 字段引用（按集合包含判据，容忍一段多 hook 复用）？
 - [ ] Transition section 包含"返回编排器 Step 3"指令？
 - [ ] Transition section 有 `<rule>` 禁止提示调用其他 skill？
+- [ ] 改动未引入 harness 专属工具名直呼（对照 `harness-tools.md` 各行 Claude 落点列词表）？新增专属机制已先落映射表？
 - [ ] 过渡描述使用语义名称（Init/Design/Plan...）而非硬编码序号？
 - [ ] Hook 调用处有产物验证 checkpoint？
 - [ ] Hook 多段输出标注了"必须逐段全部执行"？

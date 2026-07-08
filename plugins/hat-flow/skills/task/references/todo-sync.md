@@ -1,8 +1,8 @@
-# TODO Sync (TaskCreate / TaskUpdate) — Canonical
+# TODO Sync（维护进度清单；Claude 落点见 harness-tools.md）— Canonical
 
 task 套件 TODO 同步契约的单一来源。orchestrator 与各 phase skill 引用本文件，不再各存副本。
 
-phases.md 是跨 session 的持久化状态源，但用户在当前 session 中无法实时看到进度，因此进度通过 Claude Code 内置的 TaskCreate / TaskUpdate 工具同步到 UI。
+phases.md 是跨 session 的持久化状态源，但用户在当前 session 中无法实时看到进度，因此进度通过维护进度清单（Claude 落点见 harness-tools.md）同步到 UI。
 
 **本文件契约按 `config.todo_sync` 三档执行**（`off | overview | full`）。档位由 1b.3 选定、1f 落盘、resolver 规范化 legacy boolean（`true→full` / `false→off` / 非法或缺失→`full`）。下方「触发点表」是**唯一权威的「何时建 / 何时切 / 何时清」**——取代了旧版散落的「Phase 1 开始就建」「每次维护双层」等表述。
 
@@ -10,7 +10,7 @@ phases.md 是跨 session 的持久化状态源，但用户在当前 session 中�
 
 | 档 | 语义 |
 |---|---|
-| `off` | **完全静默**：不调用任何 TaskCreate / TaskUpdate（不建概览、不建 step）；Bootstrap 时亦不重建、不刷新、不清理既有 UI（纯 no-op）。 |
+| `off` | **完全静默**：不调用任何维护进度清单（Claude 落点见 harness-tools.md；不建概览、不建 step）；Bootstrap 时亦不重建、不刷新、不清理既有 UI（纯 no-op）。 |
 | `overview` | 只维护**1 行概览**：1f 创建、phase 切换更新符号、收尾置完成。**不建 step**。 |
 | `full` | **双层**（概览 + 当前 phase step），现状行为。 |
 
@@ -37,11 +37,11 @@ phases.md 是跨 session 的持久化状态源，但用户在当前 session 中�
 
 | 触发点 | `full` | `overview` | `off` | 锚 |
 |---|---|---|---|---|
-| **1f 末**（任务夹 + config 已落盘，name/tier 已定） | 建 overview（首个 TaskCreate，取最小 ID）+ `in_progress` + 建 P1 step | 仅建 overview + `in_progress` | no-op | task-init 1f |
+| **1f 末**（任务夹 + config 已落盘，name/tier 已定） | 建 overview（首个维护进度清单；Claude 创建落点见 harness-tools.md；取最小 ID）+ `in_progress` + 建 P1 step | 仅建 overview + `in_progress` | no-op | task-init 1f |
 | **每 phase 入口**（读 phases.md 后） | 删上一 phase step + 建本 phase step | 不动 step | no-op | 各 phase TODO Sync |
-| **步骤完成** | `TaskUpdate(completed)` + 同步 phases.md | 仅同步 phases.md | 仅同步 phases.md | 各 phase |
+| **步骤完成** | 维护进度清单（Claude 更新落点见 harness-tools.md，状态 `completed`）+ 同步 phases.md | 仅同步 phases.md | 仅同步 phases.md | 各 phase |
 | **phase 切换** | 更新 overview 符号 | 更新 overview 符号 | no-op | orchestrator Step 3 |
-| **Bootstrap / 跨 session RESUME** | 先 `TaskList`：无 overview→重建（首个 TaskCreate 保最小 ID）+ `in_progress`；有 overview→`TaskUpdate` 刷新 subject/符号到 phases.md 当前态。再按 phases.md 校准/重建当前 phase step（已完成步骤标 `completed`）；**当前 phase 为 Execute 时例外**——step 重建按 task-execute 的「Phase 4 step 级 task 展开规则」以 plan.md 逐 plan task 重建，不用 phases.md 的 4a/4b 粒度（否则 resume 后 step 级进度退化为两行） | 同 full 的 overview 分支（重建或刷新概览），**不建 step** | no-op（不重建、不刷新、不清理） | orchestrator Step 2B / 各 phase resume |
+| **Bootstrap / 跨 session RESUME** | 先维护进度清单（Claude 列表落点见 harness-tools.md）：无 overview→重建（首个维护进度清单；Claude 创建落点见 harness-tools.md；保最小 ID）+ `in_progress`；有 overview→维护进度清单（Claude 更新落点见 harness-tools.md）刷新 subject/符号到 phases.md 当前态。再按 phases.md 校准/重建当前 phase step（已完成步骤标 `completed`）；**当前 phase 为 Execute 时例外**——step 重建按 task-execute 的「Phase 4 step 级 task 展开规则」以 plan.md 逐 plan task 重建，不用 phases.md 的 4a/4b 粒度（否则 resume 后 step 级进度退化为两行） | 同 full 的 overview 分支（重建或刷新概览），**不建 step** | no-op（不重建、不刷新、不清理） | orchestrator Step 2B / 各 phase resume |
 | **task-reopen** | overview 由 `completed` 改回 `in_progress` + 符号回退到重开的 phase；重建该 phase step | 同左 overview 动作，不建 step | no-op | task-reopen |
 | **task-revise（phase 内 Revise 子循环）** | 按 Revise section 步骤建/更新 step（`update_step`，同「步骤完成」语义） | no-op（仍在当前 phase，概览符号不变） | no-op | task-revise |
 | **task-end / task-cancel** | overview 置 `completed`（cancel 可加标记）+ step 全清 | overview 置 `completed`（cancel 可加标记） | no-op | task-end / task-cancel |
@@ -59,4 +59,4 @@ phases.md 是跨 session 的持久化状态源，但用户在当前 session 中�
 
 ## Graceful
 
-Task 工具调用失败 → 记录、继续（TODO 仅 UI 辅助，不阻断主流程）。phases.md 与 TODO 不一致时以 phases.md 为准，下个触发点按表校准。
+维护进度清单（Claude 落点见 harness-tools.md）调用失败 → 记录、继续（TODO 仅 UI 辅助，不阻断主流程）。phases.md 与 TODO 不一致时以 phases.md 为准，下个触发点按表校准。

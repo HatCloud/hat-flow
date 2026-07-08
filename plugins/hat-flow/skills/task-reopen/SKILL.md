@@ -7,6 +7,8 @@ description: "Use when the user wants to reactivate a completed, canceled, or de
 
 将已完成/取消/推迟的任务重新移回进行中，供用户继续开发或修改。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-reopen to reactivate a task."
 
 ## Runtime Context
@@ -45,11 +47,11 @@ description: "Use when the user wants to reactivate a completed, canceled, or de
 ```bash
 find .tasks/done .tasks/canceled .tasks/deferred -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while read d; do echo "$(stat -f '%m' "$d") $d"; done | sort -rn | head -10 | awk '{print $2}'
 ```
-使用 AskUserQuestion 展示列表，让用户选择。
+使用 向用户提问（结构化选项优先） 展示列表，让用户选择。
 
 ### Step 2: 选择重新开始的阶段
 
-AskUserQuestion：从哪个阶段重新开始？
+向用户提问（结构化选项优先）：从哪个阶段重新开始？
 - **Phase 2（重新设计）** — 保留 prompt.md，重新设计
 - **Phase 3（重新规划）** — 保留 design.md，重新规划
 - **Phase 4（重新执行）** — 保留 plan.md，重新执行

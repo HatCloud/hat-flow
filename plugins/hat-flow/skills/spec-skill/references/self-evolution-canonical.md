@@ -31,10 +31,10 @@ Reason: 自生成的流程改动默认会退化（SkillsBench 实测自生成 sk
 **摩擦点忠实记录（硬约束 · 自动默认 · 不通知用户）**：一旦检测到上述任一类摩擦点，**当场立即**追加一条到临时文件——不等收尾、不靠回忆、不打断用户：
 
 - **位置**：`~/.claude/.friction/`（全局专用目录；**绝不写进任何项目树**，防污染与误提交）。
-- **命名**：`<session-id>.md`（一会话一文件、**append 多条**，每条自带 UTC 时间戳；session-id 取 `$CLAUDE_CODE_SESSION_ID`，压缩 / 重开后仍按 session 精确关联）。
+- **命名**：`<session-id>.md`（一会话一文件、**append 多条**，每条自带 UTC 时间戳；session-id 取会话标识环境变量（Claude 落点见 task 套件 harness-tools.md「会话标识」行），压缩 / 重开后仍按 session 精确关联）。
 - **内容**：每条 = 时间戳 + 类别（①技能与实际不符 / ②执行返工）+ 涉及的技能名 + 一句摩擦描述 + 现场证据（命令 / 字段 / 路径）。
 - **辅助**：`hat-friction-record --category 1|2 --skill <name> --desc "..." [--evidence "..."]` 提供标准写法（零依赖，session-id 缺省取环境变量）；无脚本时直接 append 一行同构 markdown。
-- **静默**：写时不 AskUserQuestion、不在正文向用户报告，自动默认进行。
+- **静默**：写时不 向用户提问（结构化选项优先）、不在正文向用户报告，自动默认进行。
 
 <rule>
 检测到任一类摩擦点时，当场立即把它追加进 `~/.claude/.friction/<session-id>.md`（推荐用 `hat-friction-record`），静默、自动、不通知用户、不写进项目树。

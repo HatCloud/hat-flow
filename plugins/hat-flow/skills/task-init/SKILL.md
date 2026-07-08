@@ -10,6 +10,8 @@ word-budget: 2000
 
 任务初始化阶段：解析用户输入、确认需求、设置 git 分支、创建任务文件夹、处理 Linear 集成，生成 `phases.md`（跨 session 恢复的状态文件）。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-init for Phase 1: Setup."
 
 ## Runtime Context
@@ -18,6 +20,8 @@ word-budget: 2000
 - Branch: !`git branch --show-current 2>/dev/null || echo 'NO_GIT'`
 - Dirty: !`git status --porcelain 2>/dev/null | head -5`
 - User input: $ARGUMENTS
+
+> 若上方任一探测/注入行未展开（显示字面 `!` 前缀原文），先当场执行该命令 / Read 该文件取结果，再继续。
 
 ## NO_GIT Mode
 
@@ -29,7 +33,7 @@ word-budget: 2000
 
 按 `config.todo_sync` 档（`off | overview | full`），依 `task/references/todo-sync.md` 的触发点表 + 4 命名模板执行（该文件为唯一权威，本 section 不重述契约）。
 
-本 skill 触发点：**1f 末**（建 overview / P1 step，按档动作见触发点表）；后续步骤完成同步 phases.md（`full` 另 `TaskUpdate(completed)`）。
+本 skill 触发点：**1f 末**（建 overview / P1 step，按档动作见触发点表）；后续步骤完成同步 phases.md（`full` 另 `维护进度清单，状态置 `completed``）。
 
 ---
 
@@ -68,7 +72,7 @@ word-budget: 2000
 
 **若 `open` 数组非空：**
 
-使用 AskUserQuestion 列出现有任务。选项：**继续现有任务** / **创建新任务**
+使用 向用户提问（结构化选项优先） 列出现有任务。选项：**继续现有任务** / **创建新任务**
 
 如果选择继续，按状态路由（与编排器「phases.md 不存在」fallback 判据同表）：
 - 有 `phases.md` → 由 `/task` 编排器处理路由
@@ -98,12 +102,12 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 
 解析输入后：
 
-1. 若有歧义维度，先用 AskUserQuestion 提出澄清问题，等用户回答
+1. 若有歧义维度，先用 向用户提问（结构化选项优先） 提出澄清问题，等用户回答
 2. 展示最终结构化理解：**Goal**（要实现什么）/ **Scope**（受影响范围）/ **Symptoms**（观察到什么，bug 时）/ **Suspected cause**（用户假设，若提及）/ **Expected result**（成功的样子）
 3. 纯文本询问："以上理解是否准确？有需要修改的地方吗？"
 4. 用户说"继续" → 推进到 1b.2；用户提出建议 → 澄清 → 修复 → 重新展示理解 → 回到步骤 3
 
-**[Unattended/quiet]** quiet_mode（编排器 Step 0 确立，**早于** 1f 物化 unattended.json，故此处按 quiet_mode 判定、不依赖文件存在）下不调 AskUserQuestion，跳过纯文本确认：歧义维度按 prompt 最保守、最小范围的解释自行假设，逐条记入 `{task-folder}/unattended-decisions.md`（文件夹未建则暂存内存、1f 落盘），以假设的结构化理解直接推进 1b.2；关键歧义（影响方向、无法从 prompt 推导）→ 按 `UNATTENDED_PROTOCOL.md` §8「低置信澄清问题」暂停 + Telegram，等 `/task` 恢复。
+**[Unattended/quiet]** quiet_mode（编排器 Step 0 确立，**早于** 1f 物化 unattended.json，故此处按 quiet_mode 判定、不依赖文件存在）下不调 向用户提问（结构化选项优先），跳过纯文本确认：歧义维度按 prompt 最保守、最小范围的解释自行假设，逐条记入 `{task-folder}/unattended-decisions.md`（文件夹未建则暂存内存、1f 落盘），以假设的结构化理解直接推进 1b.2；关键歧义（影响方向、无法从 prompt 推导）→ 按 `UNATTENDED_PROTOCOL.md` §8「低置信澄清问题」暂停 + Telegram，等 `/task` 恢复。
 
 确认后将结构化结果暂存内存（prompt.md 在 1f 中写入文件）。
 
@@ -150,7 +154,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 
 **触发判据（沿用 1b.2 现有门槛）**：1b.2 评为"低分" = `2+ ❌` 或 `❌/⚠️ 合计 ≥3`；或用户主动表达"想头脑风暴 / 完善需求"。原"2+ ❌ → 建议重新描述"出口升级为"建议头脑风暴"。
 
-- **[Interactive]** 低分 → AskUserQuestion：**进入头脑风暴** / **跳过继续**；非低分不打扰，门控记"未进入"直接完成。
+- **[Interactive]** 低分 → 向用户提问（结构化选项优先）：**进入头脑风暴** / **跳过继续**；非低分不打扰，门控记"未进入"直接完成。
 - **[Unattended/quiet]** 低分默认进入（不询问，记 `unattended-decisions.md`）；非低分跳过。
 
 **进入分支**：存内存态结构化需求快照 → `Read ${CLAUDE_PLUGIN_ROOT}/skills/brainstorm/SKILL.md` inline 执行 → 收敛时 brainstorm 原子替换内存态 Structured Requirement + 追加内存态 `## Brainstorm Results`（prompt.md 仍由 1f 落盘）→ **重跑 1b.2 评分**（基于扩充后需求）→ 标 `[x]`。**未进入 / 中途退出**：门控评估完成即标 `[x]`（结果记"未进入"或"中途退出"），不重入 brainstorm，直接进 1b.3。
@@ -175,7 +179,7 @@ Reason: Init 阶段过重的探索会污染上下文，且在需求未对齐前�
 **3. 读取 manifest 建议规则：**
 遍历 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/*.md`，读取每个插件 frontmatter 的 `recommend_disable_when` / `recommend_enable_when` 字段，对比任务描述（prompt.md 结构化需求）生成逐插件裁剪建议（如纯 SKILL.md 修改 → 匹配 tdd `recommend_disable_when` → 建议关闭 TDD；涉核心业务逻辑 → 匹配 `recommend_enable_when` → 建议开启，即使 preset 未启用）。
 
-**4. 展示推荐（AskUserQuestion）：**
+**4. 展示推荐（向用户提问（结构化选项优先））：**
 展示推荐的 preset + 裁剪建议，选项：推荐 preset（Recommended）/ 其他 3 个 preset / 自定义。裁剪建议附在推荐理由中，用户可采纳或忽略。
 
 **5. 解析 effective config（内存，三层合并：默认模板 ① < 全局用户 local ② < 项目本地 ③ < 调用 flag ④）：**
@@ -212,7 +216,7 @@ hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
 
 （NO_GIT 模式下跳过）
 
-- 运行 `hat-git-conventions .` — 如果没有找到规范，AskUserQuestion：**Define now** / **Use implicit conventions** / **Use default Conventional Commits** / **Skip**
+- 运行 `hat-git-conventions .` — 如果没有找到规范，向用户提问（结构化选项优先）：**Define now** / **Use implicit conventions** / **Use default Conventional Commits** / **Skip**
 
 ### 1d. Branch Decision
 
@@ -221,11 +225,11 @@ hat-task-config-resolve --preset {chosen-preset} --project-root "$ROOT" \
 从 effective config（1b.3 第 5 步）读取 `branch.mode`（`keep`/`new`，默认 `keep`）与 `branch.name`（`null` = 按任务文件夹名自动生成分支名）。
 
 <rule>
-Interactive 模式下分支创建以 AskUserQuestion 为门控，不自动创建任何分支。Quiet/unattended 下门控解除，由 `branch.mode` 确定性决定、不询问（默认 `keep` = 留在当前分支）。
+Interactive 模式下分支创建以 向用户提问（结构化选项优先） 为门控，不自动创建任何分支。Quiet/unattended 下门控解除，由 `branch.mode` 确定性决定、不询问（默认 `keep` = 留在当前分支）。
 Reason: 交互用户可能想用特定分支策略，而无人值守无人作答，必须依 config 确定性解析。默认 `keep` 让多任务共用一棵工作树协作。
 </rule>
 
-**[Interactive]** AskUserQuestion：**留在当前分支（Recommended）** / **创建新分支**（推荐项对齐 config `branch.mode`，默认 keep）。
+**[Interactive]** 向用户提问（结构化选项优先）：**留在当前分支（Recommended）** / **创建新分支**（推荐项对齐 config `branch.mode`，默认 keep）。
 **[Unattended / quiet]** 不询问，按 `branch.mode` 自动决定（默认 `keep` = 留在当前分支）。
 
 执行所选：`keep` → 留在当前分支；`new` → `git checkout -b {branch.name 或自动生成的任务名}`。git plugin 关闭时跳过分支创建。
@@ -246,7 +250,7 @@ Reason: 交互用户可能想用特定分支策略，而无人值守无人作答
 |---|---|
 | `true` | 启用 worktree 隔离（见下方物理创建） |
 | `false` | 不隔离，留在当前工作树（按 1d 的分支决策） |
-| `"ask"`（仅交互模式残留） | **[Interactive]** AskUserQuestion 追加询问：**不隔离（Recommended，默认）** / **启用 worktree 隔离**；选不隔离→false、选启用→true |
+| `"ask"`（仅交互模式残留） | **[Interactive]** 向用户提问（结构化选项优先） 追加询问：**不隔离（Recommended，默认）** / **启用 worktree 隔离**；选不隔离→false、选启用→true |
 
 **同树并发守卫（`"ask"` 分支的推荐翻转）**：询问前检查 Tasks JSON——若已有**其他 open task 共享当前工作树**（open 数组除本任务外非空且非 worktree stub），把推荐项翻转为**启用 worktree 隔离（Recommended）**，问题里点明「已有 N 个 open task 共享此树：commit 交错、共享文档归属串扰、P6 squash 守卫失真三类风险」。显式 `false` 配置不受此守卫覆盖。
 
@@ -262,7 +266,7 @@ Reason: 交互用户可能想用特定分支策略，而无人值守无人作答
    git worktree add -b "task/{task-folder-name}" "$WT" HEAD
    ```
 4. 切入 worktree（`path` 进入已注册 worktree → session CWD 随之切换，`.tasks/` 天然隔离在 worktree 内）：
-   `EnterWorktree(path="$WT")`
+   `进入隔离工作树(path="$WT")`
 5. 将 `MAIN_ROOT` 与 `WT` 暂存内存，供 1f 写主仓库指针 stub。
 
 > **与 1d 分支决策的关系**：启用 worktree 时 task 专用分支已由本步 `git worktree add -b` 创建，**1d 不再在主目录 `git checkout -b`**。`branch.mode==new` 语义由 worktree 专用分支取代；`branch.mode==keep` 时 worktree 仍建独立 task 分支（隔离需要）——主目录 HEAD 始终不动。
@@ -317,11 +321,9 @@ mkdir -p "$MAIN_ROOT/.tasks/open/{task-folder-name}"
 printf '%s\n' "$WT" > "$MAIN_ROOT/.tasks/open/{task-folder-name}/.worktree"
 ```
 
-**写入 session.json：** 写 `{task-folder}/session.json` = `{"sessions": ["$CLAUDE_CODE_SESSION_ID"]}`（数组形态），用于精确定位本任务的会话导出。`CLAUDE_CODE_SESSION_ID` 缺失时跳过写入（graceful）。schema（跨 session 追加语义）、消费者清单与回退行为见 `references/notes.md`。
+**写入 session.json：** 写 `{task-folder}/session.json`（`{"sessions": [...]}` 数组形态，写入模板见 harness-tools.md「会话标识」行），用于精确定位本任务的会话导出。会话标识缺失时跳过写入（graceful）。schema（跨 session 追加语义）、消费者清单与回退行为见 `references/notes.md`。
 
-```bash
-[ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && printf '{"sessions": ["%s"]}\n' "$CLAUDE_CODE_SESSION_ID" > "{task-folder}/session.json"
-```
+写入命令模板见 harness-tools.md「会话标识」行。
 
 **写入 prompt.md：**
 
@@ -345,7 +347,7 @@ printf '%s\n' "$WT" > "$MAIN_ROOT/.tasks/open/{task-folder-name}/.worktree"
 
 **Checkpoint: 确认 Linear issue 已创建**。检查 `linear.json` 是否存在且包含有效 `issueUuid`。
 - 成功 → 继续
-- 失败 → AskUserQuestion：**重试** / **跳过 Linear 集成**
+- 失败 → 向用户提问（结构化选项优先）：**重试** / **跳过 Linear 集成**
 
 **写入 phases.md**（在任务文件夹中）：
 
@@ -437,5 +439,5 @@ Reason: 阶段 skill 不掌握完整过渡逻辑（phase_merge、新会话交接
 - **Scripts**: hat-task-detect, hat-task-scaffold, hat-git-conventions, hat-plugin-hook, hat-task-config-resolve（三层配置合并）
 - **Writes**: `{task-folder}/phases.md`, `{task-folder}/prompt.md`, `{task-folder}/linear.json`, `{task-folder}/task-config.json`, `{task-folder}/session.json`, `{task-folder}/unattended.json`（仅 quiet_mode 物化）
 - **Reads（三层配置）**: `${CLAUDE_PLUGIN_ROOT}/skills/task/task-defaults.json`（①默认模板）, `~/.claude/task-defaults.local.json`（②全局用户 local，可选）, `{project-root}/task-defaults.json`（③项目本地，可选）
-- **Worktree（仅 1d-wt 启用时）**: `git worktree add -b task/<folder> <path> HEAD` + 内置 `EnterWorktree(path=...)` 切入；主仓库写 stub 指针 `$MAIN_ROOT/.tasks/open/<folder>/.worktree`
+- **Worktree（仅 1d-wt 启用时）**: `git worktree add -b task/<folder> <path> HEAD` + 内置 `进入隔离工作树(path=...)` 切入；主仓库写 stub 指针 `$MAIN_ROOT/.tasks/open/<folder>/.worktree`
 - **Hooks**（均在 1f 之后运行，依次）: `P1.phase-start`（git: dirty check + 处理）→ `P1.phase-end`（linear: issue setup）

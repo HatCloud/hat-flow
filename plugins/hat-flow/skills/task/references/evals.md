@@ -11,12 +11,12 @@
 - **task**：在一个迷你 git 项目（`calc.py` 含 `add()` + `test_calc.py` 含 1 条用例 + CLAUDE.md 含验证命令）上执行 `/task 为 calc.py 增加 subtract(a, b) 函数并补一条 pytest 用例`，走完 P1→P6。**停点应答自动化**：各交互停点（需求/设计/plan 确认、验收、End 决策）由预置的 mock 响应表驱动（逐停点给定缺省应答，如「确认/继续/验收通过/Merge locally」），参照 task-execute 既有的 `TASK_RESUME_CHOICE` 环境变量 / menu input fixture 测试接缝模式实现，不依赖真人在场。
 - **criteria**（对任务文件夹与仓库跑 assert）：
   - must：`phases.md` 存在且 P1-P6 全部步骤 `[x]`；`prompt.md`/`design.md`/`plan.md`/`acceptance-checklist.md`/`final.md`/`conversation.md` 齐全（`hat-task-artifact-check` 各 phase PASS）；`python3 -m pytest -q` 全绿且 `subtract` 用例存在；任务文件夹已归档至 `.tasks/archive/done/` 或 `.tasks/done/`。
-  - must_not：P4 execute 过程中出现阻塞性 AskUserQuestion（约定 9；检查 conversation.md 的 P4 段）；plan/design 阶段因协议正文缺失而凭空发挥（design.md 应体现 DESIGN_PROTOCOL 的结构——批次 0 A1 修复的回归锚点）。
+  - must_not：P4 execute 过程中出现阻塞性 向用户提问（结构化选项优先）（约定 9；检查 conversation.md 的 P4 段）；plan/design 阶段因协议正文缺失而凭空发挥（design.md 应体现 DESIGN_PROTOCOL 的结构——批次 0 A1 修复的回归锚点）。
 - **观察项**（非判定，记 friction）：每个停点等待是否合理、有无多余确认、有无卡顿点。
 
 ## E2E-2：Unattended 全流程
 
-- **task**：同上迷你项目，`claude -p --permission-mode bypassPermissions "/task -q <同一任务>"` 无头执行 + `claude -p -c` resume 循环（单次约 4 phase，上限 8 轮、每轮 gtimeout 900s），全程无人应答。
+- **task**：同上迷你项目，按 harness-tools.md「无头驱动」行首轮命令无头执行 + 续轮 resume 循环（单次约 4 phase，上限 8 轮、每轮 gtimeout 900s），全程无人应答。
 - **criteria**：
   - must：同 E2E-1 的产物齐全项；另加 `unattended.json` 存在且 `enabled:true`、`unattended-decisions.md` 存在（自动决策留痕）；resume 循环在上限内收敛（非无限卡住——批次 0 A4 派发超时契约的回归锚点）。
   - must_not：transcript 中出现等待用户输入的死等；`git log` 出现越权改写（squash 守卫误压——A3 回归锚点：测试仓无 remote，守卫不得因 `--remotes` 误报而错误跳过或误压）。

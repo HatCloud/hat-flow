@@ -1,5 +1,7 @@
 # Unattended Protocol
 
+> 本协议依赖的宿主能力清单见 `harness-tools.md`「无人值守模式」行——不支持的 harness（如 Codex MVP）一律交互降级，不得静默假装支持。
+
 本文件为 task 系列 skill 的无人值守模式**权威规则来源**。design.md 中的规则表为设计时快照，以本文件为准。外部驱动方（E2E / cron / 调度器）的机读契约见 `references/headless-driving.md`（state.json schema + 驱动判定算法）。
 
 各 skill 在 Process 步骤中**条件加载**本文件（仅当检测到 unattended.json 存在时 `Read` 本文件），**不应**在 Runtime Context 中 `!cat` 本文件以避免无效 token 消耗。
@@ -183,10 +185,10 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 
 1. 执行 **chat_id Detection**（第 3 节）获取 `telegram_chat_id`
 2. 确定 `activate_after`（由 producer 询问得到：现在启用→`now`；Design 后→`design`；Plan 后→`plan`）
-3. 仅当 `activate_after == "now"` 时，`AskUserQuestion`：任务类型？（延后激活时任务类型可在激活点或沿用默认 self_test）
+3. 仅当 `activate_after == "now"` 时，`向用户提问（结构化选项优先）`：任务类型？（延后激活时任务类型可在激活点或沿用默认 self_test）
    - **自测任务（Recommended）** — 无需用户测试，自动推进到 task-end
    - **需要用户测试** — 执行完毕后 Telegram 通知，停在 task-test
-4. 若选择 **自测任务**：追加 End 阶段决策收集（AskUserQuestion）：
+4. 若选择 **自测任务**：追加 End 阶段决策收集（向用户提问（结构化选项优先））：
    - **分支处理**：`"auto_merge"` / `"keep"`
    - **CLAUDE.md 更新**：`"auto_update"` / `"skip"`
    - **squash**：`true` / `false`（缺省 `true`，取 effective config `end_decisions.squash`；通常沿用默认不单独询问）
@@ -229,9 +231,9 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 | 停止点                    | 自动决策                                                                                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 现有任务选择（1a）        | 继续现有任务（对齐编排器单任务恢复）                                                                                             |
-| 需求澄清（1b.1）          | quiet 下不调 AskUserQuestion：按最保守、最小范围解释自行假设并逐条记 `unattended-decisions.md`（任务文件夹未建则暂存内存、1f 落盘）；跳过纯文本确认、以假设的结构化理解直接推进 1b.2；关键歧义按 §8「低置信澄清问题」暂停（早于 1f 物化，按 quiet_mode 判定） |
+| 需求澄清（1b.1）          | quiet 下不调 向用户提问（结构化选项优先）：按最保守、最小范围解释自行假设并逐条记 `unattended-decisions.md`（任务文件夹未建则暂存内存、1f 落盘）；跳过纯文本确认、以假设的结构化理解直接推进 1b.2；关键歧义按 §8「低置信澄清问题」暂停（早于 1f 物化，按 quiet_mode 判定） |
 | 头脑风暴补完（1b.2b）     | 低分默认进入（不询问，记 `unattended-decisions.md`）；非低分跳过                                                                 |
-| 档位粗选（1b.3）          | 按推荐自动选择，不弹 AskUserQuestion                                                                                             |
+| 档位粗选（1b.3）          | 按推荐自动选择，不弹 向用户提问（结构化选项优先）                                                                                             |
 | Dirty 文件                | 忽略，直接继续                                                                                                                   |
 | 分支决策                  | 不询问，按 effective config `branch.mode` 自动决定（默认 `keep` = 留在当前分支）                                                 |
 | worktree 隔离（1d-wt）    | 按已解析值自动决定（quiet 已在 1b.3 解析为 true/false，缺省 true；显式 true/false 直接生效），不进 `"ask"` 询问分支              |
@@ -265,7 +267,7 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 | 停止点                     | 自动决策                                                                    |
 | -------------------------- | --------------------------------------------------------------------------- |
 | Light 验证未配置           | 跳过验证                                                                    |
-| BLOCKED（卡壳升级阶梯末端，≥3 次或架构级） | 重试一次（Opus）；按硬判据二选一——命中系统性问题（design 假设偏差 / 跨模块契约变更 / plan 任务边界需重划）→转 Revise，否则（局部实现卡点、非架构级）→Telegram 通知后 auto-cancel |
+| BLOCKED（卡壳升级阶梯末端，≥3 次或架构级） | 重试一次（加强档，Claude 档位见 `harness-tools.md`）；按硬判据二选一——命中系统性问题（design 假设偏差 / 跨模块契约变更 / plan 任务边界需重划）→转 Revise，否则（局部实现卡点、非架构级）→Telegram 通知后 auto-cancel |
 | NEEDS_CONTEXT 2 次后仍失败 | 视为 BLOCKED                                                                |
 | 执行引擎                   | 按 `task_config.execution.mode` + `engine`                                  |
 | codex dirty-conflict escalate（4a·D） | 同各模式统一 escalate（session 内可见停下 + 冲突报告，等 `/task` 恢复走 resolution menu），额外发 Telegram 远程通知（best-effort 叠加） |
@@ -274,7 +276,7 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 
 | 停止点                | 自动决策                                                                                                                                                                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次 Opus），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判人工项（MUST/SHOULD/MAY）→ 写入 acceptance-checklist.md 手动区、`→` 预填 `DEFERRED（待 task-end 后人工验收）`，**持久留痕**（不丢弃），交由 task-end Step 2.6 交还人工验收（design.md 无人工测试项则手动区为空）；全部可机判 MUST/SHOULD PASS（deferred 人工项不阻断）→ Telegram 通知（含 deferred 项数、自动推进到 Phase 6）→ 更新 phases.md DONE，推进 task-end |
+| 验收清单（self_test） | 仅评估**可机判**验收项：可机判 MUST/SHOULD FAIL → 修复循环（重试一次加强档），无解 → 暂停 + Telegram 通知人工（**非 auto-cancel**，见第 8 节）；不可机判人工项（MUST/SHOULD/MAY）→ 写入 acceptance-checklist.md 手动区、`→` 预填 `DEFERRED（待 task-end 后人工验收）`，**持久留痕**（不丢弃），交由 task-end Step 2.6 交还人工验收（design.md 无人工测试项则手动区为空）；全部可机判 MUST/SHOULD PASS（deferred 人工项不阻断）→ Telegram 通知（含 deferred 项数、自动推进到 Phase 6）→ 更新 phases.md DONE，推进 task-end |
 | 验收清单（user_test） | 生成完整清单文件 → Telegram 通知（验收清单已生成到 acceptance-checklist.md，请填写后回复）→ 停止，等待用户                                                                                                                                        |
 | 架构级问题判别（5d）  | §9 HARD-STOP：暂停 + Telegram（含问题描述 + 三选项），等 `/task` 恢复——不自动选向、不自动 Defer（避免静默吞掉架构偏差）                                                                                                                            |
 | 累计新功能 STOP（≥3 或体量超 Execute） | §9 HARD-STOP：暂停 + Telegram（含累计计数 + 体量），等 `/task` 恢复——不自动续过蠕变门                                                                                                                                              |
@@ -285,7 +287,7 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 验证命令未配置（Step 0） | 跳过配置询问，继续执行                                                                                                                                  |
 | 多 open task 选择        | 选当前 session 最近更新（`Updated` 最新）的 open task；无法判定（无 phases.md 或时间戳并列）则 Telegram 通知后暂停，等 `/task` 恢复人工选择             |
-| 验证失败                 | 重试一次（Opus 修复），仍失败 → auto-cancel + Telegram                                                                                                  |
+| 验证失败                 | 重试一次（加强档修复），仍失败 → auto-cancel + Telegram                                                                                                  |
 | 债务对账（Step 1.5，§9 A3） | A 新债自动追加为 `- [ ]`；B 自动把**高置信**候选（本任务直接改动的文件/issue 命中的 open 项）标 `- [x] ... — resolved: <issue-id>`，低置信项保持 open；均写 `docs/debt.md`，不询问（conservative/headless 额外留痕见 §9 A3） |
 | 人工验收交还（Step 2.6） | 有 DEFERRED 人工项 → **不阻断归档**（非 HARD-STOP）：DEFERRED 清单写入 final.md「待人工验收」子段 + Telegram 通知用户验收；无 DEFERRED 项则跳过、同现状 |
 | CLAUDE.md 更新           | 自动更新，读 `end_decisions.claude_md`                                                                                                                  |
@@ -367,13 +369,13 @@ Reason: declined 哨兵不带 `activate_after`，因此一个落到「缺省视�
 
 ---
 
-## 7. Self-Discussion Protocol（替代 task-design Step 2 的 AskUserQuestion）
+## 7. Self-Discussion Protocol（替代 task-design Step 2 的 向用户提问（结构化选项优先））
 
 **触发条件**：task-design Step 2，unattended 模式，主 agent 有需要澄清的问题。
 
 ### Requirements Analyst Subagent
 
-使用 **Agent tool**（general-purpose，**非后台**）派发 Requirements Analyst subagent：
+派发非后台子代理（通用分析型——Claude 类型见 `harness-tools.md`「派发子代理」行）执行 Requirements Analyst 角色：
 
 ```
 你是一个需求分析师。
@@ -417,9 +419,9 @@ Reason: Self-Discussion Protocol 要求一个独立的视角。
 
 | 错误类型                                                 | 处理                                                                                                                                                   | Telegram |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| subagent BLOCKED                                         | 重试一次（切换 Opus），仍失败 → auto-cancel                                                                                                            | 通知原因 |
-| 验证命令失败（Step 0 / 5a 的 build/test 命令本身崩溃）   | 重试一次（Opus 修复），仍失败 → auto-cancel                                                                                                            | 通知详情 |
-| 验收项 FAIL（self_test 可机判 MUST/SHOULD 清单项不达标） | 进修复循环重试一次（Opus），仍无解 → **暂停** + 通知人工（**非 auto-cancel**——与"验证命令失败"区分：清单项是质量问题、保留任务等人工，命令崩溃才取消） | 通知内容 |
+| subagent BLOCKED                                         | 重试一次（切换加强档），仍失败 → auto-cancel                                                                                                            | 通知原因 |
+| 验证命令失败（Step 0 / 5a 的 build/test 命令本身崩溃）   | 重试一次（加强档修复），仍失败 → auto-cancel                                                                                                            | 通知详情 |
+| 验收项 FAIL（self_test 可机判 MUST/SHOULD 清单项不达标） | 进修复循环重试一次（加强档），仍无解 → **暂停** + 通知人工（**非 auto-cancel**——与"验证命令失败"区分：清单项是质量问题、保留任务等人工，命令崩溃才取消） | 通知内容 |
 | git 操作失败                                             | **暂停**（仅 git plugin 启用时），不 cancel                                                                                                            | 通知错误 |
 | Linear API 失败                                          | 跳过，继续（仅 linear plugin 启用时）                                                                                                                  | 不通知   |
 | 低置信澄清问题                                           | 暂停等待用户回复                                                                                                                                       | 通知内容 |

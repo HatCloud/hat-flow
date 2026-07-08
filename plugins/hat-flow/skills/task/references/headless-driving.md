@@ -36,14 +36,14 @@
 
 ## 驱动判定算法
 
-前提：**「已停止」的唯一权威是进程退出事实**（`claude -p` 进程退出 / 超时被杀）。确认进程退出后按序判定：
+前提：**「已停止」的唯一权威是进程退出事实**（无头驱动进程退出 / 超时被杀；命令配方集中于 harness-tools.md「无头驱动」行）。确认进程退出后按序判定：
 
 | # | 条件 | 动作 |
 |---|---|---|
 | 0 | 无 state.json / JSON 损坏 | 回退启发式（见下节） |
 | 1 | `stopped_at` 与 `updated_at` 均非空，且 `stopped_at - updated_at > 30s` | 语义陈旧（流程漏写）→ 回退启发式 |
 | 2 | `state == terminal` | 按 `outcome` 收尾，停止 resume |
-| 3 | `state == waiting_input` | 按 `resume_hint` 应答后 `claude -p -c "<应答>"` resume |
+| 3 | `state == waiting_input` | 按 `resume_hint` 应答后以「无头驱动」行续轮命令 resume |
 | 4 | `state == running`（进程却已退出） | 异常中止（quota / crash / 外层超时误杀）→ 直接 resume 安全（幂等恢复由 phases.md 承担） |
 | 5 | open 路径整体消失 | 查 `.tasks/done|canceled|deferred/`（含 `archive/` 下同名）判终态（归档移动窗口期兜底） |
 
@@ -56,14 +56,14 @@
 phases.md 启发式：
 
 - Phase 6 Status = DONE **且** 任务夹已在归档路径（`done/` 等）→ 终态
-- 否则 → resume（`claude -p -c "/task -q"`），依赖 phases.md 的 `[x]` 恢复语义
+- 否则 → resume（「无头驱动」行续轮命令，应答 `"/task -q"`），依赖 phases.md 的 `[x]` 恢复语义
 - 连续 N 轮（建议 3）resume 后 phases.md 无任何变化 → 判 stuck，人工介入
 
 ## 消费方驱动契约
 
 - **超时**：每轮预算建议 900s（无头单轮实测可跑完约 4 个 phase 中的大段）。**坑（E2E 首跑实证）**：调用方工具链常有更短的同步调用硬上限（如 Claude Code Bash 工具 600s）——务必**异步启动 + 让内部 `gtimeout 900` 做超时权威**，不要同步等待。
-- **resume 循环**：`claude -p --permission-mode bypassPermissions "/task -q <任务>"` 起首轮；未收敛则 `claude -p -c "<按判定算法的应答>"` 续（无人值守续跑一般就是 `"/task -q"`）。设上限轮次（无人值守建议 8）+ 每轮做 quota 检测（输出命中 `hit your.*limit` → 立即中止报 QUOTA_BLOCKED，不空烧）。
-- **观测**：需要过程可见性时用 `claude -p --output-format stream-json --verbose`，逐事件读；只判结果时读 state.json 即可，不解析文本。
+- **resume 循环**：按 harness-tools.md「无头驱动」行的首轮/续轮命令执行（无人值守续跑一般就是 `"/task -q"`）。设上限轮次（无人值守建议 8）+ 每轮做 quota 检测（输出命中 `hit your.*limit` → 立即中止报 QUOTA_BLOCKED，不空烧）。
+- **观测**：需要过程可见性时用「无头驱动」行的观测命令（stream-json 逐事件读）；只判结果时读 state.json 即可，不解析文本。
 - **副作用屏蔽（测试床）**：项目本地 `task-defaults.json` 显式 `"telegram_chat_id": null` = 显式禁用通知（短路探测链，见 UNATTENDED_PROTOCOL.md §3）。
 
 ## stop_point 词表（开放登记，非封闭枚举）

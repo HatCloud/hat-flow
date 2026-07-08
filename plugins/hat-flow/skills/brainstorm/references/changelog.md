@@ -2,6 +2,12 @@
 
 > 仅在 skill 定义（SKILL.md / reference / 经验库结构）被修改时写一条，记「改了什么 + 为何」，最新在最上。
 
+## 2026-07-08 Codex 中性化批①——交互工具直呼替换
+
+**为何**：为 Codex 引擎兼容铺垫，brainstorm 入口不应在正文中直呼 harness 专属提问工具。
+
+- `SKILL.md` 中联网许可门与收敛前喊停分支改用「向用户提问（结构化选项优先）」中性动作短语，交互流程与选项不变。
+
 ## 2026-07-07 F3 契约联动订正（技能舰队审计，经 skill-revise）
 
 - **补登 skill-create 第三调用方**：Dependencies / README / description 此前只写独立 + task-init 双入口，skill-create Phase 1 已无条件调用本技能（skill-create/SKILL.md:57-71）；Iron Law 4、Step 1、Step 5 的「被 task-init 调用」分支泛化为「被编排方调用」（落盘由调用方各自负责：task-init 1f / skill-create Phase 1）。

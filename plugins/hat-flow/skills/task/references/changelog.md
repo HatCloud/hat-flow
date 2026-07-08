@@ -6,6 +6,45 @@ task 套件全体 skill 的修订/回溯日志（合并自原各 skill 的 `refe
 
 ---
 
+## 2026-07-08 Codex 批⑤——linear MCP 记法、task-setup Codex 指引与 UNATTENDED 能力声明
+
+**为何**：linear 插件与 task-setup 的 `mcp__linear__<op>` 为 Claude 宿主暴露名直呼，改 `linear:<op>` 中性记法 + 顶部记法声明（宿主暴露名归 harness-tools.md「调用 Linear MCP 的 <op>」行）；task-setup 增 Codex `config.toml` Linear 配置指引；UNATTENDED_PROTOCOL 顶部声明宿主能力清单指路（不支持的 harness 交互降级）。
+
+---
+
+## 2026-07-08 Codex 批④——注入行兜底泛化 + 承重站点 inline 防线
+
+**为何**：`!` 注入行仅在 Claude 侧技能激活时展开；协议承重站点（各 phase Runtime Context、DESIGN_PROTOCOL/PLAN_PROMPT 嵌入）在 Read 路由 / Codex 原生加载下静默缺失即整段流程丢失。泛化既有兜底 rule 为「任何加载路径」，并在 7 个站点文件就地加 inline 兜底句（共 9 处——task-design/task-plan 各含 Runtime Context 与协议嵌入两站点；一级防线，不依赖远处 rule）；task-end 无注入行、无需站点防线。
+
+---
+
+## 2026-07-08 Codex 中性化批③——harness 变量与 CLI 直呼收编映射
+
+**为何**：`claude -n`/`claude -p` 命令模板与 `$CLAUDE_CODE_SESSION_ID` 写入模板是 Claude 专属可执行配方，正文直呼阻碍多 harness 共享树。收编进 `harness-tools.md`（新增「斜杠命令触发」「无头驱动」两行、扩「会话标识」「新会话交接」两行的 Claude 列），orchestrator/task-init/headless-driving/evals 正文改为动作 + 指路，判定算法与 graceful 语义原样保留。另：UNATTENDED_PROTOCOL §7 补 Requirements Analyst 的 Claude 落点括注（general-purpose，T4 review M2 携带修补，主题属批②、随批③落盘记账）。
+
+---
+
+## 2026-07-08 Codex 中性化批②——子代理派发与模型档位直呼替换
+
+**为何**：继续移除 task workflow 正文中的 Claude-Code-only 派发语法与本项目内部 Sonnet/Opus 档位直呼，改用 `harness-tools.md` 的子代理派发与模型档位中性动作词，保持 Codex 兼容。
+
+- **task 套件派发语句中性化**：`review.md`、`task-design`、`task-execute`、`execute-workflow.md`、`UNATTENDED_PROTOCOL.md` 中的 `subagent_type` / `run_in_background` / `Agent tool` / `general-purpose` 直呼改为「派发只读 reviewer 子代理 / 后台派发 / 非后台子代理」等中性动作短语，保留 C=0 & I=0、`max_rounds`、JOIN 与 HARD-GATE 语义。
+- **模型档位中性化**：设计 / 执行 / review 矩阵与无人值守升级路径改用「常规档 / 加强档」并指向 `harness-tools.md` 的 Claude 档位映射；`agents/design-reviewer.md` 正文同步，frontmatter 原样保留。
+
+## 2026-07-08 Codex 中性化批①——交互/清单/续接/worktree 工具直呼替换
+
+**为何**：批量替换 AskUserQuestion/TaskCreate/TaskUpdate/TaskList/TaskGet/SendMessage/EnterWorktree/ExitWorktree 等 harness 专属工具直呼为 harness-tools.md 定义的中性动作短语，为 Codex 引擎兼容铺垫。
+
+- **task 套件正文中性化**：`${CLAUDE_PLUGIN_ROOT}/skills/task/`、`skills/task-*` 中的交互停点、TODO sync、review 续接、worktree 切入/退出等说明改用「向用户提问（结构化选项优先）」「维护进度清单」「定向续接某代理」「进入/退出隔离工作树」等中性动作短语，保留原 HARD-GATE / 停点 / 派发语义与祈使强度。
+- **入口映射提示**：orchestrator 与各 phase `SKILL.md` 开头补工具落点映射提示，统一指向 `references/harness-tools.md`。
+- **特殊口径**：`PLAN_PROMPT.md` 示例组件名由 `TaskList` 改为 `TaskBoard`；`references/todo-sync.md` 改为动作短语 + harness-tools.md 落点指针，避免机制文档继续直呼宿主工具。
+
+## 2026-07-08 Codex harness 动作映射表新增（hatflow-codex-port Task 2）
+
+**为何**：多 harness 支持场景下，工具落点需要一个唯一权威来源，供后续中性化批次引用，避免把 Claude Code 专属工具名继续写进行为承重正文。
+
+- **新增 `references/harness-tools.md`**：新建动作词表到 Claude/Codex 双列落点的映射文件；首条规则按 A8 spike 实测记录双路径 token 的 Codex 解析快路径与 EH #9 兜底，后续行覆盖提问、进度清单、代理派发 / 续接、worktree、新会话交接、套件脚本、Linear MCP、会话标识、模型档位、`!` 注入行、无人值守模式等 canonical 动作短语。
+
 ## 2026-07-08 Plan→Execute compact 软停改新会话交接 + P4 阻塞交互收口（skill-revise 定向修订）
 
 **为何**：用户反馈 ① compact 软停体验差——compaction 有损且残留上下文继续计费，任务状态本已全量落盘，新会话恢复更干净；② plan 之后应尽量不再问用户（spec-task-skill 约定 9），但 review/tdd 插件在 P4 仍留有 3 处阻塞交互；③ full 档 P4 逐 plan task TODO 展开在 resume 后退化为 4a/4b 两行。

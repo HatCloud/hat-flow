@@ -9,12 +9,14 @@ word-budget: 2000
 
 生命周期关闭 skill。编写完成报告、更新项目文档、归档任务文件夹。
 
+工具落点按 `${CLAUDE_PLUGIN_ROOT}/skills/task/references/harness-tools.md` 映射。
+
 **Announce at start:** "Using task-end to close this task."
 
 ## Mandatory Stop Points
 
 <rule>
-每个 Mandatory Stop Point 都通过 AskUserQuestion 询问；越过任一停止点需要用户的显式确认。
+每个 Mandatory Stop Point 都须 向用户提问（结构化选项优先）；越过任一停止点需要用户的显式确认。
 Reason: 在决策点上自主推进，会在用户偏好与默认值不一致时浪费已完成的工作。
 </rule>
 
@@ -79,7 +81,7 @@ Reason: 人的记忆并不可靠，因此真实的命令输出是任务可关闭
 - **已配置** → 运行命令，读取完整输出
   - 失败 → 停在此处，报告错误，不继续
   - 通过 → 将当前 HEAD hash 写入任务文件夹的 `.last-verified` → 继续
-- **未配置** → AskUserQuestion：
+- **未配置** → 向用户提问（结构化选项优先）：
   - **调研项目并配置** — 检查 `package.json` scripts、`Makefile` 等，推荐命令，写入 CLAUDE.md `## 验证命令`
   - **不需要（不再询问）** — 写入 `验证命令: none` 到 CLAUDE.md，视为通过
   - **手动输入** — 用户提供命令，写入 CLAUDE.md，然后运行
@@ -95,7 +97,7 @@ Reason: 人的记忆并不可靠，因此真实的命令输出是任务可关闭
    任务文件夹检测用脚本或单个 Glob 调用即可，不用 `ls` / `find` / 反复 `bash` 搜索。两者都不行时，询问用户任务文件夹名称。
 
     - 一个任务 → 直接使用
-    - 多个 → AskUserQuestion 让用户选择
+    - 多个 → 向用户提问（结构化选项优先） 让用户选择
    - 没有 → 检查 `.tasks/done/` 是否有最近的文件夹（可能是部分执行的）。找到 → 询问用户是否要继续关闭。未找到 → 输出"没有打开的任务。"，结束 skill。
 
 2. 读取任务的 `design.md` 和 `plan.md`（如果存在）
@@ -166,7 +168,7 @@ Reason: phases.md 是跨 session 的状态记录。漏掉更新会导致下一�
 **B. 关闭已解决债务（对账）**：核对 `docs/debt.md` 中的 open 条目，找出**本任务疑似已解决**的（依据：task-init 1b.4 带入的相关项 + 本任务实际改动的文件/issue 重叠）。把它们整理为**候选清单提议**给用户，确认后才标 `- [x] ... — resolved: <本任务 issue-id>`。
 
 <rule>
-记录新债务与关闭已解决债务都经过用户确认（AskUserQuestion：记录哪些条目 / 哪些候选确属已解决）。这个决定（"没有值得记录的债务"、"这条 open 项现已解决"）归用户而非 agent；未经确认就把 open 项标 [x]，可能错误地关闭实际并未修复的债务。
+记录新债务与关闭已解决债务都经过用户确认（向用户提问（结构化选项优先）：记录哪些条目 / 哪些候选确属已解决）。这个决定（"没有值得记录的债务"、"这条 open 项现已解决"）归用户而非 agent；未经确认就把 open 项标 [x]，可能错误地关闭实际并未修复的债务。
 Reason: 债务可见性是团队层面的事——记录什么、什么算解决由用户掌握。自动关闭有静默丢弃未修复债务的风险。
 </rule>
 
@@ -222,7 +224,7 @@ Step 2 写 final.md 时保留 `[待导出后填充]` 占位符。实际数据由
 
 ### Step 2.5: Clean Up Todo List
 
-归档前，确保所有 Tasks（Flow 级 + Exec 级）已标记为 completed 或已删除。扫描 TaskList 并根据实际状态更新所有剩余的 pending/in_progress 项：
+归档前，确保所有 Tasks（Flow 级 + Exec 级）已标记为 completed 或已删除。扫描 维护进度清单 并根据实际状态更新所有剩余的 pending/in_progress 项：
 - 已完成但未标记 → completed
 - 有条件地跳过 → completed（附注释）
 - 用户手动完成（如验收测试）→ completed
@@ -274,11 +276,11 @@ hook 输出可能包含多段指令，逐段全部执行（git: pre-commit 安�
 3. 目录结构描述是否匹配实际
 4. 依赖版本是否匹配 package.json
 
-检测到过时内容 → AskUserQuestion 确认推荐修改。
+检测到过时内容 → 向用户提问（结构化选项优先） 确认推荐修改。
 
 **常规更新**：
 - 仅当任务涉及架构变更、新功能、新依赖或新脚本时
-- 使用 AskUserQuestion 与用户确认
+- 使用 向用户提问（结构化选项优先） 与用户确认
 
 **3.3 Pre-commit Safety Check**
 
@@ -288,7 +290,7 @@ hook 输出可能包含多段指令，逐段全部执行（git: pre-commit 安�
 
 `git status --porcelain` 区分预期文件（`.tasks/`、`docs/`、`CLAUDE.md`）和意外文件。
 
-意外变更 → AskUserQuestion：**先单独提交** / **暂存** / **丢弃**。
+意外变更 → 向用户提问（结构化选项优先）：**先单独提交** / **暂存** / **丢弃**。
 
 **共享文件归属核验（并发 session 预检）**：存在其他 open task 共享同一工作树时，对共享文档（`docs/debt.md`、changelog 等）先核验未提交段的归属——`git show HEAD:<file>` 与工作区 diff 对比，识别哪些行是他人未提交工作；归档 commit 严格用「`git add` 本任务具体路径 + `git mv` 自己的任务文件夹」收敛范围，不 `git add -A`、不整文件盲 add。`hat-task-archive --extra-files` 对共享文档会带入文件当前全部未提交行（含他人段），核验后再用。
 
@@ -428,7 +430,7 @@ worktree 由 core config `branch.worktree` 门控、用内置工具创建（task
    cp -R "$WT/.tasks/done/{folder}" "$MAIN_ROOT/.tasks/done/" 2>/dev/null || true
    rm -rf "$MAIN_ROOT/.tasks/open/{folder}"   # 清除主仓库 stub 指针
    ```
-2. **退出 worktree 回主目录**：`ExitWorktree(action="keep")`（path 进入的 worktree，keep 仅返回原目录、不删；删除由下方按 end_decisions 决定）。CWD 现在主仓库。
+2. **退出 worktree 回主目录**：`退出隔离工作树(action="keep")`（path 进入的 worktree，keep 仅返回原目录、不删；删除由下方按 end_decisions 决定）。CWD 现在主仓库。
 3. **按 `end_decisions.branch` 处理**（读 `end_decisions.squash`，缺省 `true`）：
 
    | 值 | 动作 |
@@ -439,7 +441,7 @@ worktree 由 core config `branch.worktree` 门控、用内置工具创建（task
    **PR / Discard**：worktree 任务**永不自动** PR/Discard——一律按 `keep` 保留 worktree，登记待人工（与 §6 一致）。
 
 <rule>
-对 worktree 任务，ExitWorktree(keep) 在任何 merge 之前先返回主目录，且归档后的任务文件夹先被物理拷贝回主仓库，使移除 worktree 绝不丢失任务记录。带未合并改动的 `git worktree remove` 只在 end_decisions 为 auto_merge 且 merge 干净成功时发生。
+对 worktree 任务，退出隔离工作树(keep) 在任何 merge 之前先返回主目录，且归档后的任务文件夹先被物理拷贝回主仓库，使移除 worktree 绝不丢失任务记录。带未合并改动的 `git worktree remove` 只在 end_decisions 为 auto_merge 且 merge 干净成功时发生。
 Reason: worktree 的 `.tasks/` 可能未被跟踪（在通用项目里被 gitignore），故仅靠 merge 带不走任务记录——只有物理拷贝才能保证它在移除后存活。强制移除未合并的 worktree 会丢弃真实工作，属于 HARD-STOP 级别的动作（见 UNATTENDED_PROTOCOL §9）。
 </rule>
 
@@ -457,7 +459,7 @@ hook 输出可能包含多段指令，**必须逐段全部执行**（git: 分支
 
 **3.6 Retrospective 显式门控（retrospective 启用时）**
 
-retrospective 段在长 hook 输出下易被截断/漏读，故提为独立、必过的步骤（完整失败面见下方 HARD-GATE）。retrospective 启用时（task-config `retrospective.enabled`），在进入 Step 4 之前必须完成 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/retrospective.md` 的流程审查：① Process Review（workflow/skill + 配置改进提议）经 AskUserQuestion 逐条采纳 / Record / Skip；② severity-case 评估。**Workflow/Skill 类改进只沉淀为对应技能的 lessons 候选、不在此直改技能正文**；要固化进流程改用 `skill-revise`（改既有技能正文的唯一入口，带双盲测试门）。
+retrospective 段在长 hook 输出下易被截断/漏读，故提为独立、必过的步骤（完整失败面见下方 HARD-GATE）。retrospective 启用时（task-config `retrospective.enabled`），在进入 Step 4 之前必须完成 `${CLAUDE_PLUGIN_ROOT}/skills/task/plugins/retrospective.md` 的流程审查：① Process Review（workflow/skill + 配置改进提议）经 向用户提问（结构化选项优先） 逐条采纳 / Record / Skip；② severity-case 评估。**Workflow/Skill 类改进只沉淀为对应技能的 lessons 候选、不在此直改技能正文**；要固化进流程改用 `skill-revise`（改既有技能正文的唯一入口，带双盲测试门）。
 
 <HARD-GATE>
 当 retrospective 启用时，retrospective 流程审查（retrospective.md）在 Step 4 之前完成，与处理 post-archive hook 的 git 段相互独立；"跑过 hook"不等于"跑过 retrospective"。
@@ -486,6 +488,6 @@ Reason: post-archive hook 把 git + retrospective 一起输出；长输出下 re
 
 - **Reads**: `{task-folder}/design.md`, `{task-folder}/plan.md`, `{task-folder}/task-config.json`, `{task-folder}/unattended.json`（`end_decisions.branch`/`end_decisions.squash` 驱动 worktree merge-back 与 squash）, `{task-folder}/.git-base-ref`（git plugin 在 P1 记录，main 连续提交 squash 用）
 - **Writes**: `{task-folder}/final.md`, `{task-folder}/phases.md`, `{task-folder}/conversation.md`, `{task-folder}/consumption-report.md`, `docs/unmerged-branches.md`（worktree keep / 冲突时登记）
-- **Worktree teardown（核心，仅 worktree 任务，Step 3.4.4）**: 内置 `ExitWorktree(action="keep")` + `git merge --no-ff` / `git worktree remove` / `git branch -d`；物理 `cp -R` 归档文件夹回主仓库、`rm -rf` 主仓库 stub
+- **Worktree teardown（核心，仅 worktree 任务，Step 3.4.4）**: 内置 `退出隔离工作树(action="keep")` + `git merge --no-ff` / `git worktree remove` / `git branch -d`；物理 `cp -R` 归档文件夹回主仓库、`rm -rf` 主仓库 stub
 - **Hooks**: `P6.pre-archive`（git + linear）, `P6.post-archive`（git + retrospective）
 - **Scripts**: hat-task-archive, hat-task-detect, hat-plugin-hook, hat-conversation-export, hat-task-state（终态信号）
